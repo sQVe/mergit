@@ -149,6 +149,45 @@ test('pollNotificationFeed returns the new page 1 when it changed', async () => 
   });
 });
 
+test.each([
+  ['a 400-digit value', '9'.repeat(400)],
+  ['86401', '86401'],
+  ['0', '0'],
+])(
+  'pollNotificationFeed reports a null poll interval for X-Poll-Interval %s',
+  async (_label, value) => {
+    const { feed } = await firstFeed();
+
+    const response: GhRun = {
+      kind: 'exited',
+      exitCode: 0,
+      stdout: `HTTP/2.0 304 Not Modified\r\nX-Poll-Interval: ${value}\r\n\r\n`,
+      stderr: '',
+    };
+
+    const { effects } = makeEffects({ [firstUrl]: response });
+    const result = await pollNotificationFeed(effects, feed, signal);
+
+    expect(result).toEqual({ ok: true, value: { kind: 'unchanged', pollInterval: null } });
+  },
+);
+
+test('pollNotificationFeed accepts the largest poll interval of 86400 seconds', async () => {
+  const { feed } = await firstFeed();
+
+  const response: GhRun = {
+    kind: 'exited',
+    exitCode: 0,
+    stdout: 'HTTP/2.0 304 Not Modified\r\nX-Poll-Interval: 86400\r\n\r\n',
+    stderr: '',
+  };
+
+  const { effects } = makeEffects({ [firstUrl]: response });
+  const result = await pollNotificationFeed(effects, feed, signal);
+
+  expect(result).toEqual({ ok: true, value: { kind: 'unchanged', pollInterval: 86_400 } });
+});
+
 test('pollNotificationFeed returns the failure of the request', async () => {
   const { feed } = await firstFeed();
   const { effects } = makeEffects({});

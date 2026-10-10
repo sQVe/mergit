@@ -58,12 +58,16 @@ export const findNextPage = (linkHeader: string | undefined): string | null => {
 
 export const notificationPageSchema = z.array(notificationThreadSchema);
 
+const maximumPollIntervalSeconds = 86_400;
+
+const pollIntervalSchema = z
+  .string()
+  .regex(/^\d+$/)
+  .transform(Number)
+  .pipe(z.number().int().min(1).max(maximumPollIntervalSeconds));
+
 export const readPollInterval = (headers: ReadonlyMap<string, string>): number | null => {
-  const value = headers.get('x-poll-interval');
+  const parsed = pollIntervalSchema.safeParse(headers.get('x-poll-interval'));
 
-  if (value === undefined || !/^\d+$/.test(value)) {
-    return null;
-  }
-
-  return Number(value);
+  return parsed.success ? parsed.data : null;
 };
