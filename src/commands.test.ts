@@ -4,8 +4,20 @@ import { catalog } from './commands.ts';
 import { createSession } from './session/session.ts';
 
 const idleEffects = {
-  readThreads: () => Promise.resolve({ ok: true as const, value: [] }),
+  pollFeed: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { kind: 'unchanged' as const, pollInterval: null },
+    }),
+  readFeed: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { feed: { pages: [] }, threads: [], pollInterval: null },
+    }),
+  verifyFeed: () =>
+    Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
   now: () => new Date(0),
+  setTimer: () => () => undefined,
 };
 
 const snapshot = createSession(idleEffects).getSnapshot();

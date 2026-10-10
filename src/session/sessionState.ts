@@ -12,6 +12,8 @@ export interface Snapshot {
   notice: Notice | null;
   hasLoaded: boolean;
   refreshedAt: Date | null;
+  feedBusy: boolean;
+  pausedUntil: Date | null;
 }
 
 export const initialSnapshot: Snapshot = {
@@ -22,6 +24,8 @@ export const initialSnapshot: Snapshot = {
   notice: null,
   hasLoaded: false,
   refreshedAt: null,
+  feedBusy: false,
+  pausedUntil: null,
 };
 
 const selectAfterRefresh = (
@@ -44,6 +48,7 @@ const selectAfterRefresh = (
 export const startRefresh = (snapshot: Snapshot): Snapshot => ({
   ...snapshot,
   refreshStatus: 'running',
+  pausedUntil: null,
 });
 
 export const applyThreads = (
@@ -61,12 +66,22 @@ export const applyThreads = (
     notice: null,
     hasLoaded: true,
     refreshedAt: now,
+    feedBusy: false,
+    pausedUntil: null,
   };
 };
 
+export const markFeedBusy = (snapshot: Snapshot): Snapshot => ({
+  ...snapshot,
+  refreshStatus: 'idle',
+  feedBusy: true,
+});
+
 const failureMessage = (failure: GitHubFailure): string => {
   if (failure.kind === 'rateLimited') {
-    return `GitHub rate limit reached until ${failure.resetAt.toISOString()}`;
+    const resetTime = /T(\d{2}:\d{2}:\d{2})/.exec(failure.resetAt.toISOString())?.[1] ?? '';
+
+    return `Rate limited, paused until ${resetTime} UTC`;
   }
 
   if (failure.kind === 'ghMissing' || failure.kind === 'notSignedIn') {
@@ -86,7 +101,16 @@ export const applyFailure = (snapshot: Snapshot, failure: GitHubFailure, now: Da
     notice: isNotice ? failure.kind : null,
     hasLoaded: true,
     refreshedAt: now,
+    pausedUntil: failure.kind === 'rateLimited' ? failure.resetAt : null,
   };
+};
+
+export const clearFailure = (snapshot: Snapshot): Snapshot => {
+  if (snapshot.errorMessage === null && snapshot.notice === null) {
+    return snapshot;
+  }
+
+  return { ...snapshot, errorMessage: null, notice: null };
 };
 
 export const moveSelection = (snapshot: Snapshot, step: 1 | -1): Snapshot => {

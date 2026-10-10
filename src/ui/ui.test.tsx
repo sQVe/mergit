@@ -19,11 +19,25 @@ import type { AppProps } from './ui.tsx';
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
 
+type ReadFailure = Extract<Awaited<ReturnType<SessionEffects['readFeed']>>, { ok: false }>;
+
 Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
-  readThreads: () => Promise.resolve({ ok: true as const, value: [] }),
+  pollFeed: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { kind: 'unchanged' as const, pollInterval: null },
+    }),
+  readFeed: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { feed: { pages: [] }, threads: [], pollInterval: null },
+    }),
+  verifyFeed: () =>
+    Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
   now: () => new Date(0),
+  setTimer: () => () => undefined,
 };
 
 const makeThread = (id: number, title: string): NotificationThread => ({
@@ -38,10 +52,25 @@ const makeThread = (id: number, title: string): NotificationThread => ({
   repository: 'example/repo',
 });
 
-const threadsEffects = (threads: NotificationThread[]): SessionEffects => ({
-  readThreads: () => Promise.resolve({ ok: true as const, value: threads }),
+const feedEffects = (read: () => NotificationThread[] | ReadFailure): SessionEffects => ({
+  ...idleEffects,
+  readFeed: () => {
+    const result = read();
+
+    return Promise.resolve(
+      Array.isArray(result)
+        ? {
+            ok: true as const,
+            value: { feed: { pages: [] }, threads: result, pollInterval: null },
+          }
+        : result,
+    );
+  },
   now: () => new Date(3 * 3_600_000),
 });
+
+const threadsEffects = (threads: NotificationThread[]): SessionEffects =>
+  feedEffects(() => threads);
 
 const setups: Setup[] = [];
 
@@ -319,10 +348,7 @@ test('j and k move the selected row', async () => {
 test('a refresh keeps the selection on the same thread when it still exists', async () => {
   let threads = threeThreads;
 
-  const effects: SessionEffects = {
-    readThreads: () => Promise.resolve({ ok: true as const, value: threads }),
-    now: () => new Date(3 * 3_600_000),
-  };
+  const effects = feedEffects(() => threads);
 
   const { setup, press } = await mount('dark', effects);
 
@@ -337,18 +363,14 @@ test('a refresh keeps the selection on the same thread when it still exists', as
 test('a failed refresh keeps the rows and shows the error in the status line', async () => {
   let fail = false;
 
-  const effects: SessionEffects = {
-    readThreads: () =>
-      Promise.resolve(
-        fail
-          ? {
-              ok: false as const,
-              failure: { kind: 'requestFailed' as const, status: 500, message: 'Boom' },
-            }
-          : { ok: true as const, value: threeThreads },
-      ),
-    now: () => new Date(3 * 3_600_000),
-  };
+  const effects = feedEffects(() =>
+    fail
+      ? {
+          ok: false as const,
+          failure: { kind: 'requestFailed' as const, status: 500, message: 'Boom' },
+        }
+      : threeThreads,
+  );
 
   const { setup, press } = await mount('dark', effects);
 
@@ -365,15 +387,9 @@ test('a failed refresh keeps the rows and shows the error in the status line', a
 test('a sign-in failure after a load keeps the rows and shows the fix in the status line', async () => {
   let signedIn = true;
 
-  const effects: SessionEffects = {
-    readThreads: () =>
-      Promise.resolve(
-        signedIn
-          ? { ok: true as const, value: threeThreads }
-          : { ok: false as const, failure: { kind: 'notSignedIn' as const } },
-      ),
-    now: () => new Date(3 * 3_600_000),
-  };
+  const effects = feedEffects(() =>
+    signedIn ? threeThreads : { ok: false as const, failure: { kind: 'notSignedIn' as const } },
+  );
 
   const { setup, press } = await mount('dark', effects);
 
@@ -412,4 +428,43 @@ test('the selected row stays in view when the list is taller than the screen', a
   }
 
   expect(selectedRowText(setup)).toContain('Thread 31');
+});
+
+test('the status line says the feed is busy when the list could not be checked', async () => {
+  const effects: SessionEffects = {
+    ...threadsEffects(threeThreads),
+    verifyFeed: () =>
+      Promise.resolve({
+        ok: true as const,
+        value: { kind: 'changed' as const, pollInterval: null },
+      }),
+  };
+
+  const { setup, press } = await mount('dark', effects);
+
+  expect(setup.captureCharFrame()).not.toContain('feed busy');
+
+  await press('r');
+
+  expect(setup.captureCharFrame()).toContain('feed busy');
+});
+
+test('the status line names the rate limit pause and its end', async () => {
+  const resetAt = new Date(4 * 3_600_000);
+
+  const effects = feedEffects(() => ({
+    ok: false as const,
+    failure: { kind: 'rateLimited' as const, resetAt },
+  }));
+
+  const { setup, press } = await mount('dark', effects);
+
+  expect(setup.captureCharFrame()).not.toContain('paused until');
+
+  await press('r');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('paused until');
+  expect(frame).toContain('04:00:00 UTC');
 });

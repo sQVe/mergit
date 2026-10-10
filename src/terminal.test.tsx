@@ -7,6 +7,7 @@ import type { ReactElement } from 'react';
 
 import { catalog } from './commands.ts';
 import { createSession } from './session/session.ts';
+import type { SessionEffects } from './session/session.ts';
 import { startTerminal } from './terminal.tsx';
 import type { TerminalEffects, TerminalRenderer } from './terminal.tsx';
 import type { AppProps } from './ui/ui.tsx';
@@ -14,9 +15,21 @@ import type { AppProps } from './ui/ui.tsx';
 type ThemeMode = 'light' | 'dark' | null;
 type ThemeListener = (mode: ThemeMode) => void;
 
-const idleEffects = {
-  readThreads: () => Promise.resolve({ ok: true as const, value: [] }),
+const idleEffects: SessionEffects = {
+  pollFeed: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { kind: 'unchanged' as const, pollInterval: null },
+    }),
+  readFeed: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { feed: { pages: [] }, threads: [], pollInterval: null },
+    }),
+  verifyFeed: () =>
+    Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
   now: () => new Date(0),
+  setTimer: () => () => undefined,
 };
 
 const createHarness = (initialTheme: ThemeMode) => {
@@ -138,12 +151,12 @@ test('the first refresh starts after the UI has mounted and subscribed', async (
   let subscribers = 0;
 
   const session = createSession({
-    readThreads: () => {
+    ...idleEffects,
+    readFeed: (request, signal) => {
       subscribersAtFetch.push(subscribers);
 
-      return Promise.resolve({ ok: true as const, value: [] });
+      return idleEffects.readFeed(request, signal);
     },
-    now: () => new Date(0),
   });
 
   const subscribe = session.subscribe;

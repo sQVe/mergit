@@ -31,6 +31,7 @@ interface ParsedHttp {
 const notSignedInExitCode = 4;
 const okStatusMin = 200;
 const okStatusMax = 300;
+const notModifiedStatus = 304;
 const forbiddenStatus = 403;
 const tooManyRequestsStatus = 429;
 const millisecondsPerSecond = 1000;
@@ -165,12 +166,24 @@ const parseBody = (bodyText: string): { ok: true; body: unknown } | { ok: false 
   }
 };
 
+const readStatusFailure = (parsed: ParsedHttp, now: Date): GitHubFailure => {
+  const resetAt = findResetAt(parsed, now);
+
+  if (resetAt !== null) {
+    return { kind: 'rateLimited', resetAt };
+  }
+
+  return { kind: 'requestFailed', status: parsed.status, message: readErrorMessage(parsed) };
+};
+
 export const requestGh = async (
   effects: GitHubEffects,
   endpoint: string,
   signal: AbortSignal,
+  etag: string | null = null,
 ): Promise<GitHubResult<GhResponse>> => {
-  const run = await effects.runGh(['api', '--include', endpoint], signal);
+  const conditional = etag === null ? [] : ['-H', `If-None-Match: ${etag}`];
+  const run = await effects.runGh(['api', '--include', ...conditional, endpoint], signal);
 
   if (run.kind === 'missing') {
     return fail({ kind: 'ghMissing' });
@@ -190,20 +203,11 @@ export const requestGh = async (
     return fail({ kind: 'invalidResponse', message: 'Output is not an HTTP response' });
   }
 
-  const succeeded = parsed.status >= okStatusMin && parsed.status < okStatusMax;
+  const isOkStatus = parsed.status >= okStatusMin && parsed.status < okStatusMax;
+  const succeeded = isOkStatus || parsed.status === notModifiedStatus;
 
   if (!succeeded) {
-    const resetAt = findResetAt(parsed, effects.now());
-
-    if (resetAt !== null) {
-      return fail({ kind: 'rateLimited', resetAt });
-    }
-
-    return fail({
-      kind: 'requestFailed',
-      status: parsed.status,
-      message: readErrorMessage(parsed),
-    });
+    return fail(readStatusFailure(parsed, effects.now()));
   }
 
   const body = parseBody(parsed.bodyText);

@@ -34,12 +34,18 @@ const makeFakeGhScript = (body: string): string => `#!/bin/sh\n${body}\n`;
 
 const twoPagesScript = makeFakeGhScript(
   [
+    'case "$*" in',
+    '*If-None-Match*)',
+    "  printf 'HTTP/2.0 304 Not Modified\\r\\n\\r\\n'",
+    '  exit 0',
+    '  ;;',
+    'esac',
     'case "$3" in',
     '*page=2*)',
-    `  printf 'HTTP/2.0 200 OK\\r\\ncontent-type: application/json\\r\\n\\r\\n%s' '${JSON.stringify([makeThread('2', 'Second page thread')])}'`,
+    `  printf 'HTTP/2.0 200 OK\\r\\ncontent-type: application/json\\r\\netag: "page2"\\r\\n\\r\\n%s' '${JSON.stringify([makeThread('2', 'Second page thread')])}'`,
     '  ;;',
     '*)',
-    `  printf 'HTTP/2.0 200 OK\\r\\nlink: <https://api.github.com/notifications?all=true&per_page=50&page=2>; rel="next"\\r\\n\\r\\n%s' '${JSON.stringify([makeThread('1', 'First page thread')])}'`,
+    `  printf 'HTTP/2.0 200 OK\\r\\netag: "page1"\\r\\nlink: <https://api.github.com/notifications?all=true&per_page=50&page=2>; rel="next"\\r\\n\\r\\n%s' '${JSON.stringify([makeThread('1', 'First page thread')])}'`,
     '  ;;',
     'esac',
   ].join('\n'),

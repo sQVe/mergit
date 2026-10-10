@@ -23,6 +23,7 @@ export const StatusLine = (props: { snapshot: Snapshot; palette: Palette }): Rea
     <box height={1} flexShrink={0} flexDirection="row" gap={2}>
       <text fg={palette.dim}>? help</text>
       {snapshot.refreshStatus === 'running' ? <text fg={palette.dim}>refreshing...</text> : null}
+      {snapshot.feedBusy ? <text fg={palette.dim}>feed busy, showing the last list</text> : null}
       {error === null ? null : <text fg={palette.error}>{error}</text>}
     </box>
   );

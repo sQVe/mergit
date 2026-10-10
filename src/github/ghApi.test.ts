@@ -217,3 +217,38 @@ test('createGhRunner returns the exit code and output of gh', async () => {
     stderr: 'oops\n',
   });
 });
+
+test('requestGh sends the ETag as If-None-Match before the endpoint', async () => {
+  const { effects, calls } = makeEffects(exited(0, 'HTTP/2.0 200 OK\r\n\r\n[]'));
+
+  await requestGh(effects, '/notifications', signal, '"a"');
+
+  expect(calls).toEqual([['api', '--include', '-H', 'If-None-Match: "a"', '/notifications']]);
+});
+
+test('requestGh reports a 304 with an empty body as a success', async () => {
+  const text = 'HTTP/2.0 304 Not Modified\r\nETag: "a"\r\n\r\n';
+
+  const { effects } = makeEffects(exited(0, text));
+
+  const result = await requestGh(effects, '/notifications', signal, '"a"');
+
+  expect(result).toEqual({
+    ok: true,
+    value: { status: 304, headers: new Map([['etag', '"a"']]), body: null },
+  });
+});
+
+test('requestGh still reports rateLimited for a 403 when it sends an ETag', async () => {
+  const text =
+    'HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset: 1767225600\r\n\r\n{"message":"rate limit"}';
+
+  const { effects } = makeEffects(exited(1, text, 'gh: rate limit (HTTP 403)'));
+
+  const result = await requestGh(effects, '/notifications', signal, '"a"');
+
+  expect(result).toEqual({
+    ok: false,
+    failure: { kind: 'rateLimited', resetAt: new Date('2026-01-01T00:00:00Z') },
+  });
+});
