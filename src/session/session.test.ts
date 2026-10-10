@@ -426,6 +426,24 @@ test('a failed poll keeps the list, shows the error, and schedules the next poll
   expect(activeTimers()).toHaveLength(1);
 });
 
+test('an unchanged poll after a failed poll clears the error and keeps the list', async () => {
+  const { session, load, fireTimer, answerPoll } = makeHarness();
+  const thread = makeThread('1');
+
+  await load(thread);
+  await fireTimer();
+  await answerPoll(failure('Poll failed'));
+
+  expect(session.getSnapshot().errorMessage).toBe('Poll failed');
+
+  await fireTimer();
+  await answerPoll(unchanged());
+
+  expect(session.getSnapshot().errorMessage).toBeNull();
+  expect(session.getSnapshot().notice).toBeNull();
+  expect(session.getSnapshot().threads).toEqual([thread]);
+});
+
 test('a rejected read is a failed refresh and the session keeps running', async () => {
   let attempts = 0;
   const thread = makeThread('1');

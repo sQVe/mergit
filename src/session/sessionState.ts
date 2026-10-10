@@ -105,6 +105,14 @@ export const applyFailure = (snapshot: Snapshot, failure: GitHubFailure, now: Da
   };
 };
 
+export const clearFailure = (snapshot: Snapshot): Snapshot => {
+  if (snapshot.errorMessage === null && snapshot.notice === null) {
+    return snapshot;
+  }
+
+  return { ...snapshot, errorMessage: null, notice: null };
+};
+
 export const moveSelection = (snapshot: Snapshot, step: 1 | -1): Snapshot => {
   const { threads } = snapshot;
   const current = threads.findIndex((thread) => thread.id === snapshot.selectedThreadId);

@@ -11,6 +11,7 @@ import type { Snapshot } from './sessionState.ts';
 import {
   applyFailure,
   applyThreads,
+  clearFailure,
   initialSnapshot,
   markFeedBusy,
   moveSelection,
@@ -265,6 +266,7 @@ export const createSession = (effects: SessionEffects): Session => {
     rememberInterval(result.value.pollInterval);
 
     if (result.value.kind === 'unchanged') {
+      update(clearFailure(snapshot));
       endOperation();
 
       return;
