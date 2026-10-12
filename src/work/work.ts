@@ -19,14 +19,6 @@ export interface NotificationThread {
   repository: string;
 }
 
-type SubjectState = 'open' | 'closed' | 'merged';
-
-export interface SubjectFacts {
-  state: SubjectState;
-  author: string | null;
-  latestActor: string | null;
-}
-
 const isThreadId = (value: string): value is ThreadId => value !== '';
 
 const isViewerLogin = (value: string): value is ViewerLogin => value !== '';

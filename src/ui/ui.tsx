@@ -131,10 +131,6 @@ const Body = (props: {
   const { snapshot, palette, width, paneWidth } = props;
 
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
-
-  const facts =
-    selectedRow?.kind === 'thread' ? snapshot.subjectFacts.get(selectedRow.thread.id) : undefined;
-
   const now = snapshot.savedAt ?? snapshot.refreshedAt ?? new Date(0);
 
   if (hasNotice(snapshot)) {
@@ -144,7 +140,7 @@ const Body = (props: {
   if (props.fullDetail) {
     return (
       <box flexDirection="column" flexGrow={1}>
-        <DetailPane row={selectedRow} facts={facts} palette={palette} now={now} width={width} />
+        <DetailPane row={selectedRow} palette={palette} now={now} width={width} />
       </box>
     );
   }
@@ -153,7 +149,7 @@ const Body = (props: {
     <box flexDirection="row" flexGrow={1}>
       <ThreadList snapshot={snapshot} palette={palette} width={width - paneWidth} />
       {paneWidth > 0 ? (
-        <DetailPane row={selectedRow} facts={facts} palette={palette} now={now} width={paneWidth} />
+        <DetailPane row={selectedRow} palette={palette} now={now} width={paneWidth} />
       ) : null}
     </box>
   );

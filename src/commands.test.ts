@@ -25,7 +25,6 @@ const idleEffects = {
     }),
   verifyFeed: () =>
     Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
-  lookUpSubjects: () => Promise.resolve([]),
   now: () => new Date(0),
   setTimer: () => () => undefined,
 };

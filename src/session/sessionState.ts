@@ -1,20 +1,12 @@
-import type { GitHubFailure, SubjectLookup } from '../github/github.ts';
+import type { GitHubFailure } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
-import type {
-  Grouping,
-  NodeRow,
-  NotificationThread,
-  SubjectFacts,
-  ThreadId,
-  TreeRow,
-} from '../work/work.ts';
+import type { Grouping, NodeRow, NotificationThread, TreeRow } from '../work/work.ts';
 import { groupings, selectOpenThreads, treeRows } from '../work/work.ts';
 
 type Notice = 'ghMissing' | 'notSignedIn';
 
 export interface Snapshot {
   threads: NotificationThread[];
-  subjectFacts: ReadonlyMap<ThreadId, SubjectFacts>;
   selectedRowKey: string | null;
   grouping: Grouping;
   foldedNodes: Record<Grouping, ReadonlySet<string>>;
@@ -31,7 +23,6 @@ export interface Snapshot {
 
 export const initialSnapshot: Snapshot = {
   threads: [],
-  subjectFacts: new Map(),
   selectedRowKey: null,
   grouping: 'reason',
   foldedNodes: {
@@ -119,21 +110,7 @@ export const applyThreads = (
 ): Snapshot => {
   const threads = selectOpenThreads(fetched);
 
-  const previousUpdatedAt = new Map(
-    snapshot.threads.map((thread) => [thread.id, thread.updatedAt]),
-  );
-
-  const unchangedIds = new Set(
-    threads
-      .filter((thread) => previousUpdatedAt.get(thread.id) === thread.updatedAt)
-      .map((thread) => thread.id),
-  );
-
-  const subjectFacts = new Map(
-    [...snapshot.subjectFacts].filter(([threadId]) => unchangedIds.has(threadId)),
-  );
-
-  const updated = { ...snapshot, threads, subjectFacts };
+  const updated = { ...snapshot, threads };
 
   return {
     ...updated,
@@ -170,24 +147,9 @@ export const showSavedThreads = (
   };
 };
 
-export const applySubjectLookups = (snapshot: Snapshot, lookups: SubjectLookup[]): Snapshot => {
-  const subjectFacts = new Map(snapshot.subjectFacts);
-
-  for (const lookup of lookups) {
-    if (lookup.facts === null) {
-      subjectFacts.delete(lookup.threadId);
-    } else {
-      subjectFacts.set(lookup.threadId, lookup.facts);
-    }
-  }
-
-  return { ...snapshot, subjectFacts };
-};
-
 export const clearAccount = (snapshot: Snapshot): Snapshot => ({
   ...snapshot,
   threads: [],
-  subjectFacts: new Map(),
   selectedRowKey: null,
   hasLoaded: false,
   refreshedAt: null,

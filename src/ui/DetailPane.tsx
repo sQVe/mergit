@@ -1,12 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type {
-  NodeRow,
-  NotificationThread,
-  SubjectFacts,
-  ThreadRow,
-  TreeRow,
-} from '../work/work.ts';
+import type { NodeRow, NotificationThread, ThreadRow, TreeRow } from '../work/work.ts';
 import type { Palette } from './palette.ts';
 import { formatAge, numberLabelFor, typeLabelFor, typeSummaryLabelFor } from './threadRow.ts';
 
@@ -42,37 +36,7 @@ const Fact = (props: PaneProps & { label: string; value: string }): ReactNode =>
   </box>
 );
 
-const SecondaryFact = (props: PaneProps & { label: string; value: string }): ReactNode => (
-  <box flexDirection="row">
-    <text fg={props.palette.dim} width={labelWidth}>
-      {props.label}
-    </text>
-    <text fg={props.palette.dim} flexShrink={1}>
-      {props.value}
-    </text>
-  </box>
-);
-
-const SubjectFactLines = (props: PaneProps & { facts: SubjectFacts | undefined }): ReactNode => {
-  const { facts, palette } = props;
-
-  if (facts === undefined) {
-    return null;
-  }
-
-  return (
-    <>
-      <SecondaryFact palette={palette} label="State" value={facts.state} />
-      {facts.author === null ? null : (
-        <SecondaryFact palette={palette} label="Author" value={facts.author} />
-      )}
-    </>
-  );
-};
-
-const ThreadDetail = (
-  props: PaneProps & { row: ThreadRow; now: Date; facts: SubjectFacts | undefined },
-): ReactNode => {
+const ThreadDetail = (props: PaneProps & { row: ThreadRow; now: Date }): ReactNode => {
   const { thread } = props.row;
   const { palette } = props;
 
@@ -90,7 +54,6 @@ const ThreadDetail = (
         value={`${formatAge(thread.updatedAt, props.now)} ago`}
       />
       <Fact palette={palette} label="Unread" value={thread.unread ? 'yes' : 'no'} />
-      <SubjectFactLines palette={palette} facts={props.facts} />
     </>
   );
 };
@@ -123,25 +86,16 @@ const NodeDetail = (props: PaneProps & { row: NodeRow }): ReactNode => {
   );
 };
 
-const RowDetail = (
-  props: PaneProps & { row: TreeRow; now: Date; facts: SubjectFacts | undefined },
-): ReactNode => {
+const RowDetail = (props: PaneProps & { row: TreeRow; now: Date }): ReactNode => {
   if (props.row.kind === 'node') {
     return <NodeDetail palette={props.palette} row={props.row} />;
   }
 
-  return (
-    <ThreadDetail palette={props.palette} row={props.row} now={props.now} facts={props.facts} />
-  );
+  return <ThreadDetail palette={props.palette} row={props.row} now={props.now} />;
 };
 
 export const DetailPane = (
-  props: PaneProps & {
-    row: TreeRow | undefined;
-    facts: SubjectFacts | undefined;
-    now: Date;
-    width: number;
-  },
+  props: PaneProps & { row: TreeRow | undefined; now: Date; width: number },
 ): ReactNode => {
   const { row } = props;
 
@@ -154,9 +108,7 @@ export const DetailPane = (
       border={['left']}
       borderColor={props.palette.dim}
     >
-      {row === undefined ? null : (
-        <RowDetail palette={props.palette} row={row} now={props.now} facts={props.facts} />
-      )}
+      {row === undefined ? null : <RowDetail palette={props.palette} row={row} now={props.now} />}
     </box>
   );
 };
