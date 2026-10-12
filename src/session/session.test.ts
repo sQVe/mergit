@@ -1698,6 +1698,26 @@ test('a lookup that rejects keeps the threads and sends them again on the next r
   expect(lookups[1]?.threads).toEqual([first, second]);
 });
 
+test('a thread that changed has unknown facts until its lookup answers, and after it fails', async () => {
+  const { session, load, lookups } = makeHarness();
+  const thread = makeThread('1');
+  const changedThread = makeThread('1', { updatedAt: '2026-01-03T10:00:00Z' });
+
+  await load(thread);
+  lookups[0]?.resolve([factsOf(thread)]);
+  await settle();
+
+  await load(changedThread);
+
+  expect(session.getSnapshot().subjectFacts.size).toBe(0);
+
+  lookups[1]?.resolve([]);
+  await settle();
+
+  expect(session.getSnapshot().threads).toEqual([changedThread]);
+  expect(session.getSnapshot().subjectFacts.size).toBe(0);
+});
+
 test('a thread answered with null facts stays listed and is not sent again', async () => {
   const { session, load, lookups } = makeHarness();
   const thread = makeThread('1');

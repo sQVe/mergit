@@ -119,10 +119,18 @@ export const applyThreads = (
 ): Snapshot => {
   const threads = selectOpenThreads(fetched);
 
-  const threadIds = new Set(threads.map((thread) => thread.id));
+  const previousUpdatedAt = new Map(
+    snapshot.threads.map((thread) => [thread.id, thread.updatedAt]),
+  );
+
+  const unchangedIds = new Set(
+    threads
+      .filter((thread) => previousUpdatedAt.get(thread.id) === thread.updatedAt)
+      .map((thread) => thread.id),
+  );
 
   const subjectFacts = new Map(
-    [...snapshot.subjectFacts].filter(([threadId]) => threadIds.has(threadId)),
+    [...snapshot.subjectFacts].filter(([threadId]) => unchangedIds.has(threadId)),
   );
 
   const updated = { ...snapshot, threads, subjectFacts };
