@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
-import { readNoticeText } from './Notice.tsx';
+import { hasNoRows, readNoticeText } from './Notice.tsx';
 import type { Palette } from './palette.ts';
 import { formatAge } from './threadRow.ts';
 
@@ -9,7 +9,7 @@ const readError = (snapshot: Snapshot): string | null => {
   const notice = readNoticeText(snapshot);
 
   // With threads loaded, the list stays on screen and the notice moves to the status line.
-  if (notice !== null && snapshot.threads.length > 0) {
+  if (notice !== null && !hasNoRows(snapshot)) {
     return notice;
   }
 

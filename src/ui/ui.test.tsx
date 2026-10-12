@@ -462,6 +462,17 @@ test('an empty inbox shows its notice, and loading shows before the first refres
   expect(setup.captureCharFrame()).toContain('No open notifications');
 });
 
+test('marking the only thread done shows the empty inbox notice', async () => {
+  const { setup, press } = await mount('dark', threadsEffects([makeThread(1, 'Only thread')]));
+
+  await press('r');
+  await press('j');
+  await press('j');
+  await press('d');
+
+  expect(setup.captureCharFrame()).toContain('No open notifications');
+});
+
 test('the selected row stays in view when the list is taller than the screen', async () => {
   const many = Array.from({ length: 40 }, (_, index) =>
     makeThread(index + 1, `Thread ${index + 1}`),
