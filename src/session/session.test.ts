@@ -278,6 +278,7 @@ const makeHarness = (
     answerViewer,
     countOf,
     activeTimers,
+    timers,
     fireTimer,
     loadWith,
     load,
@@ -1747,4 +1748,50 @@ test('stop aborts a running lookup and drops its result', async () => {
   await settle();
 
   expect(session.getSnapshot().subjectFacts.size).toBe(0);
+});
+
+test('a failed state write after a grouping change shows an error toast and marks the grouping unsaved', () => {
+  const { session } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, message: 'disk full' });
+
+  const { toast, unsaved } = session.getSnapshot();
+
+  expect(toast).toEqual({ text: 'Could not save the grouping: disk full', tone: 'error' });
+  expect([...unsaved]).toEqual(['grouping']);
+});
+
+test('a successful write after a failure clears unsaved and shows no new toast', () => {
+  const { session, timers } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, message: 'disk full' });
+  timers.at(-1)?.callback();
+  session.reportStateWrite({ ok: true });
+
+  expect(session.getSnapshot().toast).toBeNull();
+  expect(session.getSnapshot().unsaved.size).toBe(0);
+});
+
+test('the toast clears after five seconds, and a newer toast replaces it and restarts the timer', () => {
+  const { session, timers } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, message: 'first' });
+
+  const firstTimer = timers.at(-1);
+
+  session.reportStateWrite({ ok: false, message: 'second' });
+
+  const secondTimer = timers.at(-1);
+
+  expect(firstTimer?.active).toBe(false);
+  expect(secondTimer).not.toBe(firstTimer);
+  expect(secondTimer?.delay).toBe(5000);
+  expect(session.getSnapshot().toast?.text).toBe('Could not save the grouping: second');
+
+  secondTimer?.callback();
+
+  expect(session.getSnapshot().toast).toBeNull();
 });

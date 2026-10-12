@@ -12,6 +12,13 @@ import { groupings, selectOpenThreads, treeRows } from '../work/work.ts';
 
 type Notice = 'ghMissing' | 'notSignedIn';
 
+export interface Toast {
+  text: string;
+  tone: 'info' | 'error';
+}
+
+export type UnsavedChange = 'grouping';
+
 export interface Snapshot {
   threads: NotificationThread[];
   subjectFacts: ReadonlyMap<ThreadId, SubjectFacts>;
@@ -27,6 +34,8 @@ export interface Snapshot {
   feedBusy: boolean;
   pausedUntil: Date | null;
   stateWarning: string | null;
+  toast: Toast | null;
+  unsaved: ReadonlySet<UnsavedChange>;
 }
 
 export const initialSnapshot: Snapshot = {
@@ -48,6 +57,8 @@ export const initialSnapshot: Snapshot = {
   feedBusy: false,
   pausedUntil: null,
   stateWarning: null,
+  toast: null,
+  unsaved: new Set(),
 };
 
 export const visibleRows = (snapshot: Snapshot): TreeRow[] =>

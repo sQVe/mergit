@@ -64,6 +64,7 @@ export interface StateWriterEffects {
 
 export interface StateWriterOptions {
   onFailure: (message: string) => void;
+  onSaved: () => void;
 }
 
 export interface StateWriter {
@@ -244,6 +245,8 @@ export const createStateWriter = (
   let pending: LocalStateFile | null = null;
   let running: Promise<void> | null = null;
 
+  const hasPending = () => pending !== null;
+
   const drain = async (): Promise<void> => {
     const state = pending;
 
@@ -259,6 +262,8 @@ export const createStateWriter = (
 
     if (!written.ok) {
       options.onFailure(written.failure.message);
+    } else if (!hasPending()) {
+      options.onSaved();
     }
 
     return drain();

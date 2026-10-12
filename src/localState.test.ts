@@ -305,7 +305,10 @@ test('recreates a cache with an empty login', () => {
 });
 
 test('a saved grouping loads back after flush', async () => {
-  const writer = createStateWriter(directory, { onFailure: () => undefined });
+  const writer = createStateWriter(directory, {
+    onFailure: () => undefined,
+    onSaved: () => undefined,
+  });
 
   writer.save({ grouping: 'type' });
   await writer.flush();
@@ -331,7 +334,10 @@ const writeStateText = (text: string): string => {
 };
 
 test('the state file on disk has version 1', async () => {
-  const writer = createStateWriter(directory, { onFailure: () => undefined });
+  const writer = createStateWriter(directory, {
+    onFailure: () => undefined,
+    onSaved: () => undefined,
+  });
 
   writer.save({ grouping: 'none' });
   await writer.flush();
@@ -371,11 +377,15 @@ test('a failed rename keeps the last valid file, leaves no temporary file, and r
 
   const writer = createStateWriter(
     directory,
-    { onFailure: (message) => failures.push(message) },
+    { onFailure: (message) => failures.push(message), onSaved: () => undefined },
     { ...realEffects(), rename: () => Promise.reject(new Error('rename refused')) },
   );
 
-  const first = createStateWriter(directory, { onFailure: () => undefined });
+  const first = createStateWriter(directory, {
+    onFailure: () => undefined,
+    onSaved: () => undefined,
+  });
+
   first.save({ grouping: 'reason' });
   await first.flush();
 
@@ -395,7 +405,7 @@ test('saves during a write collapse to the last one', async () => {
 
   const writer = createStateWriter(
     directory,
-    { onFailure: () => undefined },
+    { onFailure: () => undefined, onSaved: () => undefined },
     {
       ...effects,
       rename: async (from, to) => {
@@ -433,4 +443,44 @@ test('stateDirectory uses XDG_STATE_HOME, then HOME, then nothing', () => {
   expect(stateDirectory({ HOME: '/home/a' })).toBe('/home/a/.local/state/zeta');
   expect(stateDirectory({ XDG_STATE_HOME: '', HOME: '/home/a' })).toBe('/home/a/.local/state/zeta');
   expect(stateDirectory({})).toBeNull();
+});
+
+test('onSaved runs after a successful write, and not while a newer state is pending', async () => {
+  let saved = 0;
+  const gate = Promise.withResolvers<null>();
+  const renameStarted = Promise.withResolvers<null>();
+  const effects = realEffects();
+  let renames = 0;
+
+  const writer = createStateWriter(
+    directory,
+    { onFailure: () => undefined, onSaved: () => (saved += 1) },
+    {
+      ...effects,
+      rename: async (from, to) => {
+        renames += 1;
+
+        if (renames === 1) {
+          renameStarted.resolve(null);
+          await gate.promise;
+        }
+
+        await effects.rename(from, to);
+      },
+    },
+  );
+
+  writer.save({ grouping: 'reason' });
+  await renameStarted.promise;
+  writer.save({ grouping: 'type' });
+  gate.resolve(null);
+  await writer.flush();
+
+  expect(saved).toBe(1);
+  expect(renames).toBe(2);
+
+  writer.save({ grouping: 'none' });
+  await writer.flush();
+
+  expect(saved).toBe(2);
 });

@@ -194,6 +194,7 @@ const mount = async (
 
   return {
     setup,
+    session,
     press,
     resize,
     settle,
@@ -1137,4 +1138,23 @@ test('the side pane leaves out Author when the author is unknown', async () => {
 
   expect(frame).toMatch(/State\s+closed/);
   expect(frame).not.toContain('Author');
+});
+
+test('a toast shows its text, and an unsaved grouping shows in the status line', async () => {
+  const { setup, session, press, settle } = await mount();
+
+  await press('s');
+
+  expect(setup.captureCharFrame()).not.toContain('unsaved');
+
+  await act(async () => {
+    session.reportStateWrite({ ok: false, message: 'disk full' });
+  });
+
+  await settle();
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Could not save the grouping: disk full');
+  expect(frame).toContain('grouping unsaved');
 });
