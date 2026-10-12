@@ -19,7 +19,7 @@ import {
 import type { StateWriter } from './localState.ts';
 import { createSession } from './session/session.ts';
 import type { SavedSnapshot } from './session/session.ts';
-import { startTerminal } from './terminal.tsx';
+import { refuseStart, startTerminal } from './terminal.tsx';
 import type { Grouping } from './work/work.ts';
 
 const now = () => new Date();
@@ -85,12 +85,11 @@ if (loadedState?.kind === 'invalid') {
 }
 
 if (loadedState?.kind === 'newer') {
-  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Zeta reads version 1.\n`;
+  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Zeta reads version 1.`;
 }
 
 if (newerVersion !== null) {
-  process.stderr.write(newerVersion);
-  process.exitCode = 1;
+  refuseStart(newerVersion);
 } else {
   await startTerminal({
     session: createSession({

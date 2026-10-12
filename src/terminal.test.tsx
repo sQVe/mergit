@@ -8,7 +8,7 @@ import type { ReactElement } from 'react';
 import { catalog } from './commands.ts';
 import { createSession } from './session/session.ts';
 import type { SessionEffects } from './session/session.ts';
-import { startTerminal } from './terminal.tsx';
+import { refuseStart, startTerminal } from './terminal.tsx';
 import type { TerminalEffects, TerminalRenderer } from './terminal.tsx';
 import type { AppProps } from './ui/ui.tsx';
 
@@ -99,6 +99,24 @@ const createHarness = (initialTheme: ThemeMode) => {
 };
 
 const settle = () => Bun.sleep(10);
+
+test('refuseStart prints the reason and exits 1 without opening the renderer', () => {
+  const harness = createHarness('dark');
+  let opened = 0;
+
+  harness.effects.open = () => {
+    opened += 1;
+
+    return Promise.reject(new Error('must not open'));
+  };
+
+  refuseStart('state file is too new', harness.effects);
+
+  expect(harness.printed).toEqual(['state file is too new']);
+  expect(harness.exitCodes).toEqual([1]);
+  expect(opened).toBe(0);
+  expect(harness.handlers.size).toBe(0);
+});
 
 test('a second shutdown destroys the renderer once and changes nothing more', async () => {
   const harness = createHarness('dark');

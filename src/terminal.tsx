@@ -109,6 +109,11 @@ const processEffects: TerminalEffects = {
   },
 };
 
+export const refuseStart = (reason: string, effects: TerminalEffects = processEffects): void => {
+  effects.printError(reason);
+  effects.exit(1);
+};
+
 export const startTerminal = async (
   dependencies: TerminalDependencies,
   effects: TerminalEffects = processEffects,
