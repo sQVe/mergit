@@ -68,7 +68,7 @@ export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
-  markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
+  markThreadDone: (threadId: ThreadId) => Promise<GitHubResult<null>>;
   stateWarning: string | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
@@ -102,7 +102,7 @@ export interface Session {
   subscribe: (listener: () => void) => () => void;
   send: (intent: ApplicationIntent) => void;
   reportStateWrite: (outcome: StateWriteOutcome) => void;
-  stop: () => void;
+  stop: () => Promise<void>;
 }
 
 type StateIntent = Exclude<
@@ -613,7 +613,10 @@ export const createSession = (effects: SessionEffects): Session => {
       doneRecords.set(thread.id, thread.updatedAt);
       sentThreadIds.add(thread.id);
       saveStateQuietly('done');
-      requestRefresh();
+
+      if (!stopped) {
+        requestRefresh();
+      }
     },
     onFailed: (thread, failure) => {
       update(showThread(snapshot, thread.id));
@@ -673,7 +676,7 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const stop = () => {
+  const stop = (): Promise<void> => {
     stopped = true;
     controller?.abort();
     controller = null;
@@ -683,8 +686,9 @@ export const createSession = (effects: SessionEffects): Session => {
     cancelTimer = null;
     cancelToastTimer?.();
     cancelToastTimer = null;
-    doneQueue.stop();
     listeners.clear();
+
+    return doneQueue.stop();
   };
 
   return { getSnapshot, subscribe, send, reportStateWrite, stop };

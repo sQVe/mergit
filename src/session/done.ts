@@ -8,7 +8,7 @@ type UndoOutcome =
 
 export interface DoneQueueEffects {
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
-  markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
+  markThreadDone: (threadId: ThreadId) => Promise<GitHubResult<null>>;
   onSent: (thread: NotificationThread) => void;
   onFailed: (thread: NotificationThread, failure: GitHubFailure) => void;
 }
@@ -16,7 +16,7 @@ export interface DoneQueueEffects {
 export interface DoneQueue {
   add: (thread: NotificationThread) => void;
   undoLatest: () => UndoOutcome;
-  stop: () => void;
+  stop: () => Promise<void>;
 }
 
 interface Entry {
@@ -30,10 +30,9 @@ export const undoWindowMilliseconds = 5000;
 const sendSafely = async (
   effects: DoneQueueEffects,
   threadId: ThreadId,
-  signal: AbortSignal,
 ): Promise<GitHubResult<null>> => {
   try {
-    return await effects.markThreadDone(threadId, signal);
+    return await effects.markThreadDone(threadId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -42,40 +41,42 @@ const sendSafely = async (
 };
 
 export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
-  const controller = new AbortController();
   let entries: Entry[] = [];
-  let sending = false;
-  let stopped = false;
+  let running: Promise<void> | null = null;
+  let stopping = false;
 
-  const sendNext = () => {
-    const entry = entries.find((candidate) => candidate.state === 'due');
+  const sendDueEntries = async () => {
+    for (;;) {
+      const entry = entries.find((candidate) => candidate.state === 'due');
 
-    if (sending || stopped || entry === undefined) {
-      return;
-    }
+      if (entry === undefined) {
+        return;
+      }
 
-    sending = true;
-    entry.state = 'sending';
+      entry.state = 'sending';
 
-    sendSafely(effects, entry.thread.id, controller.signal)
-      .then((result) => {
-        sending = false;
+      // oxlint-disable-next-line eslint/no-await-in-loop -- dones go out one at a time
+      const result = await sendSafely(effects, entry.thread.id);
 
-        if (stopped) {
-          return;
-        }
+      if (result.ok) {
+        entry.state = 'sent';
+        effects.onSent(entry.thread);
+      } else {
+        entries = entries.filter((candidate) => candidate !== entry);
 
-        if (result.ok) {
-          entry.state = 'sent';
-          effects.onSent(entry.thread);
-        } else {
-          entries = entries.filter((candidate) => candidate !== entry);
+        if (!stopping) {
           effects.onFailed(entry.thread, result.failure);
         }
+      }
+    }
+  };
 
-        sendNext();
-      })
-      .catch(() => undefined);
+  const sendNext = (): Promise<void> => {
+    running ??= sendDueEntries().finally(() => {
+      running = null;
+    });
+
+    return running;
   };
 
   const add = (thread: NotificationThread) => {
@@ -83,7 +84,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
 
     entry.cancelTimer = effects.setTimer(undoWindowMilliseconds, () => {
       entry.state = 'due';
-      sendNext();
+      sendNext().catch(() => undefined);
     });
 
     entries.push(entry);
@@ -102,13 +103,17 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
     return entries.length > 0 ? { kind: 'tooLate' } : { kind: 'nothing' };
   };
 
-  const stop = () => {
-    stopped = true;
-    controller.abort();
+  const stop = async () => {
+    stopping = true;
 
     for (const entry of entries) {
-      entry.cancelTimer();
+      if (entry.state === 'waiting') {
+        entry.cancelTimer();
+        entry.state = 'due';
+      }
     }
+
+    await sendNext();
   };
 
   return { add, undoLatest, stop };

@@ -82,7 +82,10 @@ const listenToProcess = (
   };
 };
 
-const waitForFlush = async (flushState: () => Promise<void>): Promise<void> => {
+const waitForStop = async (
+  stop: () => Promise<void>,
+  flushState: () => Promise<void>,
+): Promise<void> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const timeout = new Promise<void>((resolve) => {
@@ -90,9 +93,14 @@ const waitForFlush = async (flushState: () => Promise<void>): Promise<void> => {
   });
 
   try {
-    await Promise.race([flushState(), timeout]);
+    const saved = async () => {
+      await stop();
+      await flushState();
+    };
+
+    await Promise.race([saved(), timeout]);
   } catch {
-    // A failed save must not block shutdown or change the exit code.
+    // A failed stop or save must not block shutdown or change the exit code.
   } finally {
     clearTimeout(timer);
   }
@@ -140,9 +148,7 @@ export const startTerminal = async (
     const opened = await settledOpen();
 
     try {
-      session.stop();
-
-      await waitForFlush(flushState);
+      await waitForStop(() => session.stop(), flushState);
 
       for (const remove of removers.splice(0)) {
         remove();

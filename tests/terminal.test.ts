@@ -1,5 +1,13 @@
 import { afterEach, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -16,11 +24,11 @@ const waitMilliseconds = 10_000;
 const children: Child[] = [];
 const directories: string[] = [];
 
-const makeThread = (id: string, title: string): object => ({
+const makeThread = (id: string, title: string, updatedAt = '2026-10-01T00:00:00Z'): object => ({
   id,
   unread: true,
   reason: 'subscribed',
-  updated_at: '2026-10-01T00:00:00Z',
+  updated_at: updatedAt,
   last_read_at: null,
   subject: {
     title,
@@ -53,6 +61,37 @@ const twoPagesScript = makeFakeGhScript(
     'esac',
   ].join('\n'),
 );
+
+const makeDoneFeedScript = (logPath: string, alphaUpdatedAt: string): string => {
+  const feed = JSON.stringify([
+    makeThread('1', 'Alpha thread', alphaUpdatedAt),
+    makeThread('2', 'Beta thread', '2026-10-01T00:00:00Z'),
+  ]);
+
+  return makeFakeGhScript(
+    [
+      'case "$*" in',
+      '*"--method DELETE"*)',
+      `  printf '%s\\n' "$*" >> '${logPath}'`,
+      "  printf 'HTTP/2.0 205 Reset Content\\r\\n\\r\\n'",
+      '  exit 0',
+      '  ;;',
+      '*If-None-Match*)',
+      "  printf 'HTTP/2.0 304 Not Modified\\r\\n\\r\\n'",
+      '  exit 0',
+      '  ;;',
+      'esac',
+      'case "$3" in',
+      '/user)',
+      `  printf 'HTTP/2.0 200 OK\\r\\ncontent-type: application/json\\r\\n\\r\\n%s' '{"login":"octocat"}'`,
+      '  ;;',
+      '*)',
+      `  printf 'HTTP/2.0 200 OK\\r\\ncontent-type: application/json\\r\\netag: "page1"\\r\\n\\r\\n%s' '${feed}'`,
+      '  ;;',
+      'esac',
+    ].join('\n'),
+  );
+};
 
 const notSignedInScript = makeFakeGhScript('exit 4');
 
@@ -258,4 +297,75 @@ test('an invalid state file shows a warning and is never written', async () => {
   await pressAndQuit(child, 'will not save', 's');
 
   expect(readFileSync(path, 'utf8')).toBe(content);
+}, 30_000);
+
+const makeDoneLogPath = (): string => join(makeBinDirectory(), 'deletes.log');
+
+const readDeleteLog = (logPath: string): string[] =>
+  existsSync(logPath) ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean) : [];
+
+const selectFirstThread = async (child: Child): Promise<void> => {
+  await waitForOutput(child, 'Alpha thread');
+  child.processHandle.terminal?.write('jj');
+  await Bun.sleep(200);
+};
+
+test('pressing d and quitting at once sends one DELETE and saves the done record', async () => {
+  const stateHome = makeBinDirectory();
+  const logPath = makeDoneLogPath();
+  const child = startWithGh(makeDoneFeedScript(logPath, '2026-10-02T00:00:00Z'), stateHome);
+
+  await selectFirstThread(child);
+  child.processHandle.terminal?.write('d');
+  child.processHandle.terminal?.write('q');
+
+  expect(await waitForExit(child)).toBe(0);
+
+  const deletes = readDeleteLog(logPath);
+
+  expect(deletes).toHaveLength(1);
+  expect(deletes[0]).toContain('/notifications/threads/1');
+
+  expect(readFileSync(stateFilePath(stateHome), 'utf8')).toContain(
+    '"done":{"1":"2026-10-02T00:00:00Z"}',
+  );
+}, 30_000);
+
+test('a done thread stays hidden until the feed returns a newer updated_at', async () => {
+  const stateHome = makeBinDirectory();
+  const logPath = makeDoneLogPath();
+  const sameScript = makeDoneFeedScript(logPath, '2026-10-02T00:00:00Z');
+  const first = startWithGh(sameScript, stateHome);
+
+  await selectFirstThread(first);
+  first.processHandle.terminal?.write('d');
+  first.processHandle.terminal?.write('q');
+  expect(await waitForExit(first)).toBe(0);
+
+  const same = startWithGh(sameScript, stateHome);
+
+  await waitForOutput(same, 'Beta thread');
+  expect(same.getOutput()).not.toContain('Alpha thread');
+  same.processHandle.terminal?.write('q');
+  expect(await waitForExit(same)).toBe(0);
+
+  const newer = startWithGh(makeDoneFeedScript(logPath, '2026-10-03T00:00:00Z'), stateHome);
+
+  await waitForOutput(newer, 'Alpha thread');
+}, 60_000);
+
+test('pressing d and then u before quitting sends no DELETE', async () => {
+  const stateHome = makeBinDirectory();
+  const logPath = makeDoneLogPath();
+  const child = startWithGh(makeDoneFeedScript(logPath, '2026-10-02T00:00:00Z'), stateHome);
+
+  await selectFirstThread(child);
+  child.processHandle.terminal?.write('d');
+  await Bun.sleep(200);
+  child.processHandle.terminal?.write('u');
+  await Bun.sleep(200);
+  child.processHandle.terminal?.write('q');
+
+  expect(await waitForExit(child)).toBe(0);
+  expect(readDeleteLog(logPath)).toEqual([]);
 }, 30_000);

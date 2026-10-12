@@ -402,7 +402,7 @@ test('a result after stop is dropped, the running refresh is aborted, and no tim
   const signal = pending[0]?.signal;
   const callsBeforeStop = calls;
 
-  session.stop();
+  await session.stop();
 
   expect(signal?.aborted).toBe(true);
 
@@ -418,7 +418,7 @@ test('stop cancels the scheduled poll', async () => {
   const { session, load, activeTimers } = makeHarness();
 
   await load(makeThread('1'));
-  session.stop();
+  await session.stop();
 
   expect(activeTimers()).toHaveLength(0);
 });
@@ -427,7 +427,7 @@ test('send after stop starts no refresh and changes nothing', async () => {
   const { session, pending } = makeHarness();
   const before = session.getSnapshot();
 
-  session.stop();
+  await session.stop();
   session.send({ kind: 'refresh' });
   await settle();
 
@@ -1794,7 +1794,7 @@ test('stop aborts a running lookup and drops its result', async () => {
   const thread = makeThread('1');
 
   await load(thread);
-  session.stop();
+  await session.stop();
 
   expect(lookups[0]?.signal.aborted).toBe(true);
 
@@ -2071,6 +2071,90 @@ test('a successful send saves the done record and starts a full refresh', async 
   expect(harness.saves.at(-1)?.done.get(one.id)).toBe('2026-01-05T08:00:00Z');
   expect(harness.countOf('read')).toBe(readsBefore + 1);
   expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
+});
+
+test('stop sends a waiting done at once and saves its record', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1', { updatedAt: '2026-01-05T08:00:00Z' });
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+  const readsBefore = harness.countOf('read');
+  const stopped = harness.session.stop();
+
+  expect(harness.timers[before]?.active).toBe(false);
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
+  expect(harness.saves).toHaveLength(0);
+
+  harness.sends[0]?.resolve(sentOk);
+  await stopped;
+
+  expect(harness.saves.at(-1)?.done.get(one.id)).toBe('2026-01-05T08:00:00Z');
+  expect(harness.countOf('read')).toBe(readsBefore);
+});
+
+test('stop sends waiting dones one at a time and saves each record', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two, makeThread('3'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+  harness.selectThread(two);
+  markSelectedDone(harness);
+
+  const stopped = harness.session.stop();
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
+
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id, two.id]);
+
+  harness.sends[1]?.resolve(sentOk);
+  await stopped;
+
+  expect([...(harness.saves.at(-1)?.done.keys() ?? [])]).toEqual([one.id, two.id]);
+});
+
+test('stop waits for a send already in flight and saves its record', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+
+  const stopped = harness.session.stop();
+
+  expect(harness.sends).toHaveLength(1);
+
+  harness.sends[0]?.resolve(sentOk);
+  await stopped;
+
+  expect(harness.saves.at(-1)?.done.has(one.id)).toBe(true);
+});
+
+test('a failed send at stop saves nothing', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+
+  const stopped = harness.session.stop();
+
+  harness.sends[0]?.resolve(failure('boom'));
+  await stopped;
+
+  expect(harness.saves).toHaveLength(0);
 });
 
 test('a failed send brings the thread back, shows an error toast, and saves nothing', async () => {
