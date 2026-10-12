@@ -102,7 +102,7 @@ const fullRefreshAfterMilliseconds =
   fullRefreshAfterMinutes * secondsPerMinute * millisecondsPerSecond;
 
 const maximumRetries = 3;
-const toastMilliseconds = 5000;
+const toastMilliseconds = 4000;
 
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',

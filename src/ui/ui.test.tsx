@@ -1233,7 +1233,7 @@ test('a toast with short lines draws a block narrower than the width limit', asy
 
   const barColumn = rows[0]?.indexOf('▌') ?? -1;
   const blockWidth = (rows[0]?.length ?? 0) - barColumn - 1;
-  const widthLimit = 50;
+  const widthLimit = 40;
 
   expect(rows.length).toBeGreaterThan(0);
   expect(blockWidth).toBeLessThan(widthLimit);
@@ -1267,10 +1267,9 @@ test('a toast on a full list keeps the list height and wraps a long reason', asy
     before[statusIndex - 1]?.slice(0, listColumns),
   );
 
-  const boxColumns = 10;
-
   const flattened = after
-    .map((line) => line.slice(boxColumns))
+    .filter((line) => line.includes('▌'))
+    .map((line) => line.slice(line.indexOf('▌') + 1))
     .join('')
     .replaceAll(/[\s│╭╮╰╯─]/g, '');
 
@@ -1329,6 +1328,33 @@ const titleColumn = (frame: string) => {
 const toastDuration = (session: {
   getSnapshot: () => { toast: { durationMilliseconds: number } | null };
 }) => session.getSnapshot().toast?.durationMilliseconds ?? 0;
+
+test('a toast block starts at its title row with no empty row above it', async () => {
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+
+  await press('s');
+  await failWrite(session, advance);
+
+  const rows = toastRows(setup.captureCharFrame());
+
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows[0]).toContain('✗');
+});
+
+test('a toast with a long reason is at most 40 columns wide', async () => {
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 80, true);
+
+  await press('s');
+  await failWrite(session, advance, longReason);
+
+  const rows = toastRows(setup.captureCharFrame());
+  const barColumn = rows[0]?.indexOf('▌') ?? -1;
+  const blockWidth = (rows[0]?.length ?? 0) - barColumn - 1;
+
+  expect(rows.length).toBeGreaterThan(0);
+  expect(blockWidth).toBeLessThanOrEqual(40);
+  expect(blockWidth).toBeGreaterThan(30);
+});
 
 test('the time-left bar is shorter after half the toast duration than after the slide, and not empty', async () => {
   const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
@@ -1390,4 +1416,85 @@ test('a newer toast starts with a full bar again', async () => {
 
   expect(shrunk).toBeLessThan(full);
   expect(restarted).toBe(full);
+});
+
+const expiringEffects = () => {
+  const callbacks: (() => void)[] = [];
+
+  const effects: SessionEffects = {
+    ...idleEffects,
+    setTimer: (_delay, callback) => {
+      callbacks.push(callback);
+
+      return () => undefined;
+    },
+  };
+
+  return { effects, callbacks };
+};
+
+const exitMilliseconds = 150;
+
+const markColumn = (frame: string) =>
+  toastRows(frame)
+    .find((row) => row.includes('✗'))
+    ?.indexOf('✗') ?? -1;
+
+test('an expired toast stays on screen away from its resting column and is gone after the exit', async () => {
+  const { effects, callbacks } = expiringEffects();
+  const { setup, session, press, advance } = await mount('dark', effects, 60, true);
+
+  await press('s');
+  await failWrite(session, advance);
+
+  const resting = markColumn(setup.captureCharFrame());
+
+  await act(async () => {
+    callbacks.at(-1)?.();
+  });
+
+  await advance(100);
+
+  const exiting = setup.captureCharFrame();
+
+  await advance(exitMilliseconds);
+
+  expect(session.getSnapshot().toast).toBeNull();
+  expect(resting).toBeGreaterThan(-1);
+  expect(markColumn(exiting)).toBeGreaterThan(resting);
+  expect(setup.captureCharFrame()).not.toContain('not saved');
+});
+
+test('a new toast during an exit appears at once and slides in', async () => {
+  const { effects, callbacks } = expiringEffects();
+  const { setup, session, press, advance } = await mount('dark', effects, 60, true);
+
+  await press('s');
+  await failWrite(session, advance);
+
+  const resting = markColumn(setup.captureCharFrame());
+
+  await act(async () => {
+    callbacks.at(-1)?.();
+  });
+
+  await advance(20);
+
+  const exiting = setup.captureCharFrame();
+
+  await press('s');
+  await reportFailure(session, advance, 'second failure');
+  await advance(40);
+
+  const start = setup.captureCharFrame();
+
+  await advance(slideMilliseconds);
+
+  const settled = setup.captureCharFrame();
+
+  expect(exiting).toContain('disk full');
+  expect(start).not.toContain('disk full');
+  expect(markColumn(start)).toBeGreaterThan(resting);
+  expect(markColumn(settled)).toBe(resting);
+  expect(settled).toContain('second failure');
 });

@@ -1,5 +1,5 @@
 import { useTerminalDimensions, useTimeline } from '@opentui/react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
@@ -12,12 +12,12 @@ interface ToastMotion {
 
 type ToastContent = NonNullable<Snapshot['toast']>;
 
-const maximumWidth = 50;
+const maximumWidth = 40;
 const horizontalMargin = 4;
 const maximumTextLines = 5;
 const barColumns = 1;
 const paddingColumns = 2;
-const paddingRows = 2;
+const paddingRows = 1;
 const statusLineHeight = 1;
 const restingRight = 1;
 const slideMilliseconds = 150;
@@ -49,16 +49,35 @@ const wrapLine = (line: string, columns: number): string[] => {
   return chunks.length === 0 ? [''] : chunks;
 };
 
-const useToastMotion = (durationMilliseconds: number): ToastMotion => {
-  const [motion, setMotion] = useState<ToastMotion>({ slide: 0, remaining: 1 });
-  const timeline = useTimeline({ duration: durationMilliseconds });
+const useToastMotion = (
+  durationMilliseconds: number,
+  exiting: boolean,
+  onExited: () => void,
+): ToastMotion => {
+  const [motion, setMotion] = useState<ToastMotion>(
+    exiting ? { slide: 1, remaining: 0 } : { slide: 0, remaining: 1 },
+  );
+
+  const timeline = useTimeline({ duration: exiting ? slideMilliseconds : durationMilliseconds });
 
   useEffect(() => {
-    const target = { slide: 0, remaining: 1 };
+    const target = exiting ? { slide: 1, remaining: 0 } : { slide: 0, remaining: 1 };
 
     const publish = () => {
       setMotion({ slide: target.slide, remaining: target.remaining });
     };
+
+    if (exiting) {
+      timeline.add(target, {
+        slide: 0,
+        duration: slideMilliseconds,
+        ease: 'inQuad',
+        onUpdate: publish,
+        onComplete: onExited,
+      });
+
+      return;
+    }
 
     timeline.add(target, {
       slide: 1,
@@ -73,15 +92,20 @@ const useToastMotion = (durationMilliseconds: number): ToastMotion => {
       ease: 'linear',
       onUpdate: publish,
     });
-  }, [timeline, durationMilliseconds]);
+  }, [timeline, durationMilliseconds, exiting, onExited]);
 
   return motion;
 };
 
-const ToastCard = (props: { toast: ToastContent; palette: Palette }): ReactNode => {
-  const { toast, palette } = props;
+const ToastCard = (props: {
+  toast: ToastContent;
+  palette: Palette;
+  exiting: boolean;
+  onExited: () => void;
+}): ReactNode => {
+  const { toast, palette, exiting, onExited } = props;
   const { width: terminalWidth } = useTerminalDimensions();
-  const motion = useToastMotion(toast.durationMilliseconds);
+  const motion = useToastMotion(toast.durationMilliseconds, exiting, onExited);
 
   const isError = toast.tone === 'error';
   const toneColor = isError ? palette.error : palette.typeLabel;
@@ -92,7 +116,15 @@ const ToastCard = (props: { toast: ToastContent; palette: Palette }): ReactNode 
   const widthLimit = Math.min(maximumWidth, terminalWidth - horizontalMargin);
   const textColumns = Math.min(longest, widthLimit - barColumns - paddingColumns);
 
-  if (textColumns < 1) {
+  const fits = textColumns >= 1;
+
+  useEffect(() => {
+    if (exiting && !fits) {
+      onExited();
+    }
+  }, [exiting, fits, onExited]);
+
+  if (!fits) {
     return null;
   }
 
@@ -125,7 +157,7 @@ const ToastCard = (props: { toast: ToastContent; palette: Palette }): ReactNode 
       <text fg={toneColor} bg={background} width={barColumns}>
         {bar}
       </text>
-      <box flexDirection="column" paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1}>
+      <box flexDirection="column" paddingLeft={1} paddingRight={1} paddingBottom={1}>
         <text fg={toneColor} bg={background}>
           <b>{titleRows.join('\n')}</b>
         </text>
@@ -149,10 +181,32 @@ const ToastCard = (props: { toast: ToastContent; palette: Palette }): ReactNode 
 
 export const Toast = (props: { snapshot: Snapshot; palette: Palette }): ReactNode => {
   const { toast } = props.snapshot;
+  const [lastShown, setLastShown] = useState<ToastContent | null>(null);
 
-  if (toast === null) {
+  const finishExit = useCallback(() => {
+    setLastShown(null);
+  }, []);
+
+  if (toast !== null && toast !== lastShown) {
+    setLastShown(toast);
+  }
+
+  const shown = toast ?? lastShown;
+
+  if (shown === null) {
     return null;
   }
 
-  return <ToastCard key={keyOf(toast)} toast={toast} palette={props.palette} />;
+  const exiting = toast === null;
+  const key = `${keyOf(shown)}${exiting ? '-exit' : ''}`;
+
+  return (
+    <ToastCard
+      key={key}
+      toast={shown}
+      palette={props.palette}
+      exiting={exiting}
+      onExited={finishExit}
+    />
+  );
 };

@@ -1774,7 +1774,7 @@ test('a successful write after a failure shows no new toast', () => {
   expect(session.getSnapshot().toast).toBeNull();
 });
 
-test('the toast clears after five seconds, and a newer toast replaces it and restarts the timer', () => {
+test('the toast clears after four seconds, and a newer toast replaces it and restarts the timer', () => {
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
@@ -1788,7 +1788,8 @@ test('the toast clears after five seconds, and a newer toast replaces it and res
 
   expect(firstTimer?.active).toBe(false);
   expect(secondTimer).not.toBe(firstTimer);
-  expect(secondTimer?.delay).toBe(5000);
+  expect(secondTimer?.delay).toBe(4000);
+  expect(session.getSnapshot().toast?.durationMilliseconds).toBe(4000);
   expect(session.getSnapshot().toast?.lines[0]).toBe('second');
 
   secondTimer?.callback();
