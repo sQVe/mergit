@@ -17,17 +17,30 @@ import {
   clearFailure,
   initialSnapshot,
   markFeedBusy,
+  cycleGrouping,
+  jumpTopLevel,
   moveSelection,
+  selectEdge,
+  toggleAllFolds,
+  toggleFold,
   showSavedThreads,
   startRefresh,
 } from './sessionState.ts';
 
 export type { Snapshot } from './sessionState.ts';
+export { visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
   | { kind: 'selectNext' }
-  | { kind: 'selectPrevious' };
+  | { kind: 'selectPrevious' }
+  | { kind: 'selectFirst' }
+  | { kind: 'selectLast' }
+  | { kind: 'selectNextGroup' }
+  | { kind: 'selectPreviousGroup' }
+  | { kind: 'toggleFold' }
+  | { kind: 'toggleAllFolds' }
+  | { kind: 'cycleGrouping' };
 
 export interface SavedSnapshot {
   viewer: Viewer;
@@ -69,6 +82,8 @@ export interface Session {
   stop: () => void;
 }
 
+type StateIntent = Exclude<ApplicationIntent, { kind: 'refresh' }>;
+
 const minimumPollSeconds = 60;
 const millisecondsPerSecond = 1000;
 const secondsPerMinute = 60;
@@ -89,6 +104,18 @@ const guard = async <Value>(
 
     return { ok: false, failure: { kind: 'requestFailed', status: null, message } };
   }
+};
+
+const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot> = {
+  selectNext: (snapshot) => moveSelection(snapshot, 1),
+  selectPrevious: (snapshot) => moveSelection(snapshot, -1),
+  selectFirst: (snapshot) => selectEdge(snapshot, 'first'),
+  selectLast: (snapshot) => selectEdge(snapshot, 'last'),
+  selectNextGroup: (snapshot) => jumpTopLevel(snapshot, 1),
+  selectPreviousGroup: (snapshot) => jumpTopLevel(snapshot, -1),
+  toggleFold,
+  toggleAllFolds,
+  cycleGrouping,
 };
 
 export const createSession = (effects: SessionEffects): Session => {
@@ -416,7 +443,7 @@ export const createSession = (effects: SessionEffects): Session => {
     if (intent.kind === 'refresh') {
       requestRefresh();
     } else {
-      update(moveSelection(snapshot, intent.kind === 'selectNext' ? 1 : -1));
+      update(transitions[intent.kind](snapshot));
     }
   };
 

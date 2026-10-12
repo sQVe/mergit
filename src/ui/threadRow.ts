@@ -73,3 +73,9 @@ export const scrollTop = (
 
   return clamped;
 };
+
+export const guideWidth = 2;
+
+export const guideFor = (depth: number): string => '│ '.repeat(depth);
+
+export const branchFor = (last: boolean): string => (last ? '└─' : '├─');

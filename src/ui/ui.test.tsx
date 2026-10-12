@@ -96,6 +96,7 @@ const WithKeymap = (props: Omit<AppProps, 'keymap'>): ReactNode => {
 const mount = async (
   initialMode: 'light' | 'dark' | null = null,
   effects: SessionEffects = idleEffects,
+  width = 60,
 ) => {
   let themeMode = initialMode;
   const themeListeners = new Set<() => void>();
@@ -152,7 +153,7 @@ const mount = async (
     />
   );
 
-  const setup = await act(() => testRender(node, { width: 60, height: 20 }));
+  const setup = await act(() => testRender(node, { width, height: 20 }));
 
   setups.push(setup);
 
@@ -166,6 +167,8 @@ const mount = async (
     await act(async () => {
       if (key === 'escape') {
         setup.mockInput.pressEscape();
+      } else if (key === 'return') {
+        setup.mockInput.pressEnter();
       } else {
         setup.mockInput.pressKey(key);
       }
@@ -339,6 +342,8 @@ test('j and k move the selected row', async () => {
   const { setup, press } = await mount('dark', threadsEffects(threeThreads));
 
   await press('r');
+  await press('j');
+  await press('j');
   expect(selectedRowText(setup)).toContain('First');
 
   await press('j');
@@ -357,6 +362,8 @@ test('a refresh keeps the selection on the same thread when it still exists', as
   const { setup, press } = await mount('dark', effects);
 
   await press('r');
+  await press('j');
+  await press('j');
   await press('j');
   threads = [makeThread(0, 'Newest'), ...threeThreads];
   await press('r');
@@ -427,7 +434,7 @@ test('the selected row stays in view when the list is taller than the screen', a
 
   await press('r');
 
-  for (let step = 0; step < 30; step += 1) {
+  for (let step = 0; step < 32; step += 1) {
     await press('j');
   }
 
@@ -501,4 +508,307 @@ test('saved rows show their age relative to the saved time', async () => {
   const { setup } = await mount('dark', savedEffects(savedAt, [thread]));
 
   expect(setup.captureCharFrame()).toMatch(/PR\s+#1\s+First\s+2h/);
+});
+
+test('the tree keys reach the session as their intents', async () => {
+  const { press, sent } = await mount('dark', threadsEffects(threeThreads));
+
+  await press('r');
+
+  const keys = ['g', 'G', 'J', 'K', 'z', 'space', 'return', 'Z', 's'];
+
+  for (const key of keys) {
+    await press(key === 'space' ? ' ' : key);
+  }
+
+  expect(sent.slice(1)).toEqual([
+    { kind: 'selectFirst' },
+    { kind: 'selectLast' },
+    { kind: 'selectNextGroup' },
+    { kind: 'selectPreviousGroup' },
+    { kind: 'toggleFold' },
+    { kind: 'toggleFold' },
+    { kind: 'toggleFold' },
+    { kind: 'toggleAllFolds' },
+    { kind: 'cycleGrouping' },
+  ]);
+});
+
+const treeThread = (
+  id: number,
+  title: string,
+  overrides: Partial<NotificationThread>,
+): NotificationThread => ({ ...makeThread(id, title), ...overrides });
+
+const treeThreads = [
+  treeThread(1, 'Fix parser', {
+    reason: 'review_requested',
+    repository: 'example/alpha',
+    updatedAt: '1970-01-01T01:00:00Z',
+  }),
+  treeThread(2, 'Add cache', {
+    reason: 'review_requested',
+    repository: 'example/alpha',
+    updatedAt: '1970-01-01T00:30:00Z',
+  }),
+  treeThread(3, 'Crash on start', {
+    reason: 'mention',
+    repository: 'example/beta',
+    subjectType: 'Issue',
+    subjectUrl: 'https://api.github.com/repos/example/beta/issues/3',
+    updatedAt: '1970-01-01T00:20:00Z',
+  }),
+  treeThread(4, 'Release v1', {
+    reason: 'subscribed',
+    repository: 'example/beta',
+    subjectType: 'Release',
+    subjectUrl: 'https://api.github.com/repos/example/beta/releases/4',
+    updatedAt: '1970-01-01T00:10:00Z',
+  }),
+  treeThread(5, 'Stale crash', {
+    reason: 'mention',
+    repository: 'example/beta',
+    subjectType: 'Issue',
+    subjectUrl: 'https://api.github.com/repos/example/beta/issues/5',
+    updatedAt: '1970-01-01T00:05:00Z',
+  }),
+];
+
+const frameLines = (setup: Setup): string[] =>
+  setup
+    .captureCharFrame()
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line !== '');
+
+test('the list shows threads under their group and repo in reason order, releases in their own group', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await press('r');
+
+  const lines = frameLines(setup).slice(0, 11);
+
+  expect(lines[0]).toMatch(/^▾ Review requested 2$/);
+  expect(lines[1]).toMatch(/^│ ▾ example\/alpha 2$/);
+  expect(lines[2]).toMatch(/^│ │ ├─PR\s+#1\s+Fix parser\s+2h$/);
+  expect(lines[3]).toMatch(/^│ │ └─PR\s+#2\s+Add cache\s+2h$/);
+  expect(lines[4]).toMatch(/^▾ Mention 2$/);
+  expect(lines[5]).toMatch(/^│ ▾ example\/beta 2$/);
+  expect(lines[6]).toMatch(/^│ │ ├─ISS\s+#3\s+Crash on start\s+2h$/);
+  expect(lines[7]).toMatch(/^│ │ └─ISS\s+#5\s+Stale crash\s+2h$/);
+  expect(lines[8]).toMatch(/^▾ Release 1$/);
+  expect(lines[9]).toMatch(/^│ ▾ example\/beta 1$/);
+  expect(lines[10]).toMatch(/^│ │ └─REL\s+Release v1\s+2h$/);
+});
+
+const selectedLine = (setup: Setup): string | undefined => selectedRowText(setup)?.trim();
+
+const pressAll = async (press: (key: string) => Promise<void>, keys: string[]): Promise<void> => {
+  for (const key of keys) {
+    await press(key);
+  }
+};
+
+test('folding a node hides its children and keeps its count', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'j', 'z']);
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('│ ▸ example/alpha 2');
+  expect(frame).not.toContain('Fix parser');
+  expect(frame).not.toContain('Add cache');
+  expect(frame).toContain('Crash on start');
+  expect(selectedLine(setup)).toStartWith('│ ▸ example/alpha 2');
+
+  await press('z');
+
+  expect(setup.captureCharFrame()).toContain('Fix parser');
+  expect(setup.captureCharFrame()).toContain('│ ▾ example/alpha 2');
+});
+
+test('s regroups by type, then none, then reason, and keeps the selection on the same thread', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'j', 'j']);
+  expect(selectedLine(setup)).toContain('Fix parser');
+
+  await press('s');
+
+  const byType = frameLines(setup);
+
+  expect(byType[0]).toBe('▾ Pull requests 2');
+  expect(byType).toContain('▾ Issues 2');
+  expect(byType).toContain('▾ Releases 1');
+  expect(byType).toContain('│ ▾ example/alpha 2');
+  expect(selectedLine(setup)).toContain('Fix parser');
+
+  await press('s');
+
+  const ungrouped = frameLines(setup);
+
+  expect(ungrouped.filter((line) => /^(PR|ISS|REL)\s/.test(line))).toHaveLength(treeThreads.length);
+  expect(ungrouped.some((line) => /[│├└▾▸]/.test(line))).toBe(false);
+  expect(ungrouped.some((line) => line.includes('Pull requests'))).toBe(false);
+  expect(selectedLine(setup)).toContain('Fix parser');
+
+  await press('s');
+
+  expect(frameLines(setup)[0]).toBe('▾ Review requested 2');
+  expect(selectedLine(setup)).toContain('Fix parser');
+});
+
+test('the flat list shows each thread with its repository and no guide or branch', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 's', 's']);
+
+  const lines = frameLines(setup).slice(0, 5);
+
+  expect(lines[0]).toMatch(/^PR\s+#1\s+example\/alpha\s+Fix parser\s+2h$/);
+  expect(lines[1]).toMatch(/^PR\s+#2\s+example\/alpha\s+Add cache\s+2h$/);
+  expect(lines[2]).toMatch(/^ISS\s+#3\s+example\/beta\s+Crash on start\s+2h$/);
+  expect(lines[3]).toMatch(/^REL\s+example\/beta\s+Release v1\s+2h$/);
+  expect(lines[4]).toMatch(/^ISS\s+#5\s+example\/beta\s+Stale crash\s+2h$/);
+
+  for (const line of lines) {
+    expect(line).not.toMatch(/[│├└▾▸]/);
+  }
+});
+
+test('the flat list keeps each title start and age on its row at narrow widths', async () => {
+  for (const width of [40, 30]) {
+    const { setup, press } = await mount('dark', threadsEffects(treeThreads), width);
+
+    await pressAll(press, ['r', 's', 's']);
+
+    const lines = frameLines(setup).slice(0, 5);
+    const titles = ['Fix', 'Add', 'Crash', 'Release', 'Stale'];
+
+    expect(lines).toHaveLength(5);
+
+    lines.forEach((line, index) => {
+      expect(line).toMatch(new RegExp(`${titles[index]}.*\\d+h$`));
+    });
+  }
+});
+
+test('the flat list truncates a long repository name so the title keeps its space', async () => {
+  const longRepository = 'example/a-valid-repository-name-longer-than-the-terminal-width';
+  const threads = [treeThread(1, 'Fix parser', { repository: longRepository })];
+  const { setup, press } = await mount('dark', threadsEffects(threads));
+
+  await pressAll(press, ['r', 's', 's']);
+
+  expect(frameLines(setup)[0]).toMatch(/^PR\s+#1\s+example\/a-valid.*…\s+Fix parser\s+\d+h$/);
+});
+
+test('j and k move the selection one row, and g and G jump to the first and last row', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await press('r');
+  expect(selectedLine(setup)).toBe('▾ Review requested 2');
+
+  await press('j');
+  expect(selectedLine(setup)).toBe('│ ▾ example/alpha 2');
+
+  await press('j');
+  expect(selectedLine(setup)).toContain('Fix parser');
+
+  await press('k');
+  expect(selectedLine(setup)).toBe('│ ▾ example/alpha 2');
+
+  await press('G');
+  expect(selectedLine(setup)).toContain('Release v1');
+
+  await press('g');
+  expect(selectedLine(setup)).toBe('▾ Review requested 2');
+});
+
+test('J and K move the selection to the next and previous group', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'j', 'j']);
+
+  await press('J');
+  expect(selectedLine(setup)).toBe('▾ Mention 2');
+
+  await press('J');
+  expect(selectedLine(setup)).toBe('▾ Release 1');
+
+  await press('K');
+  expect(selectedLine(setup)).toBe('▾ Mention 2');
+});
+
+test('z and Space fold the node that holds the selection, from a thread or a node', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'j', 'j', 'z']);
+
+  expect(setup.captureCharFrame()).not.toContain('Fix parser');
+  expect(selectedLine(setup)).toBe('│ ▸ example/alpha 2');
+
+  await press(' ');
+
+  expect(setup.captureCharFrame()).toContain('Fix parser');
+  expect(selectedLine(setup)).toBe('│ ▾ example/alpha 2');
+
+  await press(' ');
+
+  expect(setup.captureCharFrame()).not.toContain('Fix parser');
+});
+
+test('Enter folds a group and does nothing on a thread', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'return']);
+
+  expect(frameLines(setup)[0]).toBe('▸ Review requested 2');
+  expect(setup.captureCharFrame()).not.toContain('Fix parser');
+
+  await press('return');
+
+  expect(frameLines(setup)[0]).toBe('▾ Review requested 2');
+
+  await pressAll(press, ['j', 'j', 'return']);
+
+  expect(selectedLine(setup)).toContain('Fix parser');
+  expect(setup.captureCharFrame()).toContain('Add cache');
+});
+
+test('Z folds every group, and unfolds them when all are folded', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'j', 'j', 'Z']);
+
+  expect(frameLines(setup).slice(0, 3)).toEqual([
+    '▸ Review requested 2',
+    '▸ Mention 2',
+    '▸ Release 1',
+  ]);
+
+  expect(selectedLine(setup)).toBe('▸ Review requested 2');
+
+  await press('Z');
+
+  expect(setup.captureCharFrame()).toContain('Fix parser');
+  expect(setup.captureCharFrame()).toContain('│ ▾ example/beta 1');
+});
+
+test('a node row with a long repository name keeps its marker and count, open and folded', async () => {
+  const longRepository = 'example/a-valid-repository-name-longer-than-the-terminal-width';
+  const threads = [treeThread(1, 'Fix parser', { repository: longRepository })];
+  const { setup, press } = await mount('dark', threadsEffects(threads));
+
+  await press('r');
+
+  const nodeLine = (): string | undefined =>
+    frameLines(setup).find((line) => line.startsWith('│ ') && line.includes('example/a-valid'));
+
+  expect(nodeLine()).toMatch(/^│ ▾ example\/a-valid.*… 1$/);
+
+  await pressAll(press, ['j', 'z']);
+
+  expect(nodeLine()).toMatch(/^│ ▸ example\/a-valid.*… 1$/);
 });

@@ -23,6 +23,11 @@ A test on 2026-10-05 showed that `GET /notifications?all=true` still returns don
 thread that was never read shows `unread: false` and `last_read_at: null`. A thread read before it
 was marked done looks like any read thread.
 
+A test on 2026-10-12 confirmed this. Done on a read thread changed no field in the feed, and Done on
+an unread thread also marked it read. The web inbox sends Done as a form request to
+`/notifications/beta/archive`, with the browser session and a CSRF token, and renders its list as
+HTML. No API that a `gh` token can reach reports the done state.
+
 ## Decision
 
 The only source is the notifications feed, read with `all=true`. Each thread that is not done is one
@@ -77,3 +82,13 @@ Show unread threads only, so read means done. Rejected because opening a thread 
 ### Read state beside done
 
 Show GitHub's read state beside done. Rejected because the user wants one state.
+
+### Done from timestamps
+
+Treat a read thread whose `updated_at` is later than its `last_read_at` as done. Rejected because
+Done does not move `updated_at`, and on 2026-10-12 a thread still in the inbox matched this pattern.
+
+### The web inbox
+
+Read the done state from the web inbox. Rejected because it needs the user's browser session and an
+undocumented HTML page that can change without notice.

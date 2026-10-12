@@ -12,7 +12,7 @@ import type {
 } from '../github/github.ts';
 import type { NotificationThread, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
-import { createSession } from './session.ts';
+import { createSession, visibleRows } from './session.ts';
 import type { SavedSnapshot, SessionEffects } from './session.ts';
 
 type Call =
@@ -230,7 +230,22 @@ const makeHarness = (
     clock.time += milliseconds;
   };
 
-  const selected = () => session.getSnapshot().selectedThreadId;
+  const selected = () => session.getSnapshot().selectedRowKey;
+
+  const selectThread = (thread: NotificationThread) => {
+    session.send({ kind: 'selectFirst' });
+
+    while (selected() !== `thread:${thread.id}` && selected() !== null) {
+      const before = selected();
+
+      session.send({ kind: 'selectNext' });
+
+      if (selected() === before) {
+        break;
+      }
+    }
+  };
+
   const now = () => new Date(clock.time);
 
   return {
@@ -250,6 +265,7 @@ const makeHarness = (
     loadWith,
     load,
     selected,
+    selectThread,
   };
 };
 
@@ -297,7 +313,7 @@ test('a refresh holds the open threads in feed order and selects the first', asy
   const snapshot = session.getSnapshot();
 
   expect(snapshot.threads).toEqual([first, second]);
-  expect(snapshot.selectedThreadId).toBe(first.id);
+  expect(snapshot.selectedRowKey).toBe('node:review');
   expect(snapshot.refreshStatus).toBe('idle');
   expect(snapshot.hasLoaded).toBe(true);
   expect(snapshot.refreshedAt).toEqual(now());
@@ -441,7 +457,7 @@ test('a failed refresh keeps the previous threads, sets the error, and schedules
   const snapshot = session.getSnapshot();
 
   expect(snapshot.threads).toEqual([thread]);
-  expect(snapshot.selectedThreadId).toBe(thread.id);
+  expect(snapshot.selectedRowKey).toBe('node:review');
   expect(snapshot.errorMessage).toBe('Server error');
   expect(snapshot.notice).toBeNull();
   expect(snapshot.refreshStatus).toBe('idle');
@@ -577,53 +593,52 @@ test('selectNext and selectPrevious move one row and stop at the ends', async ()
   await load(a, b, c);
   session.send({ kind: 'selectPrevious' });
 
-  expect(selected()).toBe(a.id);
+  expect(selected()).toBe('node:review');
 
   session.send({ kind: 'selectNext' });
 
-  expect(selected()).toBe(b.id);
+  expect(selected()).toBe('node:review/acme/app');
 
   session.send({ kind: 'selectNext' });
   session.send({ kind: 'selectNext' });
+  session.send({ kind: 'selectNext' });
+  session.send({ kind: 'selectNext' });
 
-  expect(selected()).toBe(c.id);
+  expect(selected()).toBe(`thread:${c.id}`);
 
   session.send({ kind: 'selectPrevious' });
 
-  expect(selected()).toBe(b.id);
+  expect(selected()).toBe(`thread:${b.id}`);
 });
 
 test('selection stays on the same thread across a refresh that reorders threads', async () => {
-  const { session, load, selected } = makeHarness();
+  const { session, load, selected, selectThread } = makeHarness();
 
   const [a, b, c] = [makeThread('1'), makeThread('2'), makeThread('3')] as const;
 
   await load(a, b, c);
-  session.send({ kind: 'selectNext' });
+  selectThread(b);
   await load(c, b, a);
 
-  expect(selected()).toBe(b.id);
+  expect(selected()).toBe(`thread:${b.id}`);
 
   session.send({ kind: 'selectNext' });
   await load(b, a, c);
 
-  expect(selected()).toBe(a.id);
+  expect(selected()).toBe(`thread:${a.id}`);
 });
 
-test('when the selected thread leaves, the thread now in its row is selected', async () => {
-  const { session, load, selected } = makeHarness();
+test('when the selected thread and its group leave, the row now at its index is selected', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
 
-  const [a, b, c] = [makeThread('1'), makeThread('2'), makeThread('3')] as const;
+  const first = makeThread('1');
+  const mention = makeThread('2', { reason: 'mention' });
 
-  await load(a, b, c);
-  session.send({ kind: 'selectNext' });
-  await load(a, c);
+  await load(first, mention);
+  selectThread(mention);
+  await load(first);
 
-  expect(selected()).toBe(c.id);
-
-  await load(a);
-
-  expect(selected()).toBe(a.id);
+  expect(selected()).toBe(`thread:${first.id}`);
 
   await load();
 
@@ -1007,7 +1022,7 @@ test('another account empties the list before the feed answers and reads without
   await answerViewer(viewerOf(toViewerLogin('hubot')));
 
   expect(session.getSnapshot().threads).toEqual([]);
-  expect(session.getSnapshot().selectedThreadId).toBeNull();
+  expect(session.getSnapshot().selectedRowKey).toBeNull();
   expect(session.getSnapshot().savedAt).toBeNull();
   expect(take('read').request.previous).toBeNull();
 });
@@ -1202,4 +1217,315 @@ test('a changed login saves the new viewer etag', async () => {
   await answerVerify(stable);
 
   expect(saves).toEqual([{ login: hubot, etag: '"hubot-tag"' }]);
+});
+
+const reviewThread = makeThread('1');
+
+const mentionThread = makeThread('2', { reason: 'mention', repository: 'acme/lib' });
+
+const threadKeys = (session: ReturnType<typeof makeHarness>['session']): string[] =>
+  visibleRows(session.getSnapshot()).map((row) => row.key);
+
+test('toggleFold folds the node that holds the selected thread and moves the cursor to it', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(reviewThread);
+
+  expect(selected()).toBe('thread:1');
+
+  session.send({ kind: 'toggleFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.has('review/acme/app')).toBe(true);
+  expect(selected()).toBe('node:review/acme/app');
+  expect(threadKeys(session)).not.toContain('thread:1');
+  expect(threadKeys(session)).toContain('thread:2');
+});
+
+test('toggleFold on a folded node unfolds it and keeps the cursor on the node', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(reviewThread);
+  session.send({ kind: 'toggleFold' });
+  session.send({ kind: 'toggleFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(selected()).toBe('node:review/acme/app');
+  expect(threadKeys(session)).toContain('thread:1');
+});
+
+test('toggleFold does nothing without rows', () => {
+  const { session } = makeHarness();
+  const before = session.getSnapshot();
+
+  session.send({ kind: 'toggleFold' });
+
+  expect(session.getSnapshot()).toBe(before);
+});
+
+test('selectFirst and selectLast select the first and last visible rows', async () => {
+  const { session, load, selected } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectLast' });
+
+  expect(selected()).toBe('thread:2');
+
+  session.send({ kind: 'selectFirst' });
+
+  expect(selected()).toBe('node:review');
+});
+
+test('selectNextGroup and selectPreviousGroup move between top-level groups and stop at the ends', async () => {
+  const { session, load, selected } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectPreviousGroup' });
+
+  expect(selected()).toBe('node:review');
+
+  session.send({ kind: 'selectNextGroup' });
+
+  expect(selected()).toBe('node:mention');
+
+  session.send({ kind: 'selectNextGroup' });
+
+  expect(selected()).toBe('node:mention');
+
+  session.send({ kind: 'selectPreviousGroup' });
+
+  expect(selected()).toBe('node:review');
+});
+
+test('toggleAllFolds folds every top-level node, moves the cursor into the group, then unfolds them all', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(mentionThread);
+  session.send({ kind: 'toggleAllFolds' });
+
+  expect(threadKeys(session)).toEqual(['node:review', 'node:mention']);
+  expect(selected()).toBe('node:mention');
+
+  session.send({ kind: 'toggleAllFolds' });
+
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(selected()).toBe('node:mention');
+  expect(threadKeys(session)).toHaveLength(6);
+});
+
+test('toggleAllFolds unfolds all top-level nodes when only one is folded', async () => {
+  const { session, load } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'toggleFold' });
+  session.send({ kind: 'toggleAllFolds' });
+
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+});
+
+test('cycleGrouping goes reason, type, none, reason and keeps the cursor on the same thread', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+  const issue = makeThread('3', { subjectType: 'Issue', repository: 'acme/lib' });
+
+  await load(reviewThread, mentionThread, issue);
+  selectThread(mentionThread);
+
+  const seen: string[] = [];
+
+  for (let step = 0; step < 3; step += 1) {
+    session.send({ kind: 'cycleGrouping' });
+    seen.push(session.getSnapshot().grouping);
+
+    expect(selected()).toBe('thread:2');
+  }
+
+  expect(seen).toEqual(['type', 'none', 'reason']);
+});
+
+test('cycleGrouping from a node selects the first thread under it, then keeps that thread', async () => {
+  const { session, load, selected } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectNextGroup' });
+
+  expect(selected()).toBe('node:mention');
+
+  session.send({ kind: 'cycleGrouping' });
+
+  expect(selected()).toBe('thread:2');
+});
+
+test('cycleGrouping selects the nearest visible node when a fold hides the thread', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(mentionThread);
+  session.send({ kind: 'cycleGrouping' });
+  session.send({ kind: 'toggleFold' });
+
+  expect(selected()).toBe('node:pull-requests/acme/lib');
+
+  for (let step = 0; step < 2; step += 1) {
+    session.send({ kind: 'cycleGrouping' });
+  }
+
+  expect(session.getSnapshot().grouping).toBe('reason');
+  expect(selected()).toBe('thread:2');
+
+  session.send({ kind: 'cycleGrouping' });
+
+  expect(session.getSnapshot().grouping).toBe('type');
+  expect(selected()).toBe('node:pull-requests/acme/lib');
+});
+
+test('a fold in one grouping does not fold a node in another', async () => {
+  const { session, load, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'cycleGrouping' });
+  selectThread(reviewThread);
+  session.send({ kind: 'toggleFold' });
+  session.send({ kind: 'cycleGrouping' });
+  session.send({ kind: 'cycleGrouping' });
+
+  expect(session.getSnapshot().grouping).toBe('reason');
+  expect(session.getSnapshot().foldedNodes.type.has('pull-requests/acme/app')).toBe(true);
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(threadKeys(session)).toContain('thread:1');
+});
+
+test('a refresh keeps the grouping, the folds, and the selected row', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'cycleGrouping' });
+  selectThread(mentionThread);
+  session.send({ kind: 'selectPrevious' });
+  session.send({ kind: 'toggleFold' });
+  session.send({ kind: 'selectFirst' });
+  session.send({ kind: 'toggleFold' });
+  session.send({ kind: 'selectNext' });
+
+  const key = selected();
+
+  await load(reviewThread, mentionThread);
+
+  expect(session.getSnapshot().grouping).toBe('type');
+
+  expect([...session.getSnapshot().foldedNodes.type].toSorted()).toEqual([
+    'pull-requests',
+    'pull-requests/acme/lib',
+  ]);
+
+  expect(selected()).toBe(key);
+});
+
+test('selectPreviousGroup from a thread in the second group selects the first group row', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(mentionThread);
+  session.send({ kind: 'selectPreviousGroup' });
+
+  expect(selected()).toBe('node:review');
+});
+
+test('a refresh that removes the selected thread selects its repo row while the repo remains', async () => {
+  const { load, selected, selectThread } = makeHarness();
+  const second = makeThread('3');
+
+  await load(reviewThread, second, mentionThread);
+  selectThread(second);
+
+  expect(selected()).toBe('thread:3');
+
+  await load(reviewThread, mentionThread);
+
+  expect(selected()).toBe('node:review/acme/app');
+});
+
+test('a refresh that removes the selected thread and its repo selects the group row', async () => {
+  const { load, selected, selectThread } = makeHarness();
+  const other = makeThread('4', { repository: 'acme/other' });
+
+  await load(reviewThread, other, mentionThread);
+  selectThread(other);
+
+  expect(selected()).toBe('thread:4');
+
+  await load(reviewThread, mentionThread);
+
+  expect(selected()).toBe('node:review');
+});
+
+const otherThread = makeThread('3', { repository: 'acme/other' });
+
+const flatHarness = async () => {
+  const harness = makeHarness();
+
+  await harness.load(reviewThread, mentionThread, otherThread);
+  harness.session.send({ kind: 'cycleGrouping' });
+  harness.session.send({ kind: 'cycleGrouping' });
+
+  return harness;
+};
+
+test('none lists only thread rows in input order', async () => {
+  const { session } = await flatHarness();
+
+  expect(session.getSnapshot().grouping).toBe('none');
+  expect(threadKeys(session)).toEqual(['thread:1', 'thread:2', 'thread:3']);
+});
+
+test('j, k, g, and G move over thread rows in none', async () => {
+  const { session, selected } = await flatHarness();
+
+  session.send({ kind: 'selectFirst' });
+
+  expect(selected()).toBe('thread:1');
+
+  session.send({ kind: 'selectNext' });
+
+  expect(selected()).toBe('thread:2');
+
+  session.send({ kind: 'selectLast' });
+
+  expect(selected()).toBe('thread:3');
+
+  session.send({ kind: 'selectPrevious' });
+
+  expect(selected()).toBe('thread:2');
+});
+
+test('group jumps and folds change nothing in none and do not throw', async () => {
+  const { session, selected, selectThread } = await flatHarness();
+
+  selectThread(mentionThread);
+
+  const before = session.getSnapshot();
+
+  for (const kind of ['selectNextGroup', 'selectPreviousGroup', 'toggleAllFolds', 'toggleFold']) {
+    session.send({ kind } as Parameters<typeof session.send>[0]);
+
+    expect(selected()).toBe('thread:2');
+    expect(session.getSnapshot().foldedNodes).toEqual(before.foldedNodes);
+    expect(threadKeys(session)).toEqual(['thread:1', 'thread:2', 'thread:3']);
+  }
+});
+
+test('a refresh in none keeps the selected thread, or falls back to the row index', async () => {
+  const { load, selected, selectThread } = await flatHarness();
+
+  selectThread(mentionThread);
+  await load(mentionThread, reviewThread);
+
+  expect(selected()).toBe('thread:2');
+
+  await load(reviewThread, mentionThread, otherThread);
+  selectThread(mentionThread);
+  await load(reviewThread, otherThread);
+
+  expect(selected()).toBe('thread:3');
 });
