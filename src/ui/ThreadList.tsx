@@ -96,8 +96,12 @@ const ThreadLine = (props: RowProps & { row: ThreadRow; width: number; now: Date
   );
 };
 
-export const ThreadList = (props: { snapshot: Snapshot; palette: Palette }): ReactNode => {
-  const { snapshot, palette } = props;
+export const ThreadList = (props: {
+  snapshot: Snapshot;
+  palette: Palette;
+  width: number;
+}): ReactNode => {
+  const { snapshot, palette, width } = props;
   const { selectedRowKey, refreshedAt, savedAt } = snapshot;
   const rows = visibleRows(snapshot);
   const dimensions = useTerminalDimensions();
@@ -114,19 +118,13 @@ export const ThreadList = (props: { snapshot: Snapshot; palette: Palette }): Rea
   const visible = rows.slice(visibleTop, visibleTop + height);
 
   return (
-    <box flexDirection="column" flexGrow={1}>
+    <box flexDirection="column" flexGrow={1} width={width}>
       {visible.map((row) => {
         const selected = row.key === selectedRowKey;
 
         if (row.kind === 'node') {
           return (
-            <NodeLine
-              key={row.key}
-              row={row}
-              palette={palette}
-              selected={selected}
-              width={dimensions.width}
-            />
+            <NodeLine key={row.key} row={row} palette={palette} selected={selected} width={width} />
           );
         }
 
@@ -136,7 +134,7 @@ export const ThreadList = (props: { snapshot: Snapshot; palette: Palette }): Rea
             row={row}
             palette={palette}
             selected={selected}
-            width={dimensions.width}
+            width={width}
             now={now}
           />
         );

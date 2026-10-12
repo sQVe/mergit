@@ -19,6 +19,9 @@ const millisecondsPerSecond = 1000;
 export const typeLabelFor = (thread: NotificationThread): string =>
   typeLabels[thread.subjectType] ?? thread.subjectType.slice(0, fallbackLabelLength).toUpperCase();
 
+export const typeSummaryLabelFor = (subjectType: string): string =>
+  typeLabels[subjectType] ?? subjectType;
+
 export const numberLabelFor = (thread: NotificationThread): string => {
   const number = readSubjectNumber(thread.subjectUrl);
 

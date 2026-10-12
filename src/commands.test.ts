@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import type { Command } from './commands.ts';
 import { catalog } from './commands.ts';
 import { createSession } from './session/session.ts';
 import { toThreadId, toViewerLogin } from './work/work.ts';
@@ -71,7 +72,6 @@ test('tree commands list their keys and return their intents', () => {
     ['selectNextGroup', ['shift+j'], 'selectNextGroup'],
     ['selectPreviousGroup', ['shift+k'], 'selectPreviousGroup'],
     ['toggleFold', ['z', 'space'], 'toggleFold'],
-    ['toggleNodeFold', ['return'], 'toggleFold'],
     ['toggleAllFolds', ['shift+z'], 'toggleAllFolds'],
     ['cycleGrouping', ['s'], 'cycleGrouping'],
   ] as const;
@@ -82,28 +82,66 @@ test('tree commands list their keys and return their intents', () => {
   }
 });
 
-test('return does nothing on a thread row and folds on a node row', () => {
-  const thread = {
-    id: toThreadId('1'),
-    reason: 'review_requested',
-    unread: true,
-    updatedAt: '2026-01-02T10:00:00Z',
-    lastReadAt: null,
-    title: 'One',
-    subjectType: 'PullRequest',
-    subjectUrl: null,
-    repository: 'acme/app',
-  };
+const loadedThread = {
+  id: toThreadId('1'),
+  reason: 'review_requested',
+  unread: true,
+  updatedAt: '2026-01-02T10:00:00Z',
+  lastReadAt: null,
+  title: 'One',
+  subjectType: 'PullRequest',
+  subjectUrl: null,
+  repository: 'acme/app',
+};
 
-  const loaded = { ...snapshot, threads: [thread], selectedRowKey: 'node:review' };
-  const command = catalog.find((candidate) => candidate.id === 'toggleNodeFold');
+const loadedSnapshot = { ...snapshot, threads: [loadedThread] };
 
-  expect(command?.disabledReason(loaded)).toBeUndefined();
-  expect(command?.disabledReason({ ...loaded, selectedRowKey: 'thread:1' })).toBeDefined();
+const scopesOverlap = (first: Command['scope'], second: Command['scope']): boolean =>
+  first === second || first === 'global' || second === 'global';
+
+const overlappingKeys = (commands: readonly Command[]): string[] => {
+  const clashes: string[] = [];
+
+  for (const [index, command] of commands.entries()) {
+    for (const other of commands.slice(index + 1)) {
+      const shared = command.keys.filter((key) => other.keys.includes(key));
+
+      if (scopesOverlap(command.scope, other.scope)) {
+        clashes.push(...shared);
+      }
+    }
+  }
+
+  return clashes;
+};
+
+test('no key is bound to two commands whose scopes can be active together', () => {
+  expect(overlappingKeys(catalog)).toEqual([]);
 });
 
-test('no catalog key is bound to two commands', () => {
-  const keys = catalog.flatMap((command) => command.keys);
+test('return folds a group on a node row and opens the detail on a thread row', () => {
+  const bound = catalog.filter((candidate) => candidate.keys.includes('return'));
+  const [command] = bound;
+  const onNode = { ...loadedSnapshot, selectedRowKey: 'node:review' };
+  const onThread = { ...loadedSnapshot, selectedRowKey: 'thread:1' };
+  const nothing = { ...loadedSnapshot, selectedRowKey: 'missing' };
 
-  expect(new Set(keys).size).toBe(keys.length);
+  expect(bound).toHaveLength(1);
+  expect(command?.scope).toBe('list');
+
+  expect(command?.disabledReason(onNode)).toBeUndefined();
+  expect(command?.disabledReason(onThread)).toBeUndefined();
+  expect(command?.disabledReason(nothing)).toBeDefined();
+
+  expect(command?.intent(onNode)).toEqual({ kind: 'application', intent: { kind: 'toggleFold' } });
+  expect(command?.intent(onThread)).toEqual({ kind: 'ui', action: 'openDetail' });
+});
+
+test('closeDetail has the escape key, the preview scope, and a ui intent', () => {
+  const close = catalog.find((command) => command.id === 'closeDetail');
+
+  expect(close?.keys).toEqual(['escape']);
+  expect(close?.scope).toBe('preview');
+  expect(close?.intent(snapshot)).toEqual({ kind: 'ui', action: 'closeDetail' });
+  expect(close?.disabledReason(snapshot)).toBeUndefined();
 });

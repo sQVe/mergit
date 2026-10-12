@@ -1,9 +1,9 @@
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
 import { visibleRows } from './session/session.ts';
 
-type Intent =
+export type Intent =
   | { kind: 'application'; intent: ApplicationIntent }
-  | { kind: 'ui'; action: 'toggleHelp' | 'closeHelp' }
+  | { kind: 'ui'; action: 'toggleHelp' | 'closeHelp' | 'openDetail' | 'closeDetail' }
   | { kind: 'terminal'; action: 'quit' };
 
 export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
@@ -17,12 +17,8 @@ export interface Command {
   intent: (snapshot: Snapshot) => Intent;
 }
 
-const onThreadRow = (snapshot: Snapshot): string | undefined => {
-  const rows = visibleRows(snapshot);
-  const row = rows.find((candidate) => candidate.key === snapshot.selectedRowKey);
-
-  return row?.kind === 'thread' ? 'A thread has nothing to fold' : undefined;
-};
+const selectedRowOf = (snapshot: Snapshot) =>
+  visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
 
 export const catalog: readonly Command[] = [
   {
@@ -98,12 +94,16 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'toggleFold' } }),
   },
   {
-    id: 'toggleNodeFold',
-    label: 'Fold or unfold group',
+    id: 'activateRow',
+    label: 'Fold group or open thread detail',
     scope: 'list',
     keys: ['return'],
-    disabledReason: onThreadRow,
-    intent: () => ({ kind: 'application', intent: { kind: 'toggleFold' } }),
+    disabledReason: (snapshot) =>
+      selectedRowOf(snapshot) === undefined ? 'No row is selected' : undefined,
+    intent: (snapshot) =>
+      selectedRowOf(snapshot)?.kind === 'thread'
+        ? { kind: 'ui', action: 'openDetail' }
+        : { kind: 'application', intent: { kind: 'toggleFold' } },
   },
   {
     id: 'toggleAllFolds',
@@ -128,6 +128,14 @@ export const catalog: readonly Command[] = [
     keys: ['r'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'application', intent: { kind: 'refresh' } }),
+  },
+  {
+    id: 'closeDetail',
+    label: 'Close thread detail',
+    scope: 'preview',
+    keys: ['escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'closeDetail' }),
   },
   {
     id: 'closeHelp',
