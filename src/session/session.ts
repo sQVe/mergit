@@ -6,12 +6,14 @@ import type {
   NotificationFeedRequest,
   NotificationPoll,
   NotificationVerification,
+  SubjectLookup,
   Viewer,
 } from '../github/github.ts';
-import type { Grouping, NotificationThread, ViewerLogin } from '../work/work.ts';
+import type { Grouping, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import type { Snapshot } from './sessionState.ts';
 import {
   applyFailure,
+  applySubjectLookups,
   applyThreads,
   clearAccount,
   clearFailure,
@@ -68,6 +70,7 @@ export interface SessionEffects {
     feed: NotificationFeed,
     signal: AbortSignal,
   ) => Promise<GitHubResult<NotificationVerification>>;
+  lookUpSubjects: (threads: NotificationThread[], signal: AbortSignal) => Promise<SubjectLookup[]>;
   now: () => Date;
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
 }
@@ -109,6 +112,9 @@ const guard = async <Value>(
   }
 };
 
+const isSubject = (thread: NotificationThread) =>
+  thread.subjectType === 'PullRequest' || thread.subjectType === 'Issue';
+
 const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot> = {
   selectNext: (snapshot) => moveSelection(snapshot, 1),
   selectPrevious: (snapshot) => moveSelection(snapshot, -1),
@@ -146,6 +152,8 @@ export const createSession = (effects: SessionEffects): Session => {
   let cancelTimer: (() => void) | null = null;
   let pollSeconds = minimumPollSeconds;
   let lastFullRefreshAt = 0;
+  let lookupController: AbortController | null = null;
+  const lookedUp = new Map<ThreadId, string>();
 
   const getSnapshot = () => snapshot;
 
@@ -226,6 +234,9 @@ export const createSession = (effects: SessionEffects): Session => {
 
     if (accountChanged) {
       feed = null;
+      lookupController?.abort();
+      lookupController = null;
+      lookedUp.clear();
       update(clearAccount(snapshot));
 
       return { ...request, previous: null };
@@ -328,6 +339,57 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
+  const pruneLookedUp = () => {
+    const currentIds = new Set(snapshot.threads.map((thread) => thread.id));
+
+    for (const threadId of lookedUp.keys()) {
+      if (!currentIds.has(threadId)) {
+        lookedUp.delete(threadId);
+      }
+    }
+  };
+
+  const acceptLookups = (lookups: SubjectLookup[]) => {
+    const current = new Map(snapshot.threads.map((thread) => [thread.id, thread.updatedAt]));
+
+    const fresh = lookups.filter((lookup) => current.get(lookup.threadId) === lookup.updatedAt);
+
+    for (const lookup of fresh) {
+      lookedUp.set(lookup.threadId, lookup.updatedAt);
+    }
+
+    update(applySubjectLookups(snapshot, fresh));
+  };
+
+  const startLookup = () => {
+    pruneLookedUp();
+
+    const unknown = snapshot.threads.filter(
+      (thread) => isSubject(thread) && lookedUp.get(thread.id) !== thread.updatedAt,
+    );
+
+    lookupController?.abort();
+    lookupController = null;
+
+    if (unknown.length === 0) {
+      return;
+    }
+
+    const own = new AbortController();
+
+    lookupController = own;
+
+    // A lookup that fails changes nothing, so the next loaded refresh sends its threads again.
+    Promise.resolve()
+      .then(() => effects.lookUpSubjects(unknown, own.signal))
+      .then((lookups) => {
+        if (!own.signal.aborted && !stopped) {
+          acceptLookups(lookups);
+        }
+      })
+      .catch(() => undefined);
+  };
+
   const finishFullRefresh = (outcome: FullRefreshOutcome) => {
     if (outcome.kind === 'aborted') {
       return;
@@ -341,6 +403,7 @@ export const createSession = (effects: SessionEffects): Session => {
       feed = outcome.read.feed;
       update(applyThreads(snapshot, outcome.read.threads, now));
       saveQuietly(outcome.viewer, now);
+      startLookup();
     } else if (outcome.kind === 'busy') {
       update(markFeedBusy(snapshot));
     } else {
@@ -472,6 +535,8 @@ export const createSession = (effects: SessionEffects): Session => {
     stopped = true;
     controller?.abort();
     controller = null;
+    lookupController?.abort();
+    lookupController = null;
     cancelTimer?.();
     cancelTimer = null;
     listeners.clear();

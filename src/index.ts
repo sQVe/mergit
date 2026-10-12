@@ -1,6 +1,7 @@
 import { catalog } from './commands.ts';
 import {
   createGhRunner,
+  lookUpSubjects,
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
@@ -112,6 +113,7 @@ if (newerVersion !== null) {
       pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
       readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
       verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),
+      lookUpSubjects: (threads, signal) => lookUpSubjects(githubEffects, threads, signal),
       now,
       setTimer,
     }),
