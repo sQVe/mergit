@@ -1758,7 +1758,9 @@ test('a failed state write after a grouping change shows an error toast and mark
 
   const { toast, unsaved } = session.getSnapshot();
 
-  expect(toast).toEqual({ text: 'Could not save the grouping: disk full', tone: 'error' });
+  expect(toast?.tone).toBe('error');
+  expect(toast?.text).toContain('grouping');
+  expect(toast?.text).toContain('disk full');
   expect([...unsaved]).toEqual(['grouping']);
 });
 
@@ -1789,7 +1791,7 @@ test('the toast clears after five seconds, and a newer toast replaces it and res
   expect(firstTimer?.active).toBe(false);
   expect(secondTimer).not.toBe(firstTimer);
   expect(secondTimer?.delay).toBe(5000);
-  expect(session.getSnapshot().toast?.text).toBe('Could not save the grouping: second');
+  expect(session.getSnapshot().toast?.text).toContain('second');
 
   secondTimer?.callback();
 

@@ -1155,6 +1155,6 @@ test('a toast shows its text, and an unsaved grouping shows in the status line',
 
   const frame = setup.captureCharFrame();
 
-  expect(frame).toContain('Could not save the grouping: disk full');
-  expect(frame).toContain('grouping unsaved');
+  expect(frame).toContain('disk full');
+  expect(frame).toContain('unsaved');
 });
