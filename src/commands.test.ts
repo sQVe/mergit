@@ -6,7 +6,8 @@ import { toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
   savedSnapshot: null,
-  readViewer: () => Promise.resolve({ ok: true as const, value: toViewerLogin('octocat') }),
+  readViewer: () =>
+    Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
   saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({

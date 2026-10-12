@@ -6,6 +6,7 @@ import type {
   NotificationFeedRequest,
   NotificationPoll,
   NotificationVerification,
+  Viewer,
 } from '../github/github.ts';
 import type { NotificationThread, ViewerLogin } from '../work/work.ts';
 import type { Snapshot } from './sessionState.ts';
@@ -29,7 +30,7 @@ export type ApplicationIntent =
   | { kind: 'selectPrevious' };
 
 export interface SavedSnapshot {
-  login: ViewerLogin;
+  viewer: Viewer;
   savedAt: Date;
   feed: NotificationFeed;
   threads: NotificationThread[];
@@ -37,8 +38,8 @@ export interface SavedSnapshot {
 
 export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
-  readViewer: (signal: AbortSignal) => Promise<GitHubResult<ViewerLogin>>;
-  saveSnapshot: (login: ViewerLogin, feed: NotificationFeed, savedAt: Date) => void;
+  readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
+  saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
   pollFeed: (
     feed: NotificationFeed,
     signal: AbortSignal,
@@ -56,7 +57,7 @@ export interface SessionEffects {
 }
 
 type FullRefreshOutcome =
-  | { kind: 'loaded'; read: NotificationFeedRead; login: ViewerLogin }
+  | { kind: 'loaded'; read: NotificationFeedRead; viewer: Viewer }
   | { kind: 'busy' }
   | { kind: 'aborted' }
   | { kind: 'failed'; failure: GitHubFailure };
@@ -100,7 +101,7 @@ export const createSession = (effects: SessionEffects): Session => {
       : showSavedThreads(savedSnapshot.threads, savedSnapshot.savedAt);
 
   let viewerLogin: ViewerLogin | null = null;
-  let knownLogin: ViewerLogin | null = savedSnapshot?.login ?? null;
+  let lastViewer: Viewer | null = savedSnapshot?.viewer ?? null;
   let stopped = false;
   let generation = 0;
   let controller: AbortController | null = null;
@@ -146,7 +147,7 @@ export const createSession = (effects: SessionEffects): Session => {
     request: NotificationFeedRequest,
     signal: AbortSignal,
     retriesLeft: number,
-    login: ViewerLogin,
+    viewer: Viewer,
   ): Promise<FullRefreshOutcome> => {
     const read = await guard(() => effects.readFeed(request, signal));
 
@@ -169,23 +170,23 @@ export const createSession = (effects: SessionEffects): Session => {
     rememberInterval(verification.value.pollInterval);
 
     if (verification.value.kind === 'stable') {
-      return { kind: 'loaded', read: read.value, login };
+      return { kind: 'loaded', read: read.value, viewer };
     }
 
     if (retriesLeft === 0) {
       return { kind: 'busy' };
     }
 
-    return checkedRead({ previous: read.value.feed }, signal, retriesLeft - 1, login);
+    return checkedRead({ previous: read.value.feed }, signal, retriesLeft - 1, viewer);
   };
 
   // The feed from a saved snapshot only serves an account that matches the saved login.
-  const acceptViewer = (login: ViewerLogin, request: NotificationFeedRequest) => {
+  const acceptViewer = (viewer: Viewer, request: NotificationFeedRequest) => {
     const firstRead = viewerLogin === null;
-    const accountChanged = knownLogin !== null && knownLogin !== login;
+    const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
 
-    viewerLogin = login;
-    knownLogin = login;
+    viewerLogin = viewer.login;
+    lastViewer = viewer;
 
     if (accountChanged) {
       feed = null;
@@ -205,7 +206,7 @@ export const createSession = (effects: SessionEffects): Session => {
     request: NotificationFeedRequest,
     signal: AbortSignal,
   ): Promise<FullRefreshOutcome> => {
-    const viewer = await guard(() => effects.readViewer(signal));
+    const viewer = await guard(() => effects.readViewer(lastViewer, signal));
 
     if (!viewer.ok) {
       return { kind: 'failed', failure: viewer.failure };
@@ -271,13 +272,13 @@ export const createSession = (effects: SessionEffects): Session => {
     schedule(pollSeconds * millisecondsPerSecond);
   };
 
-  const saveQuietly = (login: ViewerLogin, savedAt: Date) => {
+  const saveQuietly = (viewer: Viewer, savedAt: Date) => {
     if (feed === null) {
       return;
     }
 
     try {
-      effects.saveSnapshot(login, feed, savedAt);
+      effects.saveSnapshot(viewer, feed, savedAt);
     } catch {
       // A failed save must not stop the session.
     }
@@ -295,7 +296,7 @@ export const createSession = (effects: SessionEffects): Session => {
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
       update(applyThreads(snapshot, outcome.read.threads, now));
-      saveQuietly(outcome.login, now);
+      saveQuietly(outcome.viewer, now);
     } else if (outcome.kind === 'busy') {
       update(markFeedBusy(snapshot));
     } else {

@@ -412,16 +412,66 @@ test('verifyNotificationFeed returns the failure of a request', async () => {
 test('readViewer reads the login from /user', async () => {
   const { effects, endpoints } = makeEffects({ '/user': page({ login: 'octocat', id: 1 }) });
 
-  const result = await readViewer(effects, signal);
+  const result = await readViewer(effects, null, signal);
 
-  expect(result).toEqual({ ok: true, value: toViewerLogin('octocat') });
+  expect(result).toEqual({ ok: true, value: { login: toViewerLogin('octocat'), etag: null } });
   expect(endpoints).toEqual(['/user']);
+});
+
+test('readViewer returns the ETag of the response', async () => {
+  const { effects, calls } = makeEffects({
+    '/user': page({ login: 'octocat' }, undefined, '"viewer-1"'),
+  });
+
+  const result = await readViewer(effects, null, signal);
+
+  expect(result).toEqual({
+    ok: true,
+    value: { login: toViewerLogin('octocat'), etag: '"viewer-1"' },
+  });
+
+  expect(calls[0]?.some((arg) => arg.startsWith('If-None-Match'))).toBe(false);
+});
+
+test('readViewer sends the previous ETag and returns the previous viewer on 304', async () => {
+  const { effects, calls } = makeEffects({ '/user': notModified() });
+  const previous = { login: toViewerLogin('octocat'), etag: '"viewer-1"' };
+
+  const result = await readViewer(effects, previous, signal);
+
+  expect(result).toEqual({ ok: true, value: previous });
+  expect(calls[0] && conditionOf(calls[0])).toBe('If-None-Match: "viewer-1"');
+});
+
+test('readViewer takes the new login and ETag when the previous ETag is stale', async () => {
+  const { effects } = makeEffects({
+    '/user': page({ login: 'hubot' }, undefined, '"viewer-2"'),
+  });
+
+  const result = await readViewer(
+    effects,
+    { login: toViewerLogin('octocat'), etag: '"viewer-1"' },
+    signal,
+  );
+
+  expect(result).toEqual({
+    ok: true,
+    value: { login: toViewerLogin('hubot'), etag: '"viewer-2"' },
+  });
+});
+
+test('readViewer returns invalidResponse for a 304 without a previous viewer', async () => {
+  const { effects } = makeEffects({ '/user': notModified() });
+
+  const result = await readViewer(effects, null, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
 });
 
 test('readViewer returns invalidResponse for a body without login', async () => {
   const { effects } = makeEffects({ '/user': page({ id: 1 }) });
 
-  const result = await readViewer(effects, signal);
+  const result = await readViewer(effects, null, signal);
 
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
 });
@@ -429,7 +479,7 @@ test('readViewer returns invalidResponse for a body without login', async () => 
 test('readViewer returns invalidResponse for an empty login', async () => {
   const { effects } = makeEffects({ '/user': page({ login: '' }) });
 
-  const result = await readViewer(effects, signal);
+  const result = await readViewer(effects, null, signal);
 
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
 });

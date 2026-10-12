@@ -8,6 +8,7 @@ import type {
   NotificationPage,
   NotificationPoll,
   NotificationVerification,
+  Viewer,
 } from '../github/github.ts';
 import type { NotificationThread, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
@@ -35,7 +36,8 @@ type Call =
     }
   | {
       kind: 'viewer';
-      resolve: (result: GitHubResult<ViewerLogin>) => void;
+      previous: Viewer | null;
+      resolve: (result: GitHubResult<Viewer>) => void;
       signal: AbortSignal;
     };
 
@@ -111,9 +113,9 @@ const failure = (message: string) => ({
 
 const octocat = toViewerLogin('octocat');
 
-const viewerOf = (login: ViewerLogin): GitHubResult<ViewerLogin> => ({
+const viewerOf = (login: ViewerLogin, etag: string | null = null): GitHubResult<Viewer> => ({
   ok: true,
-  value: login,
+  value: { login, etag },
 });
 
 const makeHarness = (
@@ -132,12 +134,12 @@ const makeHarness = (
 
   const session = createSession({
     savedSnapshot: null,
-    readViewer: (signal) =>
+    readViewer: (previous, signal) =>
       new Promise((resolve) => {
         if (holdViewer) {
-          record({ kind: 'viewer', resolve, signal });
+          record({ kind: 'viewer', previous, resolve, signal });
         } else {
-          history.push({ kind: 'viewer', resolve, signal });
+          history.push({ kind: 'viewer', previous, resolve, signal });
           resolve(viewerOf(octocat));
         }
       }),
@@ -188,7 +190,7 @@ const makeHarness = (
     await settle();
   };
 
-  const answerViewer = async (result: GitHubResult<ViewerLogin>) => {
+  const answerViewer = async (result: GitHubResult<Viewer>) => {
     take('viewer').resolve(result);
     await settle();
   };
@@ -964,8 +966,8 @@ test('the pause clears when the refresh after it succeeds, and polls resume', as
 const savedThreads = [makeThread('1'), makeThread('2')];
 const savedAt = new Date('2026-01-05T08:00:00Z');
 
-const savedSnapshotOf = (login: ViewerLogin): SavedSnapshot => ({
-  login,
+const savedSnapshotOf = (login: ViewerLogin, etag: string | null = null): SavedSnapshot => ({
+  viewer: { login, etag },
   savedAt,
   feed: makeFeed('saved', savedThreads),
   threads: savedThreads,
@@ -1011,11 +1013,11 @@ test('another account empties the list before the feed answers and reads without
 });
 
 test('a loaded refresh saves the new feed once and applyThreads clears the saved time', async () => {
-  const saves: { login: ViewerLogin; feed: NotificationFeed; savedAt: Date }[] = [];
+  const saves: { viewer: Viewer; feed: NotificationFeed; savedAt: Date }[] = [];
 
   const { session, send, answerViewer, answerRead, answerVerify, now } = makeSavedHarness(octocat, {
-    saveSnapshot: (login, feed, savedAtTime) => {
-      saves.push({ login, feed, savedAt: savedAtTime });
+    saveSnapshot: (viewer, feed, savedAtTime) => {
+      saves.push({ viewer, feed, savedAt: savedAtTime });
     },
   });
 
@@ -1026,7 +1028,7 @@ test('a loaded refresh saves the new feed once and applyThreads clears the saved
 
   expect(saves).toEqual([
     {
-      login: octocat,
+      viewer: { login: octocat, etag: null },
       feed: makeFeed('fresh', [makeThread('3')]),
       savedAt: now(),
     },
@@ -1132,12 +1134,12 @@ test('a second full refresh reads the viewer again', async () => {
 });
 
 test('a login that changes between refreshes clears the list, reads without a previous feed, and saves under the new login', async () => {
-  const saves: { login: ViewerLogin; feed: NotificationFeed }[] = [];
+  const saves: { viewer: Viewer; feed: NotificationFeed }[] = [];
   const hubot = toViewerLogin('hubot');
 
   const { session, send, answerViewer, answerVerify, take } = makeSavedHarness(octocat, {
-    saveSnapshot: (login, feed) => {
-      saves.push({ login, feed });
+    saveSnapshot: (viewer, feed) => {
+      saves.push({ viewer, feed });
     },
   });
 
@@ -1158,6 +1160,46 @@ test('a login that changes between refreshes clears the list, reads without a pr
   await settle();
   await answerVerify(stable);
 
-  expect(saves.map((save) => save.login)).toEqual([octocat, hubot]);
+  expect(saves.map((save) => save.viewer.login)).toEqual([octocat, hubot]);
   expect(saves[1]?.feed).toEqual(makeFeed('second', [makeThread('4')]));
+});
+
+test('a saved snapshot sends its viewer etag on the first read', async () => {
+  const { send, take } = makeSavedHarness(octocat, {
+    savedSnapshot: savedSnapshotOf(octocat, '"saved-viewer"'),
+  });
+
+  await send();
+
+  expect(take('viewer').previous).toEqual({ login: octocat, etag: '"saved-viewer"' });
+});
+
+test('the next full refresh sends the etag of the previous viewer read', async () => {
+  const { send, answerViewer, answerRead, answerVerify, take } = makeSavedHarness(octocat);
+
+  await send();
+  await answerViewer(viewerOf(octocat, '"first"'));
+  await answerRead(readOf('fresh', []));
+  await answerVerify(stable);
+  await send();
+
+  expect(take('viewer').previous).toEqual({ login: octocat, etag: '"first"' });
+});
+
+test('a changed login saves the new viewer etag', async () => {
+  const saves: Viewer[] = [];
+  const hubot = toViewerLogin('hubot');
+
+  const { send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
+    saveSnapshot: (viewer) => {
+      saves.push(viewer);
+    },
+  });
+
+  await send();
+  await answerViewer(viewerOf(hubot, '"hubot-tag"'));
+  await answerRead(readOf('second', []));
+  await answerVerify(stable);
+
+  expect(saves).toEqual([{ login: hubot, etag: '"hubot-tag"' }]);
 });

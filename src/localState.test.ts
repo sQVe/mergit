@@ -1,6 +1,16 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { mkdtempSync, openSync, closeSync, rmSync, writeSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,6 +33,7 @@ afterEach(() => {
 const makeSnapshot = (login: string, bodies: string[]): LocalSnapshot => ({
   host: 'github.com',
   login: toViewerLogin(login),
+  viewerEtag: '"viewer-1"',
   savedAt: new Date('2026-10-12T06:00:00.000Z'),
   pages: bodies.map((body, index) => ({
     path: `/notifications?page=${index + 1}`,
@@ -147,4 +158,77 @@ test('resolves the cache directory from the environment', () => {
   expect(cacheDirectory({ HOME: '/home/a' })).toBe('/home/a/.cache/zeta');
   expect(cacheDirectory({ XDG_CACHE_HOME: '', HOME: '/home/a' })).toBe('/home/a/.cache/zeta');
   expect(cacheDirectory({})).toBeNull();
+});
+
+test('the viewer ETag round-trips, including a missing one', () => {
+  const withEtag = makeSnapshot('octocat', ['a']);
+  saveSnapshot(directory, withEtag);
+
+  expect(loadValue()?.viewerEtag).toBe('"viewer-1"');
+
+  saveSnapshot(directory, { ...withEtag, viewerEtag: null });
+
+  expect(loadValue()?.viewerEtag).toBeNull();
+});
+
+test('recreates a version 1 cache file', () => {
+  const file = join(directory, 'cache.db');
+  mkdirSync(directory);
+  const database = new Database(file);
+
+  database.run(
+    'CREATE TABLE last (id INTEGER PRIMARY KEY, host TEXT, login TEXT, savedAt INTEGER)',
+  );
+
+  database.run("INSERT INTO last VALUES (1, 'github.com', 'octocat', 0)");
+  database.run('PRAGMA user_version = 1');
+  database.close();
+
+  const snapshot = makeSnapshot('octocat', ['a']);
+
+  expect(loadValue()).toBeNull();
+  expect(saveSnapshot(directory, snapshot).ok).toBe(true);
+  expect(loadValue()).toEqual(snapshot);
+});
+
+const modeOf = (path: string) => statSync(path).mode & 0o777;
+
+test('a save under a permissive umask leaves the directory and file owner-only', () => {
+  const previousUmask = process.umask(0);
+
+  try {
+    saveSnapshot(directory, makeSnapshot('octocat', ['a']));
+  } finally {
+    process.umask(previousUmask);
+  }
+
+  expect(modeOf(directory)).toBe(0o700);
+  expect(modeOf(join(directory, 'cache.db'))).toBe(0o600);
+});
+
+test('a save tightens an existing wide directory and file without touching the parent', () => {
+  const file = join(directory, 'cache.db');
+  mkdirSync(directory);
+  writeFileSync(file, '');
+  chmodSync(root, 0o755);
+  chmodSync(directory, 0o755);
+  chmodSync(file, 0o644);
+
+  saveSnapshot(directory, makeSnapshot('octocat', ['a']));
+  loadSnapshot(directory);
+
+  expect(modeOf(directory)).toBe(0o700);
+  expect(modeOf(file)).toBe(0o600);
+  expect(modeOf(root)).toBe(0o755);
+});
+
+test('a recreated cache file is owner-only', () => {
+  const file = join(directory, 'cache.db');
+  saveSnapshot(directory, makeSnapshot('octocat', ['a']));
+  writeFileSync(file, 'garbage'.repeat(500));
+  chmodSync(file, 0o644);
+
+  saveSnapshot(directory, makeSnapshot('octocat', ['a']));
+
+  expect(modeOf(file)).toBe(0o600);
 });

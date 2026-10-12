@@ -17,6 +17,11 @@ interface FetchedPage {
   pollInterval: number | null;
 }
 
+export interface Viewer {
+  login: ViewerLogin;
+  etag: string | null;
+}
+
 export interface SavedNotificationPage {
   path: string;
   etag: string | null;
@@ -50,14 +55,28 @@ const viewerSchema = z.object({ login: z.string().min(1) });
 
 const firstNotificationsEndpoint = '/notifications?all=true&per_page=50';
 
+const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
+  ok: false,
+  failure: { kind: 'invalidResponse', message },
+});
+
 export const readViewer = async (
   effects: GitHubEffects,
+  previous: Viewer | null,
   signal: AbortSignal,
-): Promise<GitHubResult<ViewerLogin>> => {
-  const response = await requestGh(effects, '/user', signal);
+): Promise<GitHubResult<Viewer>> => {
+  const response = await requestGh(effects, '/user', signal, previous?.etag ?? null);
 
   if (!response.ok) {
     return response;
+  }
+
+  if (response.value.status === notModifiedStatus) {
+    if (previous === null) {
+      return invalid('The viewer was not modified, but none was known');
+    }
+
+    return { ok: true, value: previous };
   }
 
   const parsed = viewerSchema.safeParse(response.value.body);
@@ -66,13 +85,14 @@ export const readViewer = async (
     return { ok: false, failure: { kind: 'invalidResponse', message: parsed.error.message } };
   }
 
-  return { ok: true, value: toViewerLogin(parsed.data.login) };
+  return {
+    ok: true,
+    value: {
+      login: toViewerLogin(parsed.data.login),
+      etag: response.value.headers.get('etag') ?? null,
+    },
+  };
 };
-
-const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
-  ok: false,
-  failure: { kind: 'invalidResponse', message },
-});
 
 const fetchPage = async (
   effects: GitHubEffects,

@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { z } from 'zod';
@@ -17,6 +17,7 @@ interface LocalPage {
 export interface LocalSnapshot {
   host: string;
   login: ViewerLogin;
+  viewerEtag: string | null;
   savedAt: Date;
   pages: LocalPage[];
 }
@@ -44,19 +45,25 @@ const pageRow = z.object({
 const lastRow = z.object({
   host: z.string(),
   login: z.string(),
+  viewerEtag: z.string().nullable(),
   savedAt: z.number(),
 });
 
 const busyTimeoutMilliseconds = 250;
 const corruptionCodes = new Set(['SQLITE_CORRUPT', 'SQLITE_NOTADB']);
 
-const schemaVersion = 1;
+const ownerDirectoryMode = 0o700;
+const ownerFileMode = 0o600;
+const databaseSuffixes = ['', '-journal', '-wal', '-shm'];
+
+const schemaVersion = 2;
 
 const schema = `
   CREATE TABLE IF NOT EXISTS last (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     host TEXT NOT NULL,
     login TEXT NOT NULL,
+    viewerEtag TEXT,
     savedAt INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS pages (
@@ -96,9 +103,23 @@ export const cacheDirectory = (environment: Record<string, string | undefined>):
 };
 
 const removeDatabaseFiles = (file: string): void => {
-  for (const suffix of ['', '-wal', '-shm']) {
+  for (const suffix of databaseSuffixes) {
     rmSync(`${file}${suffix}`, { force: true });
   }
+};
+
+// The cache holds private repository names and titles, so only the owner may read it.
+const restrictDatabaseFiles = (file: string): void => {
+  for (const suffix of databaseSuffixes) {
+    if (existsSync(`${file}${suffix}`)) {
+      chmodSync(`${file}${suffix}`, ownerFileMode);
+    }
+  }
+};
+
+const createDatabaseFile = (file: string): void => {
+  closeSync(openSync(file, 'a', ownerFileMode));
+  restrictDatabaseFiles(file);
 };
 
 const errorCode = (error: unknown): string | null => {
@@ -140,7 +161,7 @@ const prepareDatabase = (database: Database): Attempt<null> => {
 
 const readSnapshot = (database: Database): Attempt<LocalSnapshot | null> => {
   const lastRaw = database
-    .query<unknown, []>('SELECT host, login, savedAt FROM last WHERE id = 1')
+    .query<unknown, []>('SELECT host, login, viewerEtag, savedAt FROM last WHERE id = 1')
     .get();
 
   if (lastRaw === null) {
@@ -170,6 +191,7 @@ const readSnapshot = (database: Database): Attempt<LocalSnapshot | null> => {
     value: {
       host: last.data.host,
       login: toViewerLogin(last.data.login),
+      viewerEtag: last.data.viewerEtag,
       savedAt: new Date(last.data.savedAt),
       pages: rows.data,
     },
@@ -197,8 +219,8 @@ const writeSnapshot = (database: Database, snapshot: LocalSnapshot): void => {
     });
 
     database.run(
-      'INSERT INTO last (id, host, login, savedAt) VALUES (1, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET host = excluded.host, login = excluded.login, savedAt = excluded.savedAt',
-      [snapshot.host, snapshot.login, snapshot.savedAt.getTime()],
+      'INSERT INTO last (id, host, login, viewerEtag, savedAt) VALUES (1, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET host = excluded.host, login = excluded.login, viewerEtag = excluded.viewerEtag, savedAt = excluded.savedAt',
+      [snapshot.host, snapshot.login, snapshot.viewerEtag, snapshot.savedAt.getTime()],
     );
   });
 
@@ -218,7 +240,11 @@ const attempt = <T>(file: string, operation: (database: Database) => Attempt<T>)
       return prepared;
     }
 
-    return operation(database);
+    const result = operation(database);
+
+    restrictDatabaseFiles(file);
+
+    return result;
   } catch (error) {
     return classifyError(error);
   } finally {
@@ -235,8 +261,13 @@ const withDatabase = <T>(
   operation: (database: Database) => Attempt<T>,
 ): LocalStateResult<T> => {
   try {
-    mkdirSync(directory, { recursive: true });
+    mkdirSync(directory, { recursive: true, mode: ownerDirectoryMode });
+    chmodSync(directory, ownerDirectoryMode);
+
     const file = join(directory, 'cache.db');
+
+    createDatabaseFile(file);
+
     const first = attempt(file, operation);
 
     if (first.kind !== 'corrupt') {
@@ -244,6 +275,7 @@ const withDatabase = <T>(
     }
 
     removeDatabaseFiles(file);
+    createDatabaseFile(file);
 
     return toResult(attempt(file, operation));
   } catch (error) {

@@ -18,7 +18,11 @@ type ThemeListener = (mode: ThemeMode) => void;
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
-  readViewer: () => Promise.resolve({ ok: true as const, value: 'octocat' as Viewer }),
+  readViewer: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { login: 'octocat' as Viewer['login'], etag: null },
+    }),
   saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({

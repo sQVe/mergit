@@ -25,7 +25,8 @@ Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
-  readViewer: () => Promise.resolve({ ok: true as const, value: toViewerLogin('octocat') }),
+  readViewer: () =>
+    Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
   saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({
@@ -474,7 +475,12 @@ test('the status line names the rate limit pause and its end', async () => {
 
 const savedEffects = (savedAt: Date, threads: NotificationThread[]): SessionEffects => ({
   ...idleEffects,
-  savedSnapshot: { login: toViewerLogin('octocat'), savedAt, feed: { pages: [] }, threads },
+  savedSnapshot: {
+    viewer: { login: toViewerLogin('octocat'), etag: null },
+    savedAt,
+    feed: { pages: [] },
+    threads,
+  },
   readViewer: () => Promise.withResolvers<never>().promise,
   now: () => new Date(),
 });

@@ -51,18 +51,24 @@ const readSavedSnapshot = (): SavedSnapshot | null => {
     return null;
   }
 
-  const { login, savedAt } = loaded.value;
+  const { login, viewerEtag, savedAt } = loaded.value;
 
-  return { login, savedAt, ...restored.value };
+  return { viewer: { login, etag: viewerEtag }, savedAt, ...restored.value };
 };
 
 await startTerminal({
   session: createSession({
     savedSnapshot: readSavedSnapshot(),
-    readViewer: (signal) => readViewer(githubEffects, signal),
-    saveSnapshot: (login, feed, savedAt) => {
+    readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
+    saveSnapshot: (viewer, feed, savedAt) => {
       if (directory !== null) {
-        saveSnapshot(directory, { host, login, savedAt, pages: feed.pages.map(toSavedPage) });
+        saveSnapshot(directory, {
+          host,
+          login: viewer.login,
+          viewerEtag: viewer.etag,
+          savedAt,
+          pages: feed.pages.map(toSavedPage),
+        });
       }
     },
     pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
