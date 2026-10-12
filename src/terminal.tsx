@@ -39,9 +39,11 @@ export interface TerminalEffects {
 export interface TerminalDependencies {
   session: Session;
   catalog: readonly Command[];
+  flushState: () => Promise<void>;
 }
 
 const themeWaitMilliseconds = 500;
+const flushWaitMilliseconds = 1000;
 
 const openOpenTui = async (): Promise<{
   renderer: CliRenderer;
@@ -80,6 +82,22 @@ const listenToProcess = (
   };
 };
 
+const waitForFlush = async (flushState: () => Promise<void>): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, flushWaitMilliseconds);
+  });
+
+  try {
+    await Promise.race([flushState(), timeout]);
+  } catch {
+    // A failed save must not block shutdown or change the exit code.
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const processEffects: TerminalEffects = {
   open: openOpenTui,
   listen: listenToProcess,
@@ -95,7 +113,7 @@ export const startTerminal = async (
   dependencies: TerminalDependencies,
   effects: TerminalEffects = processEffects,
 ): Promise<void> => {
-  const { session, catalog } = dependencies;
+  const { session, catalog, flushState } = dependencies;
   let themeMode: ThemeMode = null;
   const themeListeners = new Set<() => void>();
   let shutdownPromise: Promise<void> | undefined;
@@ -118,6 +136,8 @@ export const startTerminal = async (
 
     try {
       session.stop();
+
+      await waitForFlush(flushState);
 
       for (const remove of removers.splice(0)) {
         remove();

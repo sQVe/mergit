@@ -103,7 +103,10 @@ const settle = () => Bun.sleep(10);
 test('a second shutdown destroys the renderer once and changes nothing more', async () => {
   const harness = createHarness('dark');
 
-  await startTerminal({ session: harness.session, catalog }, harness.effects);
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
 
   const sigint = harness.handlers.get('SIGINT');
   const sigterm = harness.handlers.get('SIGTERM');
@@ -122,7 +125,10 @@ test('a fatal error destroys the renderer before it prints and exits non-zero', 
   const harness = createHarness('dark');
   const order: string[] = [];
 
-  await startTerminal({ session: harness.session, catalog }, harness.effects);
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
 
   const failure = new Error('boom');
   const original = harness.effects.printError;
@@ -143,7 +149,10 @@ test('a fatal error destroys the renderer before it prints and exits non-zero', 
 test('the renderer theme reaches the UI and later changes follow', async () => {
   const harness = createHarness('light');
 
-  await startTerminal({ session: harness.session, catalog }, harness.effects);
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
 
   expect(harness.latestTheme()).toBe('light');
 
@@ -186,7 +195,7 @@ test('the first refresh starts after the UI has mounted and subscribed', async (
     });
 
   try {
-    await startTerminal({ session, catalog }, harness.effects);
+    await startTerminal({ session, catalog, flushState: () => Promise.resolve() }, harness.effects);
     await Bun.sleep(0);
 
     expect(subscribersAtFetch).toEqual([1]);
@@ -198,7 +207,10 @@ test('the first refresh starts after the UI has mounted and subscribed', async (
 test('an unknown theme gives the dark palette', async () => {
   const harness = createHarness(null);
 
-  await startTerminal({ session: harness.session, catalog }, harness.effects);
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
 
   expect(harness.latestTheme()).toBeNull();
 });
@@ -214,7 +226,10 @@ test('SIGINT during a pending open destroys the renderer once and exits 0 withou
     return realOpen();
   };
 
-  const started = startTerminal({ session: harness.session, catalog }, harness.effects);
+  const started = startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
 
   harness.handlers.get('SIGINT')?.();
   await settle();
@@ -237,7 +252,11 @@ test('a rejected open prints the error, exits 1, and removes the process listene
 
   harness.effects.open = () => Promise.reject(failure);
 
-  await startTerminal({ session: harness.session, catalog }, harness.effects);
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
   await settle();
 
   expect(harness.printed).toEqual([failure]);
@@ -251,7 +270,10 @@ const startWithRejectingOpen = (harness: ReturnType<typeof createHarness>, failu
 
   harness.effects.open = () => gate;
 
-  const started = startTerminal({ session: harness.session, catalog }, harness.effects);
+  const started = startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
 
   return {
     started,
@@ -288,4 +310,64 @@ test('a fatal error before a quit still exits 1 once with the error printed', as
 
   expect(harness.printed).toEqual([failure]);
   expect(harness.exitCodes).toEqual([1]);
+});
+
+test('shutdown waits for flushState before it unmounts', async () => {
+  const harness = createHarness('dark');
+  const { promise: gate, resolve: release } = Promise.withResolvers<undefined>();
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => gate },
+    harness.effects,
+  );
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(harness.calls.unmount).toBe(0);
+  expect(harness.exitCodes).toEqual([]);
+
+  release(undefined);
+  await settle();
+
+  expect(harness.calls).toEqual({ destroy: 1, unmount: 1 });
+  expect(harness.exitCodes).toEqual([0]);
+});
+
+test('a flushState that never settles still lets Zeta exit 0 after the bounded wait', async () => {
+  const harness = createHarness('dark');
+
+  await startTerminal(
+    {
+      session: harness.session,
+      catalog,
+      flushState: () => Promise.withResolvers<undefined>().promise,
+    },
+    harness.effects,
+  );
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(harness.exitCodes).toEqual([]);
+
+  await Bun.sleep(1100);
+
+  expect(harness.calls).toEqual({ destroy: 1, unmount: 1 });
+  expect(harness.exitCodes).toEqual([0]);
+});
+
+test('a rejected flushState does not change the exit code', async () => {
+  const harness = createHarness('dark');
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.reject(new Error('disk')) },
+    harness.effects,
+  );
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(harness.exitCodes).toEqual([0]);
+  expect(harness.printed).toEqual([]);
 });
