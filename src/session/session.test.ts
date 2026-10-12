@@ -63,6 +63,7 @@ const makePage = (label: string, threads: NotificationThread[] = []): Notificati
   etag: `"${label}"`,
   threads,
   next: null,
+  body: '[]',
 });
 
 const makeFeed = (label: string, threads: NotificationThread[] = []): NotificationFeed => ({

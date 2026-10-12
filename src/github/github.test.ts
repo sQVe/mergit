@@ -8,6 +8,7 @@ import {
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
+  restoreNotificationFeed,
   verifyNotificationFeed,
 } from './github.ts';
 
@@ -143,6 +144,7 @@ test('pollNotificationFeed returns the new page 1 when it changed', async () => 
         etag: '"a2"',
         threads: [expectedThread('105')],
         next: secondUrl,
+        body: JSON.stringify([rawThread('105')]),
       },
       pollInterval: 60,
     },
@@ -253,6 +255,7 @@ test('readNotificationFeed reuses page 1 from a poll without requesting it', asy
     etag: '"a2"',
     threads: [expectedThread('105')],
     next: secondUrl,
+    body: JSON.stringify([rawThread('105')]),
   };
 
   const { effects, endpoints } = makeEffects({
@@ -427,6 +430,37 @@ test('readViewer returns invalidResponse for an empty login', async () => {
   const { effects } = makeEffects({ '/user': page({ login: '' }) });
 
   const result = await readViewer(effects, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+test('restoreNotificationFeed rebuilds the feed and threads that readNotificationFeed returned', async () => {
+  const read = await firstFeed();
+
+  const saved = read.feed.pages.map(({ endpoint, etag, next, body }) => ({
+    path: endpoint,
+    etag,
+    next,
+    body,
+  }));
+
+  const restored = restoreNotificationFeed(saved);
+
+  expect(restored).toEqual({ ok: true, value: { feed: read.feed, threads: read.threads } });
+  expect(read.feed.pages.map((entry) => entry.endpoint)).toEqual([firstUrl, secondUrl, thirdUrl]);
+});
+
+test('readNotificationFeed keeps the raw body text of each page', async () => {
+  const { feed } = await firstFeed();
+
+  expect(feed.pages[1]?.body).toBe(JSON.stringify([rawThread('103')]));
+});
+
+test.each([
+  ['a body that is not JSON', 'not json'],
+  ['a body that fails the schema', '{"id":"1"}'],
+])('restoreNotificationFeed returns invalidResponse for %s', (_label, body) => {
+  const result = restoreNotificationFeed([{ path: firstUrl, etag: null, next: null, body }]);
 
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
 });

@@ -8,6 +8,7 @@ export interface NotificationPage {
   etag: string | null;
   threads: NotificationThread[];
   next: string | null;
+  body: string;
 }
 
 export interface NotificationFeed {
