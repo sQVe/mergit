@@ -25,6 +25,9 @@ interface RowProps {
 const typeWidth = 5;
 const numberWidth = 7;
 const ageWidth = 5;
+const repositoryWidth = 24;
+const minimumRepositoryWidth = 6;
+const minimumFlatTitleWidth = 12;
 const statusLineHeight = 1;
 
 const NodeLine = (props: RowProps & { row: NodeRow; width: number }): ReactNode => {
@@ -53,8 +56,17 @@ const NodeLine = (props: RowProps & { row: NodeRow; width: number }): ReactNode 
 const ThreadLine = (props: RowProps & { row: ThreadRow; width: number; now: Date }): ReactNode => {
   const { row, palette, selected, now } = props;
   const { thread } = row;
-  const prefixWidth = row.depth * guideWidth + guideWidth;
-  const titleWidth = Math.max(1, props.width - prefixWidth - typeWidth - numberWidth - ageWidth);
+  const flat = row.nodeRowKey === null;
+  const prefixWidth = flat ? 0 : row.depth * guideWidth + guideWidth;
+  const fixedWidth = typeWidth + numberWidth + ageWidth + minimumFlatTitleWidth;
+  const repositoryRoom = Math.min(repositoryWidth, props.width - fixedWidth);
+  const repositoryFits = flat && repositoryRoom >= minimumRepositoryWidth;
+  const repositoryColumn = repositoryFits ? repositoryRoom : 0;
+
+  const titleWidth = Math.max(
+    1,
+    props.width - prefixWidth - typeWidth - numberWidth - repositoryColumn - ageWidth,
+  );
 
   return (
     <box
@@ -62,13 +74,18 @@ const ThreadLine = (props: RowProps & { row: ThreadRow; width: number; now: Date
       height={1}
       backgroundColor={selected ? palette.selectedBackground : 'transparent'}
     >
-      <text fg={palette.dim}>{`${guideFor(row.depth)}${branchFor(row.last)}`}</text>
+      {flat ? null : <text fg={palette.dim}>{`${guideFor(row.depth)}${branchFor(row.last)}`}</text>}
       <text fg={palette.typeLabel} width={typeWidth}>
         {typeLabelFor(thread)}
       </text>
       <text fg={palette.dim} width={numberWidth}>
         {numberLabelFor(thread)}
       </text>
+      {repositoryColumn > 0 ? (
+        <text fg={palette.dim} width={repositoryColumn}>
+          {truncate(thread.repository, repositoryColumn - 1)}
+        </text>
+      ) : null}
       <text fg={palette.text} width={titleWidth}>
         {truncate(thread.title, titleWidth - 1)}
       </text>

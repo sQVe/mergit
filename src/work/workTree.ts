@@ -26,7 +26,8 @@ export interface ThreadRow {
   key: string;
   thread: NotificationThread;
   depth: number;
-  nodeRowKey: string;
+  /** Null in the flat list, where no node holds the thread. */
+  nodeRowKey: string | null;
   last: boolean;
 }
 
@@ -38,7 +39,7 @@ interface Bucket {
   matches: (thread: NotificationThread) => boolean;
 }
 
-export const groupings = ['reason', 'repo', 'type', 'none'] as const;
+export const groupings = ['reason', 'type', 'none'] as const;
 
 export type Grouping = (typeof groupings)[number];
 
@@ -86,22 +87,10 @@ const compareText = (left: string, right: string): number => {
   return left > right ? 1 : 0;
 };
 
-const newestUpdate = (node: TreeNode): string =>
-  node.threads.reduce(
-    (newest, thread) => (thread.updatedAt > newest ? thread.updatedAt : newest),
-    '',
-  );
-
 const sortByCount = (nodes: TreeNode[]): TreeNode[] =>
   nodes.toSorted(
     (left, right) =>
       right.threads.length - left.threads.length || compareText(left.title, right.title),
-  );
-
-const sortByNewest = (nodes: TreeNode[]): TreeNode[] =>
-  nodes.toSorted(
-    (left, right) =>
-      compareText(newestUpdate(right), newestUpdate(left)) || compareText(left.title, right.title),
   );
 
 const repoNodes = (threads: NotificationThread[], prefix: string): TreeNode[] => {
@@ -181,9 +170,7 @@ export const buildTree = (threads: NotificationThread[], grouping: Grouping): Tr
     return groupNodes(threads, typeBuckets, otherBucket, () => undefined);
   }
 
-  const repos = repoNodes(threads, '');
-
-  return grouping === 'repo' ? sortByCount(repos) : sortByNewest(repos);
+  return [];
 };
 
 const pushNode = (
@@ -237,3 +224,20 @@ export const flattenTree = (tree: TreeNode[], folded: ReadonlySet<string>): Tree
 
   return rows;
 };
+
+const flatRows = (threads: NotificationThread[]): TreeRow[] =>
+  threads.map((thread) => ({
+    kind: 'thread',
+    key: `thread:${thread.id}`,
+    thread,
+    depth: 0,
+    nodeRowKey: null,
+    last: false,
+  }));
+
+export const treeRows = (
+  threads: NotificationThread[],
+  grouping: Grouping,
+  folded: ReadonlySet<string>,
+): TreeRow[] =>
+  grouping === 'none' ? flatRows(threads) : flattenTree(buildTree(threads, grouping), folded);

@@ -9,6 +9,7 @@ import {
   readSubjectNumber,
   selectOpenThreads,
   toThreadId,
+  treeRows,
   toViewerLogin,
 } from './work.ts';
 
@@ -130,30 +131,29 @@ test('buildTree by type puts unknown types in Other', () => {
   expect(tree.map((node) => node.title)).toEqual(['Other']);
 });
 
-test('buildTree by repo sorts repos by thread count, then by name', () => {
-  const threads = [
-    makeThread('1', { repository: 'acme/zed' }),
-    makeThread('2', { repository: 'acme/beta' }),
-    makeThread('3', { repository: 'acme/alpha' }),
-    makeThread('4', { repository: 'acme/zed' }),
-  ];
-
-  const tree = buildTree(threads, 'repo');
-
-  expect(tree.map((node) => node.key)).toEqual(['acme/zed', 'acme/alpha', 'acme/beta']);
-  expect(readIds(tree[0]?.threads ?? [])).toEqual(['1', '4']);
+test('groupings cycle reason, type, none', () => {
+  expect([...groupings]).toEqual(['reason', 'type', 'none']);
 });
 
-test('buildTree with no grouping sorts repos by their newest thread', () => {
+test('treeRows with no grouping gives only thread rows in input order, with no holder', () => {
   const threads = [
-    makeThread('1', { repository: 'acme/old', updatedAt: '2026-01-01T00:00:00Z' }),
-    makeThread('2', { repository: 'acme/new', updatedAt: '2026-01-03T00:00:00Z' }),
-    makeThread('3', { repository: 'acme/old', updatedAt: '2026-01-02T00:00:00Z' }),
+    makeThread('3', { repository: 'acme/zed', updatedAt: '2026-01-01T00:00:00Z' }),
+    makeThread('1', { repository: 'acme/alpha', updatedAt: '2026-01-03T00:00:00Z' }),
+    makeThread('2', { repository: 'acme/zed', updatedAt: '2026-01-02T00:00:00Z' }),
   ];
 
-  const tree = buildTree(threads, 'none');
+  const rows = treeRows(threads, 'none', new Set(['acme/zed']));
 
-  expect(tree.map((node) => node.key)).toEqual(['acme/new', 'acme/old']);
+  expect(rows.map((row) => row.key)).toEqual(['thread:3', 'thread:1', 'thread:2']);
+  expect(rows.every((row) => row.kind === 'thread')).toBe(true);
+
+  expect(rows).toMatchObject([
+    { depth: 0, nodeRowKey: null, last: false },
+    { depth: 0, nodeRowKey: null, last: false },
+    { depth: 0, nodeRowKey: null, last: false },
+  ]);
+
+  expect(buildTree(threads, 'none')).toEqual([]);
 });
 
 test('flattenTree hides the children of a folded node but keeps its row and threads', () => {
@@ -184,7 +184,7 @@ test('flattenTree marks depth, the holding node, and the last thread of a node',
 
 test('flattenTree gives every row a unique key in each grouping', () => {
   for (const grouping of groupings) {
-    const rows = flattenTree(buildTree(reasonFixture(), grouping), new Set());
+    const rows = treeRows(reasonFixture(), grouping, new Set());
     const keys = rows.map((row) => row.key);
 
     expect(new Set(keys).size).toBe(keys.length);

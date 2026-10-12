@@ -1,6 +1,6 @@
 import { invariant } from '../invariant.ts';
 
-export { buildTree, flattenTree, groupings } from './workTree.ts';
+export { buildTree, flattenTree, groupings, treeRows } from './workTree.ts';
 export type { Grouping, NodeRow, ThreadRow, TreeRow } from './workTree.ts';
 
 export type ThreadId = string & { readonly brand: 'ThreadId' };

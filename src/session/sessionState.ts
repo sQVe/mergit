@@ -1,7 +1,7 @@
 import type { GitHubFailure } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
 import type { Grouping, NodeRow, NotificationThread, TreeRow } from '../work/work.ts';
-import { buildTree, flattenTree, groupings, selectOpenThreads } from '../work/work.ts';
+import { groupings, selectOpenThreads, treeRows } from '../work/work.ts';
 
 type Notice = 'ghMissing' | 'notSignedIn';
 
@@ -26,7 +26,6 @@ export const initialSnapshot: Snapshot = {
   grouping: 'reason',
   foldedNodes: {
     reason: new Set(),
-    repo: new Set(),
     type: new Set(),
     none: new Set(),
   },
@@ -41,10 +40,7 @@ export const initialSnapshot: Snapshot = {
 };
 
 export const visibleRows = (snapshot: Snapshot): TreeRow[] =>
-  flattenTree(
-    buildTree(snapshot.threads, snapshot.grouping),
-    snapshot.foldedNodes[snapshot.grouping],
-  );
+  treeRows(snapshot.threads, snapshot.grouping, snapshot.foldedNodes[snapshot.grouping]);
 
 const topLevelRowOf = (rows: TreeRow[], index: number): NodeRow | undefined => {
   for (let candidate = index; candidate >= 0; candidate -= 1) {
@@ -62,7 +58,7 @@ const holdersOf = (previousRows: TreeRow[], previousIndex: number): string[] => 
   const row = previousRows[previousIndex];
   const holders: string[] = [];
 
-  if (row?.kind === 'thread') {
+  if (row?.kind === 'thread' && row.nodeRowKey !== null) {
     holders.push(row.nodeRowKey);
   }
 
@@ -244,21 +240,25 @@ const withFolds = (snapshot: Snapshot, folds: ReadonlySet<string>): Snapshot => 
   foldedNodes: { ...snapshot.foldedNodes, [snapshot.grouping]: folds },
 });
 
-const nodeKeyOf = (row: TreeRow): string =>
-  row.kind === 'node' ? row.nodeKey : row.nodeRowKey.slice('node:'.length);
+const nodeRowOf = (row: TreeRow): string | null => (row.kind === 'node' ? row.key : row.nodeRowKey);
 
-const nodeRowOf = (row: TreeRow): string => (row.kind === 'node' ? row.key : row.nodeRowKey);
+const nodeKeyOf = (row: TreeRow): string | null => {
+  const nodeRowKey = nodeRowOf(row);
+
+  return nodeRowKey === null ? null : nodeRowKey.slice('node:'.length);
+};
 
 export const toggleFold = (snapshot: Snapshot): Snapshot => {
   const rows = visibleRows(snapshot);
   const row = rows[selectedIndex(snapshot, rows)];
 
-  if (row === undefined) {
+  const nodeKey = row === undefined ? null : nodeKeyOf(row);
+
+  if (row === undefined || nodeKey === null) {
     return snapshot;
   }
 
   const folds = new Set(snapshot.foldedNodes[snapshot.grouping]);
-  const nodeKey = nodeKeyOf(row);
 
   if (!folds.delete(nodeKey)) {
     folds.add(nodeKey);

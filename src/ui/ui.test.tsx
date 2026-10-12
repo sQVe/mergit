@@ -96,6 +96,7 @@ const WithKeymap = (props: Omit<AppProps, 'keymap'>): ReactNode => {
 const mount = async (
   initialMode: 'light' | 'dark' | null = null,
   effects: SessionEffects = idleEffects,
+  width = 60,
 ) => {
   let themeMode = initialMode;
   const themeListeners = new Set<() => void>();
@@ -152,7 +153,7 @@ const mount = async (
     />
   );
 
-  const setup = await act(() => testRender(node, { width: 60, height: 20 }));
+  const setup = await act(() => testRender(node, { width, height: 20 }));
 
   setups.push(setup);
 
@@ -627,20 +628,10 @@ test('folding a node hides its children and keeps its count', async () => {
   expect(setup.captureCharFrame()).toContain('│ ▾ example/alpha 2');
 });
 
-test('s regroups by repo, type, and none, and keeps the selection on the same thread', async () => {
+test('s regroups by type, then none, then reason, and keeps the selection on the same thread', async () => {
   const { setup, press } = await mount('dark', threadsEffects(treeThreads));
 
   await pressAll(press, ['r', 'j', 'j']);
-  expect(selectedLine(setup)).toContain('Fix parser');
-
-  await press('s');
-
-  const byRepo = frameLines(setup);
-
-  expect(byRepo[0]).toBe('▾ example/beta 3');
-  expect(byRepo[1]).toMatch(/^│ ├─ISS\s+#3\s+Crash on start/);
-  expect(byRepo).toContain('▾ example/alpha 2');
-  expect(byRepo).not.toContain('▾ Review requested 2');
   expect(selectedLine(setup)).toContain('Fix parser');
 
   await press('s');
@@ -657,10 +648,60 @@ test('s regroups by repo, type, and none, and keeps the selection on the same th
 
   const ungrouped = frameLines(setup);
 
-  expect(ungrouped[0]).toBe('▾ example/alpha 2');
-  expect(ungrouped).toContain('▾ example/beta 3');
+  expect(ungrouped.filter((line) => /^(PR|ISS|REL)\s/.test(line))).toHaveLength(treeThreads.length);
+  expect(ungrouped.some((line) => /[│├└▾▸]/.test(line))).toBe(false);
   expect(ungrouped.some((line) => line.includes('Pull requests'))).toBe(false);
   expect(selectedLine(setup)).toContain('Fix parser');
+
+  await press('s');
+
+  expect(frameLines(setup)[0]).toBe('▾ Review requested 2');
+  expect(selectedLine(setup)).toContain('Fix parser');
+});
+
+test('the flat list shows each thread with its repository and no guide or branch', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 's', 's']);
+
+  const lines = frameLines(setup).slice(0, 5);
+
+  expect(lines[0]).toMatch(/^PR\s+#1\s+example\/alpha\s+Fix parser\s+2h$/);
+  expect(lines[1]).toMatch(/^PR\s+#2\s+example\/alpha\s+Add cache\s+2h$/);
+  expect(lines[2]).toMatch(/^ISS\s+#3\s+example\/beta\s+Crash on start\s+2h$/);
+  expect(lines[3]).toMatch(/^REL\s+example\/beta\s+Release v1\s+2h$/);
+  expect(lines[4]).toMatch(/^ISS\s+#5\s+example\/beta\s+Stale crash\s+2h$/);
+
+  for (const line of lines) {
+    expect(line).not.toMatch(/[│├└▾▸]/);
+  }
+});
+
+test('the flat list keeps each title start and age on its row at narrow widths', async () => {
+  for (const width of [40, 30]) {
+    const { setup, press } = await mount('dark', threadsEffects(treeThreads), width);
+
+    await pressAll(press, ['r', 's', 's']);
+
+    const lines = frameLines(setup).slice(0, 5);
+    const titles = ['Fix', 'Add', 'Crash', 'Release', 'Stale'];
+
+    expect(lines).toHaveLength(5);
+
+    lines.forEach((line, index) => {
+      expect(line).toMatch(new RegExp(`${titles[index]}.*\\d+h$`));
+    });
+  }
+});
+
+test('the flat list truncates a long repository name so the title keeps its space', async () => {
+  const longRepository = 'example/a-valid-repository-name-longer-than-the-terminal-width';
+  const threads = [treeThread(1, 'Fix parser', { repository: longRepository })];
+  const { setup, press } = await mount('dark', threadsEffects(threads));
+
+  await pressAll(press, ['r', 's', 's']);
+
+  expect(frameLines(setup)[0]).toMatch(/^PR\s+#1\s+example\/a-valid.*…\s+Fix parser\s+\d+h$/);
 });
 
 test('j and k move the selection one row, and g and G jump to the first and last row', async () => {
