@@ -130,6 +130,23 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'refresh' } }),
   },
   {
+    id: 'markDone',
+    label: 'Mark thread done',
+    scope: 'list',
+    keys: ['d'],
+    disabledReason: (snapshot) =>
+      selectedRowOf(snapshot)?.kind === 'thread' ? undefined : 'Select a thread to mark it done',
+    intent: () => ({ kind: 'application', intent: { kind: 'markDone' } }),
+  },
+  {
+    id: 'undoDone',
+    label: 'Undo the last done',
+    scope: 'list',
+    keys: ['u'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'undoDone' } }),
+  },
+  {
     id: 'closeDetail',
     label: 'Close thread detail',
     scope: 'preview',

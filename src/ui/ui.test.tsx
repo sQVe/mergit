@@ -28,6 +28,7 @@ const idleEffects: SessionEffects = {
   savedSnapshot: null,
   savedState: null,
   saveState: () => undefined,
+  markThreadDone: () => Promise.resolve({ ok: true, value: null }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),

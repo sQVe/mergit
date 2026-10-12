@@ -20,6 +20,7 @@ const idleEffects: SessionEffects = {
   savedSnapshot: null,
   savedState: null,
   saveState: () => undefined,
+  markThreadDone: () => Promise.resolve({ ok: true, value: null }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({

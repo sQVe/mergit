@@ -2,6 +2,7 @@ import { catalog } from './commands.ts';
 import {
   createGhRunner,
   lookUpSubjects,
+  markThreadDone,
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
@@ -115,6 +116,7 @@ if (newerVersion !== null) {
     savedSnapshot: readSavedSnapshot(),
     savedState,
     saveState: (state) => writer?.save(state),
+    markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),
     stateWarning,
     readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
     saveSnapshot: (viewer, feed, savedAt) => {

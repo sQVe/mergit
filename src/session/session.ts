@@ -10,6 +10,7 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import type { Grouping, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
+import { createDoneQueue, undoWindowMilliseconds } from './done.ts';
 import type { Snapshot, Toast, UnsavedChange } from './sessionState.ts';
 import {
   applyFailure,
@@ -17,12 +18,17 @@ import {
   applyThreads,
   clearAccount,
   clearFailure,
+  failureMessage,
+  hideThread,
   initialSnapshot,
   markFeedBusy,
   cycleGrouping,
   jumpTopLevel,
   moveSelection,
+  releaseThreads,
   selectEdge,
+  selectedThreadOf,
+  showThread,
   toggleAllFolds,
   toggleFold,
   showSavedThreads,
@@ -42,7 +48,9 @@ export type ApplicationIntent =
   | { kind: 'selectPreviousGroup' }
   | { kind: 'toggleFold' }
   | { kind: 'toggleAllFolds' }
-  | { kind: 'cycleGrouping' };
+  | { kind: 'cycleGrouping' }
+  | { kind: 'markDone' }
+  | { kind: 'undoDone' };
 
 export interface SavedState {
   grouping: Grouping;
@@ -60,6 +68,7 @@ export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
+  markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
   stateWarning: string | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
@@ -96,7 +105,10 @@ export interface Session {
   stop: () => void;
 }
 
-type StateIntent = Exclude<ApplicationIntent, { kind: 'refresh' }>;
+type StateIntent = Exclude<
+  ApplicationIntent,
+  { kind: 'refresh' } | { kind: 'markDone' } | { kind: 'undoDone' }
+>;
 
 const minimumPollSeconds = 60;
 const millisecondsPerSecond = 1000;
@@ -111,6 +123,7 @@ const toastMilliseconds = 4000;
 
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',
+  done: 'Done thread',
 };
 
 const guard = async <Value>(
@@ -144,7 +157,7 @@ export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
 
-  const doneRecords = effects.savedState?.done ?? new Map<ThreadId, string>();
+  const doneRecords = new Map<ThreadId, string>(effects.savedState?.done);
 
   const startSnapshot: Snapshot = {
     ...initialSnapshot,
@@ -171,6 +184,7 @@ export const createSession = (effects: SessionEffects): Session => {
   let lastFullRefreshAt = 0;
   let lookupController: AbortController | null = null;
   const lookedUp = new Map<ThreadId, string>();
+  const sentThreadIds = new Set<ThreadId>();
 
   const getSnapshot = () => snapshot;
 
@@ -348,8 +362,11 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const showToast = (content: Omit<Toast, 'durationMilliseconds'>) => {
-    const toast = { ...content, durationMilliseconds: toastMilliseconds };
+  const showToast = (
+    content: Omit<Toast, 'durationMilliseconds'>,
+    durationMilliseconds = toastMilliseconds,
+  ) => {
+    const toast = { ...content, durationMilliseconds };
 
     cancelToastTimer?.();
     update({ ...snapshot, toast });
@@ -380,8 +397,8 @@ export const createSession = (effects: SessionEffects): Session => {
     });
   };
 
-  const saveStateQuietly = () => {
-    unsavedChanges.add('grouping');
+  const saveStateQuietly = (change: UnsavedChange) => {
+    unsavedChanges.add(change);
 
     try {
       effects.saveState({ grouping: snapshot.grouping, done: doneRecords });
@@ -441,6 +458,27 @@ export const createSession = (effects: SessionEffects): Session => {
       .catch(() => undefined);
   };
 
+  const pruneDoneRecords = (fetched: NotificationThread[]) => {
+    const fetchedIds = new Set(fetched.map((thread) => thread.id));
+    let changed = false;
+
+    for (const threadId of doneRecords.keys()) {
+      if (!fetchedIds.has(threadId)) {
+        doneRecords.delete(threadId);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      saveStateQuietly('done');
+    }
+  };
+
+  const releaseSentThreads = () => {
+    update(releaseThreads(snapshot, sentThreadIds));
+    sentThreadIds.clear();
+  };
+
   const finishFullRefresh = (outcome: FullRefreshOutcome) => {
     if (outcome.kind === 'aborted') {
       return;
@@ -452,7 +490,9 @@ export const createSession = (effects: SessionEffects): Session => {
 
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
+      pruneDoneRecords(outcome.read.threads);
       update(applyThreads(snapshot, outcome.read.threads, doneRecords, now));
+      releaseSentThreads();
       saveQuietly(outcome.viewer, now);
       startLookup();
     } else if (outcome.kind === 'busy') {
@@ -566,6 +606,53 @@ export const createSession = (effects: SessionEffects): Session => {
     later.startFullRefresh?.({ previous: null });
   };
 
+  const doneQueue = createDoneQueue({
+    setTimer: effects.setTimer,
+    markThreadDone: effects.markThreadDone,
+    onSent: (thread) => {
+      doneRecords.set(thread.id, thread.updatedAt);
+      sentThreadIds.add(thread.id);
+      saveStateQuietly('done');
+      requestRefresh();
+    },
+    onFailed: (thread, failure) => {
+      update(showThread(snapshot, thread.id));
+
+      showToast({
+        title: `Could not mark ${thread.title} done`,
+        lines: [failureMessage(failure)],
+        tone: 'error',
+      });
+    },
+  });
+
+  const markDone = () => {
+    const thread = selectedThreadOf(snapshot);
+
+    if (thread === undefined) {
+      return;
+    }
+
+    doneQueue.add(thread);
+    update(hideThread(snapshot, thread.id));
+
+    showToast(
+      { title: `Marked ${thread.title} done`, lines: ['You can undo for 5 seconds'], tone: 'info' },
+      undoWindowMilliseconds,
+    );
+  };
+
+  const undoDone = () => {
+    const outcome = doneQueue.undoLatest();
+
+    if (outcome.kind === 'undone') {
+      update(showThread(snapshot, outcome.thread.id));
+      showToast({ title: `Undid marking ${outcome.thread.title} done`, lines: [], tone: 'info' });
+    } else if (outcome.kind === 'tooLate') {
+      showToast({ title: 'The last done cannot be undone', lines: [], tone: 'info' });
+    }
+  };
+
   const send = (intent: ApplicationIntent) => {
     if (stopped) {
       return;
@@ -573,11 +660,15 @@ export const createSession = (effects: SessionEffects): Session => {
 
     if (intent.kind === 'refresh') {
       requestRefresh();
+    } else if (intent.kind === 'markDone') {
+      markDone();
+    } else if (intent.kind === 'undoDone') {
+      undoDone();
     } else {
       update(transitions[intent.kind](snapshot));
 
       if (intent.kind === 'cycleGrouping') {
-        saveStateQuietly();
+        saveStateQuietly('grouping');
       }
     }
   };
@@ -592,6 +683,7 @@ export const createSession = (effects: SessionEffects): Session => {
     cancelTimer = null;
     cancelToastTimer?.();
     cancelToastTimer = null;
+    doneQueue.stop();
     listeners.clear();
   };
 

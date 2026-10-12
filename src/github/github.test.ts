@@ -5,6 +5,7 @@ import { toThreadId, toViewerLogin } from '../work/work.ts';
 import type { GhRun } from './ghApi.ts';
 import type { GitHubEffects } from './github.ts';
 import {
+  markThreadDone,
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
@@ -513,4 +514,32 @@ test.each([
   const result = restoreNotificationFeed([{ path: firstUrl, etag: null, next: null, body }]);
 
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+test('markThreadDone sends a DELETE to the thread and accepts an empty 205', async () => {
+  const { effects, calls } = makeEffects({
+    '/notifications/threads/42': {
+      kind: 'exited',
+      exitCode: 0,
+      stdout: 'HTTP/2.0 205 Reset Content\r\n\r\n',
+      stderr: '',
+    },
+  });
+
+  const result = await markThreadDone(effects, toThreadId('42'), signal);
+
+  expect(result).toEqual({ ok: true, value: null });
+
+  expect(calls).toEqual([['api', '--include', '--method', 'DELETE', '/notifications/threads/42']]);
+});
+
+test('markThreadDone maps a failed status to a failure', async () => {
+  const { effects } = makeEffects({});
+
+  const result = await markThreadDone(effects, toThreadId('42'), signal);
+
+  expect(result).toEqual({
+    ok: false,
+    failure: { kind: 'requestFailed', status: 500, message: 'Boom' },
+  });
 });
