@@ -1,10 +1,13 @@
 import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings } from '@opentui/keymap/react';
+import { useTerminalDimensions } from '@opentui/react';
 import type { ReactNode } from 'react';
 import { useState, useSyncExternalStore } from 'react';
 
 import type { Command, TerminalIntent } from '../commands.ts';
 import type { Session } from '../session/session.ts';
+import { visibleRows } from '../session/session.ts';
+import { DetailPane } from './DetailPane.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
 import { hasNotice, Notice } from './Notice.tsx';
 import { pickPalette } from './palette.ts';
@@ -30,6 +33,10 @@ interface KeysProps extends AppProps {
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
 }
+
+const sidePaneMinimumWidth = 90;
+const sidePaneMaximumWidth = 44;
+const sidePaneShare = 0.36;
 
 const isActive = (command: Command, helpOpen: boolean): boolean => {
   if (command.scope === 'modal') {
@@ -89,6 +96,14 @@ export const App = (props: AppProps): ReactNode => {
   );
 
   const palette = pickPalette(themeMode);
+  const { width } = useTerminalDimensions();
+
+  const sideLayout = width >= sidePaneMinimumWidth;
+  const widestPane = Math.floor(width * sidePaneShare);
+  const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
+
+  const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
+  const now = snapshot.savedAt ?? snapshot.refreshedAt ?? new Date(0);
 
   return (
     <KeymapProvider keymap={props.keymap}>
@@ -97,7 +112,12 @@ export const App = (props: AppProps): ReactNode => {
         {hasNotice(snapshot) ? (
           <Notice snapshot={snapshot} palette={palette} />
         ) : (
-          <ThreadList snapshot={snapshot} palette={palette} />
+          <box flexDirection="row" flexGrow={1}>
+            <ThreadList snapshot={snapshot} palette={palette} width={width - paneWidth} />
+            {sideLayout ? (
+              <DetailPane row={selectedRow} palette={palette} now={now} width={paneWidth} />
+            ) : null}
+          </box>
         )}
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>

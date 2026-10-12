@@ -181,11 +181,20 @@ const mount = async (
     await settle();
   };
 
+  const resize = async (nextWidth: number, nextHeight: number) => {
+    await act(async () => {
+      setup.resize(nextWidth, nextHeight);
+    });
+
+    await settle();
+  };
+
   await settle();
 
   return {
     setup,
     press,
+    resize,
     settle,
     changeTheme,
     terminalIntents,
@@ -820,4 +829,128 @@ test('the status line shows the state warning', async () => {
   const { setup } = await mount('dark', { ...idleEffects, stateWarning: 'state file is invalid' });
 
   expect(setup.captureCharFrame()).toContain('state file is invalid');
+});
+
+const paneWidthAt = (width: number): number => Math.min(44, Math.floor(width * 0.36));
+
+const paneText = (setup: Setup, width: number): string => {
+  const left = width - paneWidthAt(width);
+
+  return setup
+    .captureCharFrame()
+    .split('\n')
+    .map((line) => line.slice(left))
+    .join('\n');
+};
+
+test('at 90 columns and up, the side pane shows the selected thread and follows the cursor', async () => {
+  const threads = [
+    { ...makeThread(1, 'First title'), repository: 'acme/alpha' },
+    { ...makeThread(2, 'Second title'), repository: 'acme/beta' },
+  ];
+
+  const { setup, press } = await mount('dark', threadsEffects(threads), 100);
+
+  await press('r');
+  await press('j');
+  await press('j');
+
+  const first = paneText(setup, 100);
+
+  expect(first).toMatch(/Repo\s+acme\/alpha/);
+  expect(first).toMatch(/Type\s+PR/);
+  expect(first).toMatch(/Number\s+#1/);
+  expect(first).toContain('First title');
+  expect(first).toMatch(/Reason\s+subscribed/);
+  expect(first).toMatch(/Updated\s+3h/);
+  expect(first).toMatch(/Unread\s+yes/);
+
+  await press('j');
+  await press('j');
+
+  const second = paneText(setup, 100);
+
+  expect(second).toMatch(/Repo\s+acme\/beta/);
+  expect(second).toMatch(/Number\s+#2/);
+  expect(second).toContain('Second title');
+  expect(second).not.toContain('First title');
+  expect(second).not.toContain('acme/alpha');
+});
+
+const mixedThreads = [
+  { ...makeThread(1, 'Alpha pull'), repository: 'acme/alpha' },
+  {
+    ...makeThread(2, 'Beta issue'),
+    repository: 'acme/alpha',
+    subjectType: 'Issue',
+    reason: 'manual',
+  },
+  { ...makeThread(3, 'Gamma issue'), repository: 'acme/beta', subjectType: 'Issue' },
+];
+
+test('at 90 columns and up, the side pane summarizes a selected group and repo by type and reason', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(mixedThreads), 100);
+
+  await press('r');
+
+  const group = paneText(setup, 100);
+
+  expect(group).toMatch(/Threads\s+3/);
+  expect(group).toMatch(/2\s+ISS/);
+  expect(group).toMatch(/1\s+PR/);
+  expect(group).toMatch(/1\s+manual/);
+  expect(group).toMatch(/2\s+subscribed/);
+
+  await press('j');
+
+  const repo = paneText(setup, 100);
+
+  expect(repo).toContain('acme/alpha');
+  expect(repo).toMatch(/Threads\s+2/);
+  expect(repo).toMatch(/1\s+ISS/);
+  expect(repo).toMatch(/1\s+PR/);
+  expect(repo).toMatch(/1\s+manual/);
+  expect(repo).toMatch(/1\s+subscribed/);
+});
+
+test('resizing across 90 columns removes and restores the side pane and keeps the selected row', async () => {
+  const { setup, press, resize } = await mount('dark', threadsEffects(threeThreads), 100);
+
+  await press('r');
+  await press('j');
+  await press('j');
+  expect(paneText(setup, 100)).toMatch(/Repo\s+example\/repo/);
+
+  await resize(60, 20);
+
+  const narrow = setup.captureCharFrame();
+
+  expect(narrow).not.toContain('Unread');
+  expect(narrow).not.toContain('Updated');
+  expect(narrow).toMatch(/PR\s+#1\s+First\s+3h/);
+  expect(selectedRowText(setup)).toContain('First');
+
+  await resize(90, 20);
+
+  expect(paneText(setup, 90)).toMatch(/Repo\s+example\/repo/);
+  expect(selectedRowText(setup)).toContain('First');
+});
+
+test('a long title stays inside the list columns and clear of the pane at 90 columns', async () => {
+  const long = makeThread(1, 'x'.repeat(120));
+
+  const { setup, press } = await mount('dark', threadsEffects([long]), 90);
+
+  await press('r');
+  await press('j');
+  await press('j');
+
+  const listWidth = 90 - paneWidthAt(90);
+  const lines = setup.captureCharFrame().split('\n');
+  const row = lines.find((line) => /PR\s+#1/.test(line)) ?? '';
+  const border = lines.map((line) => line[listWidth]);
+
+  expect(row.slice(0, listWidth)).toContain('…');
+  expect(row.slice(0, listWidth)).toMatch(/3h\s*$/);
+  expect(border.slice(0, 5).every((char) => char === '│')).toBe(true);
 });
