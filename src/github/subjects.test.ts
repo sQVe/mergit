@@ -177,6 +177,29 @@ test('keeps other facts when one alias has a GraphQL error', async () => {
   expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2', '3']);
 });
 
+test('gives no entry for an alias with an error other than not found', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith(pullRequestFacts),
+        t1: null,
+        t2: null,
+      },
+      errors: [
+        { type: 'NOT_FOUND', path: ['t1', 'pullRequest'], message: 'Missing' },
+        { path: ['t2', 'pullRequest', 'timelineItems'], message: 'Something went wrong' },
+      ],
+    }),
+  );
+
+  const threads = [makeThread(1), makeThread(2), makeThread(3)];
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2']);
+  expect(result.map((entry) => entry.facts?.state ?? null)).toEqual(['merged', null]);
+});
+
 test('gives no entries for a failed batch and keeps the other batches', async () => {
   const { effects } = makeEffects((args, call) => {
     if (call === 0) {

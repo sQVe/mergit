@@ -129,7 +129,12 @@ const repositorySchema = z
 const responseSchema = z.object({
   data: z.record(z.string(), repositorySchema.optional()),
   errors: z
-    .array(z.object({ path: z.array(z.union([z.string(), z.number()])).optional() }))
+    .array(
+      z.object({
+        type: z.string().optional(),
+        path: z.array(z.union([z.string(), z.number()])).optional(),
+      }),
+    )
     .optional(),
 });
 
@@ -184,16 +189,27 @@ const lookUpBatch = async (
     return [];
   }
 
-  const failedAliases = new Set(parsed.data.errors?.map((error) => error.path?.[0]));
+  const errors = parsed.data.errors ?? [];
+  const failedAliases = new Set(errors.map((error) => error.path?.[0]));
 
-  return batch.map((request, index) => {
+  // Only a missing subject is a lasting answer. Other alias errors can be temporary, so those
+  // threads get no entry and the next refresh asks again.
+  const retryAliases = new Set(
+    errors.filter((error) => error.type !== 'NOT_FOUND').map((error) => error.path?.[0]),
+  );
+
+  return batch.flatMap((request, index) => {
     const alias = `t${index}`;
+
+    if (retryAliases.has(alias)) {
+      return [];
+    }
 
     const facts = failedAliases.has(alias)
       ? null
       : readFacts(parsed.data.data[alias], request.kind);
 
-    return { threadId: request.thread.id, updatedAt: request.thread.updatedAt, facts };
+    return [{ threadId: request.thread.id, updatedAt: request.thread.updatedAt, facts }];
   });
 };
 
