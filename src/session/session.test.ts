@@ -1795,3 +1795,15 @@ test('the toast clears after five seconds, and a newer toast replaces it and res
 
   expect(session.getSnapshot().toast).toBeNull();
 });
+
+test("a toast's duration equals the delay of its expiry timer", () => {
+  const { session, timers } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  const toastTimer = timers.at(-1);
+
+  expect(toastTimer?.delay).toBeDefined();
+  expect(session.getSnapshot().toast?.durationMilliseconds).toBe(toastTimer?.delay);
+});

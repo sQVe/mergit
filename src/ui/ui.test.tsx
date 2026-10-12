@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 
 import { RGBA } from '@opentui/core';
+import { ManualClock } from '@opentui/core/testing';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { useRenderer } from '@opentui/react';
 import { testRender } from '@opentui/react/test-utils';
@@ -101,6 +102,7 @@ const mount = async (
   initialMode: 'light' | 'dark' | null = null,
   effects: SessionEffects = idleEffects,
   width = 60,
+  manualTime = false,
 ) => {
   let themeMode = initialMode;
   const themeListeners = new Set<() => void>();
@@ -157,7 +159,12 @@ const mount = async (
     />
   );
 
-  const setup = await act(() => testRender(node, { width, height: 24 }));
+  const clock = manualTime ? new ManualClock() : undefined;
+
+  const rendererOptions =
+    clock === undefined ? { width, height: 24 } : { width, height: 24, clock };
+
+  const setup = await act(() => testRender(node, rendererOptions));
 
   setups.push(setup);
 
@@ -166,6 +173,20 @@ const mount = async (
       await Bun.sleep(50);
       await setup.renderOnce();
     });
+
+  const advance = async (milliseconds: number) => {
+    await act(async () => {
+      clock?.advance(milliseconds);
+      await setup.renderOnce();
+    });
+
+    // The timeline sets React state during a frame; two more frames draw the result.
+    for (let pass = 0; pass < 2; pass += 1) {
+      await act(async () => {
+        await setup.renderOnce();
+      });
+    }
+  };
 
   const press = async (key: string) => {
     await act(async () => {
@@ -198,6 +219,7 @@ const mount = async (
     press,
     resize,
     settle,
+    advance,
     changeTheme,
     terminalIntents,
     sent,
@@ -1140,23 +1162,34 @@ test('the side pane leaves out Author when the author is unknown', async () => {
   expect(frame).not.toContain('Author');
 });
 
-const failWrite = async (
+const slideMilliseconds = 200;
+
+const reportFailure = async (
   session: { reportStateWrite: (outcome: { ok: false; reason: string; path: string }) => void },
-  settle: () => Promise<void>,
+  advance: (milliseconds: number) => Promise<void>,
   reason = 'disk full',
 ) => {
   await act(async () => {
     session.reportStateWrite({ ok: false, reason, path: '~/state.json' });
   });
 
-  await settle();
+  await advance(0);
+};
+
+const failWrite = async (
+  session: { reportStateWrite: (outcome: { ok: false; reason: string; path: string }) => void },
+  advance: (milliseconds: number) => Promise<void>,
+  reason = 'disk full',
+) => {
+  await reportFailure(session, advance, reason);
+  await advance(slideMilliseconds);
 };
 
 test('a failed write shows a toast and no unsaved marker in the status line', async () => {
-  const { setup, session, press, settle } = await mount();
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
 
   await press('s');
-  await failWrite(session, settle);
+  await failWrite(session, advance);
 
   const frame = setup.captureCharFrame();
 
@@ -1165,10 +1198,10 @@ test('a failed write shows a toast and no unsaved marker in the status line', as
 });
 
 test('a toast shows its title, reason, and file, each on a row starting with the bar and with no line border', async () => {
-  const { setup, session, press, settle } = await mount();
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
 
   await press('s');
-  await failWrite(session, settle);
+  await failWrite(session, advance);
 
   const rows = setup
     .captureCharFrame()
@@ -1188,10 +1221,10 @@ test('a toast shows its title, reason, and file, each on a row starting with the
 });
 
 test('a toast with short lines draws a block narrower than the width limit', async () => {
-  const { setup, session, press, settle } = await mount();
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
 
   await press('s');
-  await failWrite(session, settle);
+  await failWrite(session, advance);
 
   const rows = setup
     .captureCharFrame()
@@ -1213,14 +1246,14 @@ test('a toast on a full list keeps the list height and wraps a long reason', asy
     makeThread(index + 1, `Thread ${index + 1}`),
   );
 
-  const { setup, session, press, settle } = await mount('dark', threadsEffects(threads));
+  const { setup, session, press, advance } = await mount('dark', threadsEffects(threads), 60, true);
 
   await press('r');
   await press('s');
 
   const before = setup.captureCharFrame().split('\n');
 
-  await failWrite(session, settle, longReason);
+  await failWrite(session, advance, longReason);
 
   const after = setup.captureCharFrame().split('\n');
   const statusIndex = after.findIndex((line) => line.includes('? help'));
@@ -1263,10 +1296,10 @@ test('a toast on a terminal too narrow for text renders nothing and still expire
     },
   };
 
-  const { setup, session, press, settle } = await mount('dark', effects, 6);
+  const { setup, session, press, settle, advance } = await mount('dark', effects, 6, true);
 
   await press('s');
-  await failWrite(session, settle);
+  await failWrite(session, advance);
 
   expect(setup.captureCharFrame()).not.toContain('▌');
 
@@ -1278,3 +1311,83 @@ test('a toast on a terminal too narrow for text renders nothing and still expire
 
   expect(session.getSnapshot().toast).toBeNull();
 }, 5000);
+
+const toastRows = (frame: string) => frame.split('\n').filter((row) => row.includes('▌'));
+
+const barLength = (frame: string) => {
+  const bottomRow = toastRows(frame).at(-1) ?? '';
+
+  return bottomRow.split('▁').length - 1;
+};
+
+const titleColumn = (frame: string) => {
+  const row = toastRows(frame).find((candidate) => candidate.includes('not saved'));
+
+  return row?.indexOf('✗') ?? -1;
+};
+
+const toastDuration = (session: {
+  getSnapshot: () => { toast: { durationMilliseconds: number } | null };
+}) => session.getSnapshot().toast?.durationMilliseconds ?? 0;
+
+test('the time-left bar is shorter after half the toast duration than after the slide, and not empty', async () => {
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+
+  await press('s');
+
+  await failWrite(session, advance);
+
+  const full = barLength(setup.captureCharFrame());
+
+  await advance(toastDuration(session) / 2);
+
+  const half = barLength(setup.captureCharFrame());
+
+  expect(full).toBeGreaterThan(0);
+  expect(half).toBeGreaterThan(0);
+  expect(half).toBeLessThan(full);
+});
+
+test('a toast starts away from its resting column and sits at it, with the title on screen, after the slide', async () => {
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+
+  await press('s');
+
+  await reportFailure(session, advance);
+
+  const start = titleColumn(setup.captureCharFrame());
+
+  await advance(slideMilliseconds);
+
+  const afterSlide = titleColumn(setup.captureCharFrame());
+
+  await advance(1000);
+
+  const later = titleColumn(setup.captureCharFrame());
+
+  expect(afterSlide).toBeGreaterThan(-1);
+  expect(start).not.toBe(afterSlide);
+  expect(later).toBe(afterSlide);
+});
+
+test('a newer toast starts with a full bar again', async () => {
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+
+  await press('s');
+
+  await failWrite(session, advance);
+
+  const full = barLength(setup.captureCharFrame());
+
+  await advance(toastDuration(session) / 2);
+
+  const shrunk = barLength(setup.captureCharFrame());
+
+  await press('s');
+  await failWrite(session, advance, 'second failure');
+
+  const restarted = barLength(setup.captureCharFrame());
+
+  expect(shrunk).toBeLessThan(full);
+  expect(restarted).toBe(full);
+});

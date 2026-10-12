@@ -341,11 +341,13 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const showToast = (toast: Toast) => {
+  const showToast = (content: Omit<Toast, 'durationMilliseconds'>) => {
+    const toast = { ...content, durationMilliseconds: toastMilliseconds };
+
     cancelToastTimer?.();
     update({ ...snapshot, toast });
 
-    cancelToastTimer = effects.setTimer(toastMilliseconds, () => {
+    cancelToastTimer = effects.setTimer(toast.durationMilliseconds, () => {
       cancelToastTimer = null;
       update({ ...snapshot, toast: null });
     });

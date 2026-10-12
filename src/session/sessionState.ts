@@ -16,6 +16,7 @@ export interface Toast {
   title: string;
   lines: string[];
   tone: 'info' | 'error';
+  durationMilliseconds: number;
 }
 
 export type UnsavedChange = 'grouping';
