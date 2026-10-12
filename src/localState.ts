@@ -210,13 +210,13 @@ const writeStateFile = async (
   effects: StateWriterEffects,
   directory: string,
   state: LocalStateFile,
-): Promise<void> => {
-  await effects.makeDirectory(directory, ownerDirectoryMode);
-
+): Promise<LocalStateResult<null>> => {
   const temporaryPath = join(directory, `${stateFileName}.${crypto.randomUUID()}.tmp`);
   const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping })}\n`;
 
   try {
+    await effects.makeDirectory(directory, ownerDirectoryMode);
+
     const handle = await effects.openFile(temporaryPath, ownerFileMode);
 
     try {
@@ -227,10 +227,12 @@ const writeStateFile = async (
     }
 
     await effects.rename(temporaryPath, join(directory, stateFileName));
+
+    return { ok: true, value: null };
   } catch (error) {
     await effects.remove(temporaryPath).catch(() => undefined);
 
-    throw error;
+    return fail(error);
   }
 };
 
@@ -253,10 +255,10 @@ export const createStateWriter = (
 
     pending = null;
 
-    try {
-      await writeStateFile(effects, directory, state);
-    } catch (error) {
-      options.onFailure(describeError(error));
+    const written = await writeStateFile(effects, directory, state);
+
+    if (!written.ok) {
+      options.onFailure(written.failure.message);
     }
 
     return drain();
