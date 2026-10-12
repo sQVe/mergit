@@ -18,6 +18,9 @@ type ThemeListener = (mode: ThemeMode) => void;
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
+  savedGrouping: null,
+  saveGrouping: () => undefined,
+  stateWarning: null,
   readViewer: () =>
     Promise.resolve({
       ok: true as const,

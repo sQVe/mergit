@@ -59,6 +59,9 @@ const readSavedSnapshot = (): SavedSnapshot | null => {
 await startTerminal({
   session: createSession({
     savedSnapshot: readSavedSnapshot(),
+    savedGrouping: null,
+    saveGrouping: () => undefined,
+    stateWarning: null,
     readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
     saveSnapshot: (viewer, feed, savedAt) => {
       if (directory !== null) {

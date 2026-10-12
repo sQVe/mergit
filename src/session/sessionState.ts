@@ -18,6 +18,7 @@ export interface Snapshot {
   savedAt: Date | null;
   feedBusy: boolean;
   pausedUntil: Date | null;
+  stateWarning: string | null;
 }
 
 export const initialSnapshot: Snapshot = {
@@ -37,6 +38,7 @@ export const initialSnapshot: Snapshot = {
   savedAt: null,
   feedBusy: false,
   pausedUntil: null,
+  stateWarning: null,
 };
 
 export const visibleRows = (snapshot: Snapshot): TreeRow[] =>
@@ -128,10 +130,14 @@ export const applyThreads = (
   };
 };
 
-export const showSavedThreads = (saved: NotificationThread[], savedAt: Date): Snapshot => {
+export const showSavedThreads = (
+  start: Snapshot,
+  saved: NotificationThread[],
+  savedAt: Date,
+): Snapshot => {
   const threads = selectOpenThreads(saved);
 
-  const loaded = { ...initialSnapshot, threads };
+  const loaded = { ...start, threads };
 
   return {
     ...loaded,
