@@ -3,9 +3,14 @@ import {
   createGhRunner,
   pollNotificationFeed,
   readNotificationFeed,
+  readViewer,
+  restoreNotificationFeed,
   verifyNotificationFeed,
 } from './github/github.ts';
+import type { NotificationPage, SavedNotificationPage } from './github/github.ts';
+import { cacheDirectory, loadSnapshot, saveSnapshot } from './localState.ts';
 import { createSession } from './session/session.ts';
+import type { SavedSnapshot } from './session/session.ts';
 import { startTerminal } from './terminal.tsx';
 
 const now = () => new Date();
@@ -19,8 +24,53 @@ const setTimer = (delayMilliseconds: number, callback: () => void) => {
   };
 };
 
+const host = Bun.env['GH_HOST'] ?? 'github.com';
+const directory = cacheDirectory(Bun.env);
+
+const toSavedPage = (page: NotificationPage): SavedNotificationPage => ({
+  path: page.endpoint,
+  etag: page.etag,
+  next: page.next,
+  body: page.body,
+});
+
+const readSavedSnapshot = (): SavedSnapshot | null => {
+  if (directory === null) {
+    return null;
+  }
+
+  const loaded = loadSnapshot(directory);
+
+  if (!loaded.ok || loaded.value === null || loaded.value.host !== host) {
+    return null;
+  }
+
+  const restored = restoreNotificationFeed(loaded.value.pages);
+
+  if (!restored.ok) {
+    return null;
+  }
+
+  const { login, viewerEtag, savedAt } = loaded.value;
+
+  return { viewer: { login, etag: viewerEtag }, savedAt, ...restored.value };
+};
+
 await startTerminal({
   session: createSession({
+    savedSnapshot: readSavedSnapshot(),
+    readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
+    saveSnapshot: (viewer, feed, savedAt) => {
+      if (directory !== null) {
+        saveSnapshot(directory, {
+          host,
+          login: viewer.login,
+          viewerEtag: viewer.etag,
+          savedAt,
+          pages: feed.pages.map(toSavedPage),
+        });
+      }
+    },
     pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
     readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
     verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),

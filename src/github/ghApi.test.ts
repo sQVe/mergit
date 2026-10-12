@@ -44,6 +44,7 @@ test('requestGh returns the status, lower case headers, and JSON body', async ()
       status: 200,
       headers: new Map([['link', '<https://api.github.com/notifications?page=2>; rel="next"']]),
       body: [],
+      bodyText: '[]',
     },
   });
 
@@ -171,7 +172,12 @@ test('requestGh accepts bare newlines', async () => {
 
   expect(result).toEqual({
     ok: true,
-    value: { status: 200, headers: new Map([['etag', '"abc"']]), body: { a: 1 } },
+    value: {
+      status: 200,
+      headers: new Map([['etag', '"abc"']]),
+      body: { a: 1 },
+      bodyText: '{"a":1}',
+    },
   });
 });
 
@@ -235,7 +241,7 @@ test('requestGh reports a 304 with an empty body as a success', async () => {
 
   expect(result).toEqual({
     ok: true,
-    value: { status: 304, headers: new Map([['etag', '"a"']]), body: null },
+    value: { status: 304, headers: new Map([['etag', '"a"']]), body: null, bodyText: '' },
   });
 });
 

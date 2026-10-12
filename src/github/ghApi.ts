@@ -20,6 +20,7 @@ export interface GhResponse {
   status: number;
   headers: ReadonlyMap<string, string>;
   body: unknown;
+  bodyText: string;
 }
 
 interface ParsedHttp {
@@ -216,5 +217,13 @@ export const requestGh = async (
     return fail({ kind: 'invalidResponse', message: 'Response body is not JSON' });
   }
 
-  return { ok: true, value: { status: parsed.status, headers: parsed.headers, body: body.body } };
+  return {
+    ok: true,
+    value: {
+      status: parsed.status,
+      headers: parsed.headers,
+      body: body.body,
+      bodyText: parsed.bodyText,
+    },
+  };
 };

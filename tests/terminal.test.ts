@@ -41,6 +41,9 @@ const twoPagesScript = makeFakeGhScript(
     '  ;;',
     'esac',
     'case "$3" in',
+    '/user)',
+    `  printf 'HTTP/2.0 200 OK\\r\\ncontent-type: application/json\\r\\n\\r\\n%s' '{"login":"octocat"}'`,
+    '  ;;',
     '*page=2*)',
     `  printf 'HTTP/2.0 200 OK\\r\\ncontent-type: application/json\\r\\netag: "page2"\\r\\n\\r\\n%s' '${JSON.stringify([makeThread('2', 'Second page thread')])}'`,
     '  ;;',
@@ -74,7 +77,12 @@ const startZeta = (binDirectory: string): Child => {
 
   const processHandle = Bun.spawn([process.execPath, 'run', 'start'], {
     cwd: new URL('../', import.meta.url).pathname,
-    env: { ...process.env, PATH: binDirectory, TERM: 'xterm-256color' },
+    env: {
+      ...process.env,
+      PATH: binDirectory,
+      TERM: 'xterm-256color',
+      XDG_CACHE_HOME: makeBinDirectory(),
+    },
     terminal: {
       cols: 80,
       rows: 24,

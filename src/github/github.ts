@@ -17,6 +17,18 @@ interface FetchedPage {
   pollInterval: number | null;
 }
 
+export interface Viewer {
+  login: ViewerLogin;
+  etag: string | null;
+}
+
+export interface SavedNotificationPage {
+  path: string;
+  etag: string | null;
+  next: string | null;
+  body: string;
+}
+
 export interface NotificationFeedRead {
   feed: NotificationFeed;
   threads: NotificationThread[];
@@ -43,14 +55,28 @@ const viewerSchema = z.object({ login: z.string().min(1) });
 
 const firstNotificationsEndpoint = '/notifications?all=true&per_page=50';
 
+const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
+  ok: false,
+  failure: { kind: 'invalidResponse', message },
+});
+
 export const readViewer = async (
   effects: GitHubEffects,
+  previous: Viewer | null,
   signal: AbortSignal,
-): Promise<GitHubResult<ViewerLogin>> => {
-  const response = await requestGh(effects, '/user', signal);
+): Promise<GitHubResult<Viewer>> => {
+  const response = await requestGh(effects, '/user', signal, previous?.etag ?? null);
 
   if (!response.ok) {
     return response;
+  }
+
+  if (response.value.status === notModifiedStatus) {
+    if (previous === null) {
+      return invalid('The viewer was not modified, but none was known');
+    }
+
+    return { ok: true, value: previous };
   }
 
   const parsed = viewerSchema.safeParse(response.value.body);
@@ -59,13 +85,14 @@ export const readViewer = async (
     return { ok: false, failure: { kind: 'invalidResponse', message: parsed.error.message } };
   }
 
-  return { ok: true, value: toViewerLogin(parsed.data.login) };
+  return {
+    ok: true,
+    value: {
+      login: toViewerLogin(parsed.data.login),
+      etag: response.value.headers.get('etag') ?? null,
+    },
+  };
 };
-
-const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
-  ok: false,
-  failure: { kind: 'invalidResponse', message },
-});
 
 const fetchPage = async (
   effects: GitHubEffects,
@@ -96,6 +123,7 @@ const fetchPage = async (
     etag: response.value.headers.get('etag') ?? null,
     threads: parsed.data,
     next: findNextPage(response.value.headers.get('link')),
+    body: response.value.bodyText,
   };
 
   return { ok: true, value: { page, response: response.value, pollInterval } };
@@ -211,4 +239,38 @@ export const verifyNotificationFeed = async (
   }
 
   return { ok: true, value: { kind: 'stable', pollInterval } };
+};
+
+const parseSavedBody = (body: string): unknown => {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+};
+
+export const restoreNotificationFeed = (
+  saved: readonly SavedNotificationPage[],
+): GitHubResult<{ feed: NotificationFeed; threads: NotificationThread[] }> => {
+  const pages: NotificationPage[] = [];
+
+  for (const entry of saved) {
+    const parsed = notificationPageSchema.safeParse(parseSavedBody(entry.body));
+
+    if (!parsed.success) {
+      return invalid(`Saved page ${entry.path} is not a notification page`);
+    }
+
+    pages.push({
+      endpoint: entry.path,
+      etag: entry.etag,
+      threads: parsed.data,
+      next: entry.next,
+      body: entry.body,
+    });
+  }
+
+  const threads = pages.flatMap((entry) => entry.threads);
+
+  return { ok: true, value: { feed: { pages }, threads } };
 };

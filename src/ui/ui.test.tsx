@@ -11,7 +11,7 @@ import { catalog } from '../commands.ts';
 import type { TerminalIntent } from '../commands.ts';
 import { createSession } from '../session/session.ts';
 import type { SessionEffects } from '../session/session.ts';
-import { toThreadId } from '../work/work.ts';
+import { toThreadId, toViewerLogin } from '../work/work.ts';
 import type { NotificationThread } from '../work/work.ts';
 import { pickPalette } from './palette.ts';
 import { App } from './ui.tsx';
@@ -24,6 +24,10 @@ type ReadFailure = Extract<Awaited<ReturnType<SessionEffects['readFeed']>>, { ok
 Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
+  savedSnapshot: null,
+  readViewer: () =>
+    Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
+  saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({
       ok: true as const,
@@ -467,4 +471,34 @@ test('the status line names the rate limit pause and its end', async () => {
 
   expect(frame).toContain('paused until');
   expect(frame).toContain('04:00:00 UTC');
+});
+
+const savedEffects = (savedAt: Date, threads: NotificationThread[]): SessionEffects => ({
+  ...idleEffects,
+  savedSnapshot: {
+    viewer: { login: toViewerLogin('octocat'), etag: null },
+    savedAt,
+    feed: { pages: [] },
+    threads,
+  },
+  readViewer: () => Promise.withResolvers<never>().promise,
+  now: () => new Date(),
+});
+
+test('the status line shows the age of the saved list, and not without one', async () => {
+  const savedAt = new Date(Date.now() - 3 * 3_600_000);
+  const saved = await mount('dark', savedEffects(savedAt, threeThreads));
+  const fresh = await mount('dark', threadsEffects(threeThreads));
+
+  expect(saved.setup.captureCharFrame()).toContain('saved 3h ago');
+  expect(fresh.setup.captureCharFrame()).not.toContain('saved');
+});
+
+test('saved rows show their age relative to the saved time', async () => {
+  const savedAt = new Date(Date.now() - 3 * 3_600_000);
+  const updatedAt = new Date(savedAt.getTime() - 2 * 3_600_000).toISOString();
+  const thread = { ...makeThread(1, 'First'), updatedAt };
+  const { setup } = await mount('dark', savedEffects(savedAt, [thread]));
+
+  expect(setup.captureCharFrame()).toMatch(/PR\s+#1\s+First\s+2h/);
 });

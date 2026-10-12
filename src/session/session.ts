@@ -6,15 +6,19 @@ import type {
   NotificationFeedRequest,
   NotificationPoll,
   NotificationVerification,
+  Viewer,
 } from '../github/github.ts';
+import type { NotificationThread, ViewerLogin } from '../work/work.ts';
 import type { Snapshot } from './sessionState.ts';
 import {
   applyFailure,
   applyThreads,
+  clearAccount,
   clearFailure,
   initialSnapshot,
   markFeedBusy,
   moveSelection,
+  showSavedThreads,
   startRefresh,
 } from './sessionState.ts';
 
@@ -25,7 +29,17 @@ export type ApplicationIntent =
   | { kind: 'selectNext' }
   | { kind: 'selectPrevious' };
 
+export interface SavedSnapshot {
+  viewer: Viewer;
+  savedAt: Date;
+  feed: NotificationFeed;
+  threads: NotificationThread[];
+}
+
 export interface SessionEffects {
+  savedSnapshot: SavedSnapshot | null;
+  readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
+  saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
   pollFeed: (
     feed: NotificationFeed,
     signal: AbortSignal,
@@ -43,7 +57,7 @@ export interface SessionEffects {
 }
 
 type FullRefreshOutcome =
-  | { kind: 'loaded'; read: NotificationFeedRead }
+  | { kind: 'loaded'; read: NotificationFeedRead; viewer: Viewer }
   | { kind: 'busy' }
   | { kind: 'aborted' }
   | { kind: 'failed'; failure: GitHubFailure };
@@ -78,13 +92,21 @@ const guard = async <Value>(
 };
 
 export const createSession = (effects: SessionEffects): Session => {
+  const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
-  let snapshot: Snapshot = initialSnapshot;
+
+  let snapshot: Snapshot =
+    savedSnapshot === null
+      ? initialSnapshot
+      : showSavedThreads(savedSnapshot.threads, savedSnapshot.savedAt);
+
+  let viewerLogin: ViewerLogin | null = null;
+  let lastViewer: Viewer | null = savedSnapshot?.viewer ?? null;
   let stopped = false;
   let generation = 0;
   let controller: AbortController | null = null;
   let followUpPending = false;
-  let feed: NotificationFeed | null = null;
+  let feed: NotificationFeed | null = savedSnapshot?.feed ?? null;
   let cancelTimer: (() => void) | null = null;
   let pollSeconds = minimumPollSeconds;
   let lastFullRefreshAt = 0;
@@ -125,6 +147,7 @@ export const createSession = (effects: SessionEffects): Session => {
     request: NotificationFeedRequest,
     signal: AbortSignal,
     retriesLeft: number,
+    viewer: Viewer,
   ): Promise<FullRefreshOutcome> => {
     const read = await guard(() => effects.readFeed(request, signal));
 
@@ -147,14 +170,53 @@ export const createSession = (effects: SessionEffects): Session => {
     rememberInterval(verification.value.pollInterval);
 
     if (verification.value.kind === 'stable') {
-      return { kind: 'loaded', read: read.value };
+      return { kind: 'loaded', read: read.value, viewer };
     }
 
     if (retriesLeft === 0) {
       return { kind: 'busy' };
     }
 
-    return checkedRead({ previous: read.value.feed }, signal, retriesLeft - 1);
+    return checkedRead({ previous: read.value.feed }, signal, retriesLeft - 1, viewer);
+  };
+
+  // The feed from a saved snapshot only serves an account that matches the saved login.
+  const acceptViewer = (viewer: Viewer, request: NotificationFeedRequest) => {
+    const firstRead = viewerLogin === null;
+    const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
+
+    viewerLogin = viewer.login;
+    lastViewer = viewer;
+
+    if (accountChanged) {
+      feed = null;
+      update(clearAccount(snapshot));
+
+      return { ...request, previous: null };
+    }
+
+    if (firstRead && savedSnapshot !== null) {
+      return { ...request, previous: feed };
+    }
+
+    return request;
+  };
+
+  const fullRefresh = async (
+    request: NotificationFeedRequest,
+    signal: AbortSignal,
+  ): Promise<FullRefreshOutcome> => {
+    const viewer = await guard(() => effects.readViewer(lastViewer, signal));
+
+    if (!viewer.ok) {
+      return { kind: 'failed', failure: viewer.failure };
+    }
+
+    if (signal.aborted) {
+      return { kind: 'aborted' };
+    }
+
+    return checkedRead(acceptViewer(viewer.value, request), signal, maximumRetries, viewer.value);
   };
 
   const begin = () => {
@@ -210,6 +272,18 @@ export const createSession = (effects: SessionEffects): Session => {
     schedule(pollSeconds * millisecondsPerSecond);
   };
 
+  const saveQuietly = (viewer: Viewer, savedAt: Date) => {
+    if (feed === null) {
+      return;
+    }
+
+    try {
+      effects.saveSnapshot(viewer, feed, savedAt);
+    } catch {
+      // A failed save must not stop the session.
+    }
+  };
+
   const finishFullRefresh = (outcome: FullRefreshOutcome) => {
     if (outcome.kind === 'aborted') {
       return;
@@ -222,6 +296,7 @@ export const createSession = (effects: SessionEffects): Session => {
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
       update(applyThreads(snapshot, outcome.read.threads, now));
+      saveQuietly(outcome.viewer, now);
     } else if (outcome.kind === 'busy') {
       update(markFeedBusy(snapshot));
     } else {
@@ -235,7 +310,7 @@ export const createSession = (effects: SessionEffects): Session => {
     update(startRefresh(snapshot));
 
     // A listener that throws must not stop the session.
-    checkedRead(request, signal, maximumRetries)
+    fullRefresh(request, signal)
       .then((outcome) => {
         if (isCurrent(own)) {
           finishFullRefresh(outcome);
@@ -306,13 +381,17 @@ export const createSession = (effects: SessionEffects): Session => {
       return;
     }
 
-    if (snapshot.pausedUntil !== null || feed === null || fullRefreshIsDue()) {
-      later.startFullRefresh?.({ previous: feed });
+    const stored = feed;
+    const viewerUnknown = viewerLogin === null;
+    const needsFullRefresh = snapshot.pausedUntil !== null || viewerUnknown || fullRefreshIsDue();
+
+    if (stored === null || needsFullRefresh) {
+      later.startFullRefresh?.({ previous: stored });
 
       return;
     }
 
-    startPoll(feed);
+    startPoll(stored);
   };
 
   const requestRefresh = () => {

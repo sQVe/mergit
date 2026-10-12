@@ -12,10 +12,18 @@ import { startTerminal } from './terminal.tsx';
 import type { TerminalEffects, TerminalRenderer } from './terminal.tsx';
 import type { AppProps } from './ui/ui.tsx';
 
+type Viewer = Extract<Awaited<ReturnType<SessionEffects['readViewer']>>, { ok: true }>['value'];
 type ThemeMode = 'light' | 'dark' | null;
 type ThemeListener = (mode: ThemeMode) => void;
 
 const idleEffects: SessionEffects = {
+  savedSnapshot: null,
+  readViewer: () =>
+    Promise.resolve({
+      ok: true as const,
+      value: { login: 'octocat' as Viewer['login'], etag: null },
+    }),
+  saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({
       ok: true as const,
@@ -176,6 +184,7 @@ test('the first refresh starts after the UI has mounted and subscribed', async (
 
   try {
     await startTerminal({ session, catalog }, harness.effects);
+    await Bun.sleep(0);
 
     expect(subscribersAtFetch).toEqual([1]);
   } finally {
