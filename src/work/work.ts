@@ -46,8 +46,16 @@ export const toViewerLogin = (value: string): ViewerLogin => {
 export const isDoneOnGitHub = (thread: NotificationThread): boolean =>
   !thread.unread && thread.lastReadAt === null;
 
-export const selectOpenThreads = (threads: NotificationThread[]): NotificationThread[] =>
-  threads.filter((thread) => !isDoneOnGitHub(thread));
+export const isDoneLocally = (
+  thread: NotificationThread,
+  doneRecords: ReadonlyMap<ThreadId, string>,
+): boolean => doneRecords.get(thread.id) === thread.updatedAt;
+
+export const selectOpenThreads = (
+  threads: NotificationThread[],
+  doneRecords: ReadonlyMap<ThreadId, string>,
+): NotificationThread[] =>
+  threads.filter((thread) => !isDoneOnGitHub(thread) && !isDoneLocally(thread, doneRecords));
 
 export const readSubjectNumber = (subjectUrl: string | null): number | null => {
   const match = /\/(?:pulls|issues|discussions)\/(\d+)$/.exec(subjectUrl ?? '');

@@ -143,8 +143,8 @@ const makeHarness = (
 
   const session = createSession({
     savedSnapshot: null,
-    savedGrouping: null,
-    saveGrouping: () => undefined,
+    savedState: null,
+    saveState: () => undefined,
     stateWarning: null,
     readViewer: (previous, signal) =>
       new Promise((resolve) => {
@@ -1548,28 +1548,66 @@ test('a refresh in none keeps the selected thread, or falls back to the row inde
   expect(selected()).toBe('thread:3');
 });
 
-test('savedGrouping sets the starting grouping', () => {
-  const { session } = makeHarness({ savedGrouping: 'type' });
+const doneOf = (...threads: NotificationThread[]) =>
+  new Map(threads.map((thread) => [thread.id, thread.updatedAt]));
+
+test('savedState sets the starting grouping', () => {
+  const { session } = makeHarness({ savedState: { grouping: 'type', done: new Map() } });
 
   expect(session.getSnapshot().grouping).toBe('type');
 });
 
-test('savedGrouping sets the starting grouping next to a saved snapshot', () => {
+test('savedState sets the starting grouping next to a saved snapshot', () => {
   const { session } = makeHarness({
-    savedGrouping: 'none',
+    savedState: { grouping: 'type', done: new Map() },
     savedSnapshot: savedSnapshotOf(octocat),
   });
 
-  expect(session.getSnapshot().grouping).toBe('none');
+  expect(session.getSnapshot().grouping).toBe('type');
   expect(session.getSnapshot().threads.length).toBeGreaterThan(0);
 });
 
-test('each cycleGrouping intent saves the new grouping once, and nothing else saves it', async () => {
-  const saved: string[] = [];
+test('a saved done record hides its thread in the saved list and after a refresh with the same updated_at', async () => {
+  const [first, second] = savedThreads;
+
+  const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
+    savedState: { grouping: 'reason', done: doneOf(first!) },
+  });
+
+  expect(session.getSnapshot().threads).toEqual([second!]);
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(readOf('fresh', [first!, second!]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().threads).toEqual([second!]);
+});
+
+test('a thread with a done record shows again after a refresh with a newer updated_at', async () => {
+  const [first, second] = savedThreads;
+  const newer = { ...first!, updatedAt: '2026-01-09T10:00:00Z' };
+
+  const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
+    savedState: { grouping: 'reason', done: doneOf(first!) },
+  });
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(readOf('fresh', [newer, second!]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().threads).toEqual([newer, second!]);
+});
+
+test('each cycleGrouping intent saves the full state with the done records unchanged, and nothing else saves it', async () => {
+  const saved: { grouping: string; done: ReadonlyMap<string, string> }[] = [];
+  const done = doneOf(makeThread('9'));
 
   const { session } = makeHarness({
-    saveGrouping: (grouping) => {
-      saved.push(grouping);
+    savedState: { grouping: 'reason', done },
+    saveState: (state) => {
+      saved.push(state);
     },
   });
 
@@ -1581,16 +1619,17 @@ test('each cycleGrouping intent saves the new grouping once, and nothing else sa
 
   session.send({ kind: 'cycleGrouping' });
 
-  expect(saved).toEqual(['type']);
+  expect(saved).toEqual([{ grouping: 'type', done }]);
 
   session.send({ kind: 'cycleGrouping' });
 
-  expect(saved).toEqual(['type', 'none']);
+  expect(saved.map((state) => state.grouping)).toEqual(['type', 'none']);
+  expect(saved.every((state) => state.done.size === 1)).toBe(true);
 });
 
-test('a saveGrouping that throws leaves the session running with the new grouping', () => {
+test('a saveState that throws leaves the session running with the new grouping', () => {
   const { session } = makeHarness({
-    saveGrouping: () => {
+    saveState: () => {
       throw new Error('disk full');
     },
   });

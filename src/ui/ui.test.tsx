@@ -26,8 +26,8 @@ Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
-  savedGrouping: null,
-  saveGrouping: () => undefined,
+  savedState: null,
+  saveState: () => undefined,
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),

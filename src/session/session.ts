@@ -44,6 +44,11 @@ export type ApplicationIntent =
   | { kind: 'toggleAllFolds' }
   | { kind: 'cycleGrouping' };
 
+export interface SavedState {
+  grouping: Grouping;
+  done: ReadonlyMap<ThreadId, string>;
+}
+
 export interface SavedSnapshot {
   viewer: Viewer;
   savedAt: Date;
@@ -53,8 +58,8 @@ export interface SavedSnapshot {
 
 export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
-  savedGrouping: Grouping | null;
-  saveGrouping: (grouping: Grouping) => void;
+  savedState: SavedState | null;
+  saveState: (state: SavedState) => void;
   stateWarning: string | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
@@ -139,16 +144,18 @@ export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
 
+  const doneRecords = effects.savedState?.done ?? new Map<ThreadId, string>();
+
   const startSnapshot: Snapshot = {
     ...initialSnapshot,
-    grouping: effects.savedGrouping ?? initialSnapshot.grouping,
+    grouping: effects.savedState?.grouping ?? initialSnapshot.grouping,
     stateWarning: effects.stateWarning,
   };
 
   let snapshot: Snapshot =
     savedSnapshot === null
       ? startSnapshot
-      : showSavedThreads(startSnapshot, savedSnapshot.threads, savedSnapshot.savedAt);
+      : showSavedThreads(startSnapshot, savedSnapshot.threads, doneRecords, savedSnapshot.savedAt);
 
   let viewerLogin: ViewerLogin | null = null;
   let lastViewer: Viewer | null = savedSnapshot?.viewer ?? null;
@@ -373,11 +380,11 @@ export const createSession = (effects: SessionEffects): Session => {
     });
   };
 
-  const saveGroupingQuietly = (grouping: Grouping) => {
+  const saveStateQuietly = () => {
     unsavedChanges.add('grouping');
 
     try {
-      effects.saveGrouping(grouping);
+      effects.saveState({ grouping: snapshot.grouping, done: doneRecords });
     } catch {
       // A failed save must not stop the session.
     }
@@ -445,7 +452,7 @@ export const createSession = (effects: SessionEffects): Session => {
 
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
-      update(applyThreads(snapshot, outcome.read.threads, now));
+      update(applyThreads(snapshot, outcome.read.threads, doneRecords, now));
       saveQuietly(outcome.viewer, now);
       startLookup();
     } else if (outcome.kind === 'busy') {
@@ -570,7 +577,7 @@ export const createSession = (effects: SessionEffects): Session => {
       update(transitions[intent.kind](snapshot));
 
       if (intent.kind === 'cycleGrouping') {
-        saveGroupingQuietly(snapshot.grouping);
+        saveStateQuietly();
       }
     }
   };

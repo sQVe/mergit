@@ -228,7 +228,7 @@ test('Ctrl+C quits and restores the terminal', async () => {
 
 test('a newer state file stops startup with its path and stays unchanged', async () => {
   const stateHome = makeBinDirectory();
-  const content = '{ "version": 2, "grouping": "type" }';
+  const content = '{ "version": 3, "grouping": "type" }';
   const path = writeStateFile(stateHome, content);
   const child = startWithGh(twoPagesScript, stateHome);
 

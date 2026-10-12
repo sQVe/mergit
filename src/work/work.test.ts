@@ -5,6 +5,7 @@ import {
   buildTree,
   flattenTree,
   groupings,
+  isDoneLocally,
   isDoneOnGitHub,
   readSubjectNumber,
   selectOpenThreads,
@@ -43,15 +44,29 @@ test('selectOpenThreads leaves out threads GitHub shows as done and keeps the re
     lastReadAt: '2026-01-01T10:00:00Z',
   });
 
-  const open = selectOpenThreads([unread, done, readWithTimestamp, unreadWithTimestamp]);
+  const open = selectOpenThreads([unread, done, readWithTimestamp, unreadWithTimestamp], new Map());
 
   expect(open).toEqual([unread, readWithTimestamp, unreadWithTimestamp]);
+});
+
+test('selectOpenThreads hides a thread whose done record matches its updated_at and shows one that changed', () => {
+  const recorded = makeThread('6');
+  const changed = makeThread('7', { updatedAt: '2026-01-03T10:00:00Z' });
+
+  const doneRecords = new Map([
+    [recorded.id, recorded.updatedAt],
+    [changed.id, '2026-01-02T10:00:00Z'],
+  ]);
+
+  expect(isDoneLocally(recorded, doneRecords)).toBe(true);
+  expect(isDoneLocally(changed, doneRecords)).toBe(false);
+  expect(selectOpenThreads([recorded, changed], doneRecords)).toEqual([changed]);
 });
 
 test('selectOpenThreads keeps a thread without a subject URL', () => {
   const checkSuite = makeThread('5', { subjectType: 'CheckSuite', subjectUrl: null });
 
-  expect(selectOpenThreads([checkSuite])).toEqual([checkSuite]);
+  expect(selectOpenThreads([checkSuite], new Map())).toEqual([checkSuite]);
 });
 
 test('toThreadId and toViewerLogin reject empty values', () => {

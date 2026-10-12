@@ -126,9 +126,10 @@ export const startRefresh = (snapshot: Snapshot): Snapshot => ({
 export const applyThreads = (
   snapshot: Snapshot,
   fetched: NotificationThread[],
+  doneRecords: ReadonlyMap<ThreadId, string>,
   now: Date,
 ): Snapshot => {
-  const threads = selectOpenThreads(fetched);
+  const threads = selectOpenThreads(fetched, doneRecords);
 
   const previousUpdatedAt = new Map(
     snapshot.threads.map((thread) => [thread.id, thread.updatedAt]),
@@ -167,9 +168,10 @@ export const applyThreads = (
 export const showSavedThreads = (
   start: Snapshot,
   saved: NotificationThread[],
+  doneRecords: ReadonlyMap<ThreadId, string>,
   savedAt: Date,
 ): Snapshot => {
-  const threads = selectOpenThreads(saved);
+  const threads = selectOpenThreads(saved, doneRecords);
 
   const loaded = { ...start, threads };
 

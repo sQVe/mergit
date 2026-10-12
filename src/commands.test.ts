@@ -7,8 +7,8 @@ import { toThreadId, toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
   savedSnapshot: null,
-  savedGrouping: null,
-  saveGrouping: () => undefined,
+  savedState: null,
+  saveState: () => undefined,
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
