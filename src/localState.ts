@@ -1,11 +1,21 @@
 import { Database } from 'bun:sqlite';
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
+import { mkdir, open, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { z } from 'zod';
 
-import type { ViewerLogin } from './work/work.ts';
-import { toViewerLogin } from './work/work.ts';
+import type { Grouping, ViewerLogin } from './work/work.ts';
+import { groupings, toViewerLogin } from './work/work.ts';
 
 interface LocalPage {
   path: string;
@@ -34,6 +44,32 @@ type Attempt<T> =
   | { kind: 'done'; value: T }
   | { kind: 'corrupt'; message: string }
   | { kind: 'failed'; message: string };
+
+interface LocalStateFile {
+  grouping: Grouping;
+}
+
+export type StateLoad =
+  | { kind: 'missing' }
+  | { kind: 'loaded'; state: LocalStateFile }
+  | { kind: 'invalid'; path: string; reason: string }
+  | { kind: 'newer'; path: string; version: number };
+
+export interface StateWriterEffects {
+  makeDirectory: (directory: string, mode: number) => Promise<void>;
+  openFile: (path: string, mode: number) => Promise<FileHandle>;
+  rename: (from: string, to: string) => Promise<void>;
+  remove: (path: string) => Promise<void>;
+}
+
+export interface StateWriterOptions {
+  onFailure: (message: string) => void;
+}
+
+export interface StateWriter {
+  save: (state: LocalStateFile) => void;
+  flush: () => Promise<void>;
+}
 
 const pageRow = z.object({
   path: z.string(),
@@ -94,6 +130,148 @@ const fail = (error: unknown): { ok: false; failure: LocalStateFailure } => ({
   ok: false,
   failure: { message: describeError(error) },
 });
+
+const stateFileName = 'state.json';
+const stateVersion = 1;
+
+const stateBody = z.object({
+  version: z.literal(stateVersion),
+  grouping: z.enum(groupings),
+});
+
+const versionProbe = z.object({ version: z.number().int().positive() });
+
+const defaultStateWriterEffects: StateWriterEffects = {
+  makeDirectory: async (directory, mode) => {
+    await mkdir(directory, { recursive: true, mode });
+  },
+  openFile: (path, mode) => open(path, 'wx', mode),
+  rename,
+  remove: (path) => rm(path, { force: true }),
+};
+
+const isMissingFile = (error: unknown): boolean =>
+  error instanceof Error && 'code' in error && error.code === 'ENOENT';
+
+export const stateDirectory = (environment: Record<string, string | undefined>): string | null => {
+  const stateHome = environment['XDG_STATE_HOME'];
+
+  if (stateHome !== undefined && stateHome !== '') {
+    return join(stateHome, 'zeta');
+  }
+
+  const home = environment['HOME'];
+
+  if (home !== undefined && home !== '') {
+    return join(home, '.local', 'state', 'zeta');
+  }
+
+  return null;
+};
+
+export const loadState = (directory: string): StateLoad => {
+  const path = join(directory, stateFileName);
+  let text: string;
+
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return { kind: 'missing' };
+    }
+
+    return { kind: 'invalid', path, reason: describeError(error) };
+  }
+
+  let json: unknown;
+
+  try {
+    json = JSON.parse(text);
+  } catch (error) {
+    return { kind: 'invalid', path, reason: describeError(error) };
+  }
+
+  const probe = versionProbe.safeParse(json);
+
+  if (probe.success && probe.data.version > stateVersion) {
+    return { kind: 'newer', path, version: probe.data.version };
+  }
+
+  const body = stateBody.safeParse(json);
+
+  if (!body.success) {
+    return { kind: 'invalid', path, reason: body.error.message };
+  }
+
+  return { kind: 'loaded', state: { grouping: body.data.grouping } };
+};
+
+const writeStateFile = async (
+  effects: StateWriterEffects,
+  directory: string,
+  state: LocalStateFile,
+): Promise<void> => {
+  await effects.makeDirectory(directory, ownerDirectoryMode);
+
+  const temporaryPath = join(directory, `${stateFileName}.${crypto.randomUUID()}.tmp`);
+  const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping })}\n`;
+
+  try {
+    const handle = await effects.openFile(temporaryPath, ownerFileMode);
+
+    try {
+      await handle.writeFile(body);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+
+    await effects.rename(temporaryPath, join(directory, stateFileName));
+  } catch (error) {
+    await effects.remove(temporaryPath).catch(() => undefined);
+
+    throw error;
+  }
+};
+
+export const createStateWriter = (
+  directory: string,
+  options: StateWriterOptions,
+  effects: StateWriterEffects = defaultStateWriterEffects,
+): StateWriter => {
+  let pending: LocalStateFile | null = null;
+  let running: Promise<void> | null = null;
+
+  const drain = async (): Promise<void> => {
+    const state = pending;
+
+    if (state === null) {
+      running = null;
+
+      return;
+    }
+
+    pending = null;
+
+    try {
+      await writeStateFile(effects, directory, state);
+    } catch (error) {
+      options.onFailure(describeError(error));
+    }
+
+    return drain();
+  };
+
+  return {
+    save: (state) => {
+      pending = state;
+      running ??= drain();
+    },
+    flush: async () => {
+      await running;
+    },
+  };
+};
 
 export const cacheDirectory = (environment: Record<string, string | undefined>): string | null => {
   const cacheHome = environment['XDG_CACHE_HOME'];
