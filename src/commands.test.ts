@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { catalog } from './commands.ts';
 import { createSession } from './session/session.ts';
-import { toViewerLogin } from './work/work.ts';
+import { toThreadId, toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
   savedSnapshot: null,
@@ -57,6 +57,46 @@ test('list commands return the matching application intents on j, k, and r', () 
     kind: 'application',
     intent: { kind: 'refresh' },
   });
+});
+
+test('tree commands list their keys and return their intents', () => {
+  const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
+
+  const expected = [
+    ['selectFirst', ['g'], 'selectFirst'],
+    ['selectLast', ['shift+g'], 'selectLast'],
+    ['selectNextGroup', ['shift+j'], 'selectNextGroup'],
+    ['selectPreviousGroup', ['shift+k'], 'selectPreviousGroup'],
+    ['toggleFold', ['z', 'space'], 'toggleFold'],
+    ['toggleNodeFold', ['return'], 'toggleFold'],
+    ['toggleAllFolds', ['shift+z'], 'toggleAllFolds'],
+    ['cycleGrouping', ['s'], 'cycleGrouping'],
+  ] as const;
+
+  for (const [id, keys, kind] of expected) {
+    expect(byId[id]?.keys).toEqual(keys);
+    expect(byId[id]?.intent(snapshot)).toEqual({ kind: 'application', intent: { kind } });
+  }
+});
+
+test('return does nothing on a thread row and folds on a node row', () => {
+  const thread = {
+    id: toThreadId('1'),
+    reason: 'review_requested',
+    unread: true,
+    updatedAt: '2026-01-02T10:00:00Z',
+    lastReadAt: null,
+    title: 'One',
+    subjectType: 'PullRequest',
+    subjectUrl: null,
+    repository: 'acme/app',
+  };
+
+  const loaded = { ...snapshot, threads: [thread], selectedRowKey: 'node:review' };
+  const command = catalog.find((candidate) => candidate.id === 'toggleNodeFold');
+
+  expect(command?.disabledReason(loaded)).toBeUndefined();
+  expect(command?.disabledReason({ ...loaded, selectedRowKey: 'thread:1' })).toBeDefined();
 });
 
 test('no catalog key is bound to two commands', () => {
