@@ -29,7 +29,6 @@ const repositoryWidth = 24;
 const minimumRepositoryWidth = 6;
 const minimumFlatTitleWidth = 12;
 const statusLineHeight = 1;
-const toastHeight = 1;
 
 const NodeLine = (props: RowProps & { row: NodeRow; width: number }): ReactNode => {
   const { row, palette, selected } = props;
@@ -107,8 +106,7 @@ export const ThreadList = (props: {
   const rows = visibleRows(snapshot);
   const dimensions = useTerminalDimensions();
   const [top, setTop] = useState(0);
-  const reservedHeight = statusLineHeight + (snapshot.toast === null ? 0 : toastHeight);
-  const height = Math.max(1, dimensions.height - reservedHeight);
+  const height = Math.max(1, dimensions.height - statusLineHeight);
   const selectedIndex = rows.findIndex((row) => row.key === selectedRowKey);
   const visibleTop = scrollTop(top, selectedIndex, height, rows.length);
 

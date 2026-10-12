@@ -1143,9 +1143,10 @@ test('the side pane leaves out Author when the author is unknown', async () => {
 const failWrite = async (
   session: { reportStateWrite: (outcome: { ok: false; message: string }) => void },
   settle: () => Promise<void>,
+  message = 'disk full',
 ) => {
   await act(async () => {
-    session.reportStateWrite({ ok: false, message: 'disk full' });
+    session.reportStateWrite({ ok: false, message });
   });
 
   await settle();
@@ -1163,7 +1164,9 @@ test('a failed write shows a toast and no unsaved marker in the status line', as
   expect(frame).not.toContain('unsaved');
 });
 
-test('a toast on a full list leaves its line free of list rows', async () => {
+const longReason = `disk full ${'/very/long/path'.repeat(8)}`;
+
+test('a toast on a full list keeps the list height and wraps a long reason', async () => {
   const threads = Array.from({ length: 40 }, (_, index) =>
     makeThread(index + 1, `Thread ${index + 1}`),
   );
@@ -1172,11 +1175,29 @@ test('a toast on a full list leaves its line free of list rows', async () => {
 
   await press('r');
   await press('s');
-  await failWrite(session, settle);
 
-  const lines = setup.captureCharFrame().split('\n');
-  const toastLine = lines.find((line) => line.includes('disk full'));
+  const before = setup.captureCharFrame().split('\n');
 
-  expect(toastLine).toBeDefined();
-  expect(toastLine?.trimEnd().endsWith('disk full')).toBe(true);
+  await failWrite(session, settle, longReason);
+
+  const after = setup.captureCharFrame().split('\n');
+  const statusIndex = after.findIndex((line) => line.includes('? help'));
+
+  const listColumns = 8;
+
+  expect(after).toHaveLength(before.length);
+  expect(statusIndex).toBe(before.findIndex((line) => line.includes('? help')));
+
+  expect(after[statusIndex - 1]?.slice(0, listColumns)).toBe(
+    before[statusIndex - 1]?.slice(0, listColumns),
+  );
+
+  const boxColumns = 10;
+
+  const flattened = after
+    .map((line) => line.slice(boxColumns))
+    .join('')
+    .replaceAll(/[\s│╭╮╰╯─]/g, '');
+
+  expect(flattened).toContain(longReason.replaceAll(/\s/g, ''));
 });

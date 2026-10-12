@@ -204,9 +204,9 @@ export const App = (props: AppProps): ReactNode => {
           paneWidth={paneWidth}
           fullDetail={fullDetail}
         />
-        <Toast snapshot={snapshot} palette={palette} />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
+      <Toast snapshot={snapshot} palette={palette} />
       {helpOpen ? <HelpOverlay catalog={props.catalog} palette={palette} /> : null}
     </KeymapProvider>
   );
