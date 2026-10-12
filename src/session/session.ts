@@ -56,7 +56,7 @@ export interface SessionEffects {
 }
 
 type FullRefreshOutcome =
-  | { kind: 'loaded'; read: NotificationFeedRead }
+  | { kind: 'loaded'; read: NotificationFeedRead; login: ViewerLogin }
   | { kind: 'busy' }
   | { kind: 'aborted' }
   | { kind: 'failed'; failure: GitHubFailure };
@@ -100,6 +100,7 @@ export const createSession = (effects: SessionEffects): Session => {
       : showSavedThreads(savedSnapshot.threads, savedSnapshot.savedAt);
 
   let viewerLogin: ViewerLogin | null = null;
+  let knownLogin: ViewerLogin | null = savedSnapshot?.login ?? null;
   let stopped = false;
   let generation = 0;
   let controller: AbortController | null = null;
@@ -145,6 +146,7 @@ export const createSession = (effects: SessionEffects): Session => {
     request: NotificationFeedRequest,
     signal: AbortSignal,
     retriesLeft: number,
+    login: ViewerLogin,
   ): Promise<FullRefreshOutcome> => {
     const read = await guard(() => effects.readFeed(request, signal));
 
@@ -167,42 +169,42 @@ export const createSession = (effects: SessionEffects): Session => {
     rememberInterval(verification.value.pollInterval);
 
     if (verification.value.kind === 'stable') {
-      return { kind: 'loaded', read: read.value };
+      return { kind: 'loaded', read: read.value, login };
     }
 
     if (retriesLeft === 0) {
       return { kind: 'busy' };
     }
 
-    return checkedRead({ previous: read.value.feed }, signal, retriesLeft - 1);
+    return checkedRead({ previous: read.value.feed }, signal, retriesLeft - 1, login);
   };
 
-  // The saved feed only serves an account that matches the saved login.
+  // The feed from a saved snapshot only serves an account that matches the saved login.
   const acceptViewer = (login: ViewerLogin, request: NotificationFeedRequest) => {
-    viewerLogin = login;
+    const firstRead = viewerLogin === null;
+    const accountChanged = knownLogin !== null && knownLogin !== login;
 
-    if (savedSnapshot === null) {
-      return request;
+    viewerLogin = login;
+    knownLogin = login;
+
+    if (accountChanged) {
+      feed = null;
+      update(clearAccount(snapshot));
+
+      return { ...request, previous: null };
     }
 
-    if (savedSnapshot.login === login) {
+    if (firstRead && savedSnapshot !== null) {
       return { ...request, previous: feed };
     }
 
-    feed = null;
-    update(clearAccount(snapshot));
-
-    return { ...request, previous: null };
+    return request;
   };
 
   const fullRefresh = async (
     request: NotificationFeedRequest,
     signal: AbortSignal,
   ): Promise<FullRefreshOutcome> => {
-    if (viewerLogin !== null) {
-      return checkedRead(request, signal, maximumRetries);
-    }
-
     const viewer = await guard(() => effects.readViewer(signal));
 
     if (!viewer.ok) {
@@ -213,7 +215,7 @@ export const createSession = (effects: SessionEffects): Session => {
       return { kind: 'aborted' };
     }
 
-    return checkedRead(acceptViewer(viewer.value, request), signal, maximumRetries);
+    return checkedRead(acceptViewer(viewer.value, request), signal, maximumRetries, viewer.value);
   };
 
   const begin = () => {
@@ -269,13 +271,13 @@ export const createSession = (effects: SessionEffects): Session => {
     schedule(pollSeconds * millisecondsPerSecond);
   };
 
-  const saveQuietly = (savedAt: Date) => {
-    if (viewerLogin === null || feed === null) {
+  const saveQuietly = (login: ViewerLogin, savedAt: Date) => {
+    if (feed === null) {
       return;
     }
 
     try {
-      effects.saveSnapshot(viewerLogin, feed, savedAt);
+      effects.saveSnapshot(login, feed, savedAt);
     } catch {
       // A failed save must not stop the session.
     }
@@ -293,7 +295,7 @@ export const createSession = (effects: SessionEffects): Session => {
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
       update(applyThreads(snapshot, outcome.read.threads, now));
-      saveQuietly(now);
+      saveQuietly(outcome.login, now);
     } else if (outcome.kind === 'busy') {
       update(markFeedBusy(snapshot));
     } else {

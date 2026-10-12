@@ -1119,7 +1119,7 @@ test('a poll timer after a failed viewer read runs a full refresh, not a poll', 
   expect(countOf('viewer')).toBe(2);
 });
 
-test('the viewer is read once per session', async () => {
+test('a second full refresh reads the viewer again', async () => {
   const { send, answerViewer, answerRead, answerVerify, countOf } = makeSavedHarness(octocat);
 
   await send();
@@ -1128,5 +1128,36 @@ test('the viewer is read once per session', async () => {
   await answerVerify(stable);
   await send();
 
-  expect(countOf('viewer')).toBe(1);
+  expect(countOf('viewer')).toBe(2);
+});
+
+test('a login that changes between refreshes clears the list, reads without a previous feed, and saves under the new login', async () => {
+  const saves: { login: ViewerLogin; feed: NotificationFeed }[] = [];
+  const hubot = toViewerLogin('hubot');
+
+  const { session, send, answerViewer, answerVerify, take } = makeSavedHarness(octocat, {
+    saveSnapshot: (login, feed) => {
+      saves.push({ login, feed });
+    },
+  });
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  take('read').resolve(readOf('first', [makeThread('3')]));
+  await settle();
+  await answerVerify(stable);
+  await send();
+  await answerViewer(viewerOf(hubot));
+
+  const secondRead = take('read');
+
+  expect(session.getSnapshot().threads).toEqual([]);
+  expect(secondRead.request.previous).toBeNull();
+
+  secondRead.resolve(readOf('second', [makeThread('4')]));
+  await settle();
+  await answerVerify(stable);
+
+  expect(saves.map((save) => save.login)).toEqual([octocat, hubot]);
+  expect(saves[1]?.feed).toEqual(makeFeed('second', [makeThread('4')]));
 });
