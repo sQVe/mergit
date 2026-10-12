@@ -232,3 +232,64 @@ test('a recreated cache file is owner-only', () => {
 
   expect(modeOf(file)).toBe(0o600);
 });
+
+const writeVersionTwoCache = (statements: string[]): void => {
+  mkdirSync(directory);
+  const database = new Database(join(directory, 'cache.db'));
+
+  for (const statement of statements) {
+    database.run(statement);
+  }
+
+  database.run('PRAGMA user_version = 2');
+  database.close();
+};
+
+const expectRecreated = (): void => {
+  const snapshot = makeSnapshot('octocat', ['a']);
+
+  expect(loadValue()).toBeNull();
+  expect(saveSnapshot(directory, snapshot).ok).toBe(true);
+  expect(loadValue()).toEqual(snapshot);
+};
+
+const createLast =
+  'CREATE TABLE last (id INTEGER PRIMARY KEY CHECK (id = 1), host TEXT NOT NULL, login TEXT NOT NULL, viewerEtag TEXT, savedAt INTEGER NOT NULL)';
+
+const createPages =
+  'CREATE TABLE pages (host TEXT NOT NULL, login TEXT NOT NULL, position INTEGER NOT NULL, path TEXT NOT NULL, etag TEXT, next TEXT, body TEXT NOT NULL, PRIMARY KEY (host, login, position))';
+
+test('recreates a cache whose savedAt is not a valid date', () => {
+  writeVersionTwoCache([
+    createLast,
+    createPages,
+    "INSERT INTO last VALUES (1, 'github.com', 'octocat', NULL, 9000000000000000000)",
+  ]);
+
+  expectRecreated();
+});
+
+test('recreates a cache at the current version with a missing table or column', () => {
+  writeVersionTwoCache([createLast]);
+
+  expectRecreated();
+
+  rmSync(directory, { recursive: true, force: true });
+
+  writeVersionTwoCache([
+    createLast,
+    'CREATE TABLE pages (host TEXT NOT NULL, login TEXT NOT NULL, position INTEGER NOT NULL, path TEXT NOT NULL, etag TEXT, body TEXT NOT NULL)',
+  ]);
+
+  expectRecreated();
+});
+
+test('recreates a cache with an empty login', () => {
+  writeVersionTwoCache([
+    createLast,
+    createPages,
+    "INSERT INTO last VALUES (1, 'github.com', '', NULL, 0)",
+  ]);
+
+  expectRecreated();
+});

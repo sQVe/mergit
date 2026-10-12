@@ -43,10 +43,14 @@ const pageRow = z.object({
 });
 
 const lastRow = z.object({
-  host: z.string(),
-  login: z.string(),
+  host: z.string().min(1),
+  login: z.string().min(1),
   viewerEtag: z.string().nullable(),
-  savedAt: z.number(),
+  savedAt: z
+    .number()
+    .int()
+    .transform((value) => new Date(value))
+    .pipe(z.date()),
 });
 
 const busyTimeoutMilliseconds = 250;
@@ -57,6 +61,11 @@ const ownerFileMode = 0o600;
 const databaseSuffixes = ['', '-journal', '-wal', '-shm'];
 
 const schemaVersion = 2;
+
+const expectedColumns: Record<string, string[]> = {
+  last: ['id', 'host', 'login', 'viewerEtag', 'savedAt'],
+  pages: ['host', 'login', 'position', 'path', 'etag', 'next', 'body'],
+};
 
 const schema = `
   CREATE TABLE IF NOT EXISTS last (
@@ -141,12 +150,29 @@ const classifyError = (error: unknown): Attempt<never> => {
   return { kind: 'failed', message };
 };
 
+const findSchemaMismatch = (database: Database): string | null => {
+  for (const [table, expected] of Object.entries(expectedColumns)) {
+    const rows = database.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all();
+    const actual = rows.map((row) => row.name);
+
+    if (actual.join(',') !== expected.join(',')) {
+      return `Unexpected columns in the ${table} table of the cache`;
+    }
+  }
+
+  return null;
+};
+
 const prepareDatabase = (database: Database): Attempt<null> => {
   const row = database.query<{ user_version: number }, []>('PRAGMA user_version').get();
   const version = row?.user_version ?? 0;
 
   if (version === schemaVersion) {
-    return { kind: 'done', value: null };
+    const mismatch = findSchemaMismatch(database);
+
+    return mismatch === null
+      ? { kind: 'done', value: null }
+      : { kind: 'corrupt', message: mismatch };
   }
 
   if (version !== 0) {
@@ -192,7 +218,7 @@ const readSnapshot = (database: Database): Attempt<LocalSnapshot | null> => {
       host: last.data.host,
       login: toViewerLogin(last.data.login),
       viewerEtag: last.data.viewerEtag,
-      savedAt: new Date(last.data.savedAt),
+      savedAt: last.data.savedAt,
       pages: rows.data,
     },
   };
