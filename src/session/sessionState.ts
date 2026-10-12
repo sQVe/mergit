@@ -35,7 +35,6 @@ export interface Snapshot {
   pausedUntil: Date | null;
   stateWarning: string | null;
   toast: Toast | null;
-  unsaved: ReadonlySet<UnsavedChange>;
 }
 
 export const initialSnapshot: Snapshot = {
@@ -58,7 +57,6 @@ export const initialSnapshot: Snapshot = {
   pausedUntil: null,
   stateWarning: null,
   toast: null,
-  unsaved: new Set(),
 };
 
 export const visibleRows = (snapshot: Snapshot): TreeRow[] =>

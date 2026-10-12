@@ -358,14 +358,12 @@ export const createSession = (effects: SessionEffects): Session => {
 
     if (outcome.ok) {
       unsavedChanges = new Set();
-      update({ ...snapshot, unsaved: new Set() });
 
       return;
     }
 
     const names = [...unsavedChanges].map((change) => unsavedLabels[change]);
 
-    update({ ...snapshot, unsaved: new Set(unsavedChanges) });
     showToast({ text: `Could not save ${names.join(' and ')}: ${outcome.message}`, tone: 'error' });
   };
 

@@ -1140,21 +1140,43 @@ test('the side pane leaves out Author when the author is unknown', async () => {
   expect(frame).not.toContain('Author');
 });
 
-test('a toast shows its text, and an unsaved grouping shows in the status line', async () => {
-  const { setup, session, press, settle } = await mount();
-
-  await press('s');
-
-  expect(setup.captureCharFrame()).not.toContain('unsaved');
-
+const failWrite = async (
+  session: { reportStateWrite: (outcome: { ok: false; message: string }) => void },
+  settle: () => Promise<void>,
+) => {
   await act(async () => {
     session.reportStateWrite({ ok: false, message: 'disk full' });
   });
 
   await settle();
+};
+
+test('a failed write shows a toast and no unsaved marker in the status line', async () => {
+  const { setup, session, press, settle } = await mount();
+
+  await press('s');
+  await failWrite(session, settle);
 
   const frame = setup.captureCharFrame();
 
   expect(frame).toContain('disk full');
-  expect(frame).toContain('unsaved');
+  expect(frame).not.toContain('unsaved');
+});
+
+test('a toast on a full list leaves its line free of list rows', async () => {
+  const threads = Array.from({ length: 40 }, (_, index) =>
+    makeThread(index + 1, `Thread ${index + 1}`),
+  );
+
+  const { setup, session, press, settle } = await mount('dark', threadsEffects(threads));
+
+  await press('r');
+  await press('s');
+  await failWrite(session, settle);
+
+  const lines = setup.captureCharFrame().split('\n');
+  const toastLine = lines.find((line) => line.includes('disk full'));
+
+  expect(toastLine).toBeDefined();
+  expect(toastLine?.trimEnd().endsWith('disk full')).toBe(true);
 });

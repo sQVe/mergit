@@ -33,9 +33,6 @@ export const StatusLine = (props: { snapshot: Snapshot; palette: Palette }): Rea
       {snapshot.stateWarning === null ? null : (
         <text fg={palette.error}>{snapshot.stateWarning}</text>
       )}
-      {snapshot.unsaved.size === 0 ? null : (
-        <text fg={palette.error}>{[...snapshot.unsaved].join(', ')} unsaved</text>
-      )}
       {error === null ? null : <text fg={palette.error}>{error}</text>}
     </box>
   );

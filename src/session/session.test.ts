@@ -1750,21 +1750,20 @@ test('stop aborts a running lookup and drops its result', async () => {
   expect(session.getSnapshot().subjectFacts.size).toBe(0);
 });
 
-test('a failed state write after a grouping change shows an error toast and marks the grouping unsaved', () => {
+test('a failed state write after a grouping change shows an error toast naming the grouping and the reason', () => {
   const { session } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
   session.reportStateWrite({ ok: false, message: 'disk full' });
 
-  const { toast, unsaved } = session.getSnapshot();
+  const { toast } = session.getSnapshot();
 
   expect(toast?.tone).toBe('error');
   expect(toast?.text).toContain('grouping');
   expect(toast?.text).toContain('disk full');
-  expect([...unsaved]).toEqual(['grouping']);
 });
 
-test('a successful write after a failure clears unsaved and shows no new toast', () => {
+test('a successful write after a failure shows no new toast', () => {
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
@@ -1773,7 +1772,6 @@ test('a successful write after a failure clears unsaved and shows no new toast',
   session.reportStateWrite({ ok: true });
 
   expect(session.getSnapshot().toast).toBeNull();
-  expect(session.getSnapshot().unsaved.size).toBe(0);
 });
 
 test('the toast clears after five seconds, and a newer toast replaces it and restarts the timer', () => {
