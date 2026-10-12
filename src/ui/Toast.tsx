@@ -129,11 +129,11 @@ const ToastCard = (props: {
   }
 
   const width = textColumns + barColumns + paddingColumns;
-  const titleRows = wrapLine(title, textColumns);
+  const titleRows = wrapLine(title, textColumns).slice(0, maximumTextLines);
 
   const bodyRows = toast.lines
     .flatMap((line) => wrapLine(line, textColumns))
-    .slice(0, maximumTextLines - titleRows.length);
+    .slice(0, Math.max(0, maximumTextLines - titleRows.length));
 
   const textRows = titleRows.length + bodyRows.length;
   const height = textRows + paddingRows;

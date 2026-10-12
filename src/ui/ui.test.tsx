@@ -1325,6 +1325,19 @@ const titleColumn = (frame: string) => {
   return row?.indexOf('✗') ?? -1;
 };
 
+test('a toast on a terminal with two text columns stays within five text rows', async () => {
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 9, true);
+
+  await press('s');
+  await failWrite(session, advance);
+
+  const barRows = toastRows(setup.captureCharFrame());
+  const paddingRow = 1;
+
+  expect(barRows.length).toBeGreaterThan(paddingRow);
+  expect(barRows.length - paddingRow).toBeLessThanOrEqual(5);
+}, 5000);
+
 const toastDuration = (session: {
   getSnapshot: () => { toast: { durationMilliseconds: number } | null };
 }) => session.getSnapshot().toast?.durationMilliseconds ?? 0;
