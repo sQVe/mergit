@@ -8,7 +8,7 @@ import type {
   NotificationVerification,
   Viewer,
 } from '../github/github.ts';
-import type { NotificationThread, ViewerLogin } from '../work/work.ts';
+import type { Grouping, NotificationThread, ViewerLogin } from '../work/work.ts';
 import type { Snapshot } from './sessionState.ts';
 import {
   applyFailure,
@@ -51,6 +51,9 @@ export interface SavedSnapshot {
 
 export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
+  savedGrouping: Grouping | null;
+  saveGrouping: (grouping: Grouping) => void;
+  stateWarning: string | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
   pollFeed: (
@@ -122,10 +125,16 @@ export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
 
+  const startSnapshot: Snapshot = {
+    ...initialSnapshot,
+    grouping: effects.savedGrouping ?? initialSnapshot.grouping,
+    stateWarning: effects.stateWarning,
+  };
+
   let snapshot: Snapshot =
     savedSnapshot === null
-      ? initialSnapshot
-      : showSavedThreads(savedSnapshot.threads, savedSnapshot.savedAt);
+      ? startSnapshot
+      : showSavedThreads(startSnapshot, savedSnapshot.threads, savedSnapshot.savedAt);
 
   let viewerLogin: ViewerLogin | null = null;
   let lastViewer: Viewer | null = savedSnapshot?.viewer ?? null;
@@ -311,6 +320,14 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
+  const saveGroupingQuietly = (grouping: Grouping) => {
+    try {
+      effects.saveGrouping(grouping);
+    } catch {
+      // A failed save must not stop the session.
+    }
+  };
+
   const finishFullRefresh = (outcome: FullRefreshOutcome) => {
     if (outcome.kind === 'aborted') {
       return;
@@ -444,6 +461,10 @@ export const createSession = (effects: SessionEffects): Session => {
       requestRefresh();
     } else {
       update(transitions[intent.kind](snapshot));
+
+      if (intent.kind === 'cycleGrouping') {
+        saveGroupingQuietly(snapshot.grouping);
+      }
     }
   };
 

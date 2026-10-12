@@ -8,10 +8,19 @@ import {
   verifyNotificationFeed,
 } from './github/github.ts';
 import type { NotificationPage, SavedNotificationPage } from './github/github.ts';
-import { cacheDirectory, loadSnapshot, saveSnapshot } from './localState.ts';
+import {
+  cacheDirectory,
+  createStateWriter,
+  loadSnapshot,
+  loadState,
+  saveSnapshot,
+  stateDirectory,
+} from './localState.ts';
+import type { StateWriter } from './localState.ts';
 import { createSession } from './session/session.ts';
 import type { SavedSnapshot } from './session/session.ts';
-import { startTerminal } from './terminal.tsx';
+import { refuseStart, startTerminal } from './terminal.tsx';
+import type { Grouping } from './work/work.ts';
 
 const now = () => new Date();
 const githubEffects = { runGh: createGhRunner(), now };
@@ -56,26 +65,57 @@ const readSavedSnapshot = (): SavedSnapshot | null => {
   return { viewer: { login, etag: viewerEtag }, savedAt, ...restored.value };
 };
 
-await startTerminal({
-  session: createSession({
-    savedSnapshot: readSavedSnapshot(),
-    readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
-    saveSnapshot: (viewer, feed, savedAt) => {
-      if (directory !== null) {
-        saveSnapshot(directory, {
-          host,
-          login: viewer.login,
-          viewerEtag: viewer.etag,
-          savedAt,
-          pages: feed.pages.map(toSavedPage),
-        });
-      }
-    },
-    pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
-    readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
-    verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),
-    now,
-    setTimer,
-  }),
-  catalog,
-});
+const stateHome = stateDirectory(Bun.env);
+const loadedState = stateHome === null ? null : loadState(stateHome);
+let writer: StateWriter | undefined;
+let savedGrouping: Grouping | null = null;
+let stateWarning: string | null = null;
+let newerVersion: string | null = null;
+
+if (stateHome !== null && loadedState?.kind !== 'invalid' && loadedState?.kind !== 'newer') {
+  writer = createStateWriter(stateHome, { onFailure: () => undefined });
+}
+
+if (loadedState?.kind === 'loaded') {
+  savedGrouping = loadedState.state.grouping;
+}
+
+if (loadedState?.kind === 'invalid') {
+  stateWarning = `Zeta will not save state until the file is fixed or removed: ${loadedState.path}: ${loadedState.reason}`;
+}
+
+if (loadedState?.kind === 'newer') {
+  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Zeta reads version 1.`;
+}
+
+if (newerVersion !== null) {
+  refuseStart(newerVersion);
+} else {
+  await startTerminal({
+    session: createSession({
+      savedSnapshot: readSavedSnapshot(),
+      savedGrouping,
+      saveGrouping: (grouping) => writer?.save({ grouping }),
+      stateWarning,
+      readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
+      saveSnapshot: (viewer, feed, savedAt) => {
+        if (directory !== null) {
+          saveSnapshot(directory, {
+            host,
+            login: viewer.login,
+            viewerEtag: viewer.etag,
+            savedAt,
+            pages: feed.pages.map(toSavedPage),
+          });
+        }
+      },
+      pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
+      readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
+      verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),
+      now,
+      setTimer,
+    }),
+    catalog,
+    flushState: () => writer?.flush() ?? Promise.resolve(),
+  });
+}

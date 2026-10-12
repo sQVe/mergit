@@ -134,6 +134,9 @@ const makeHarness = (
 
   const session = createSession({
     savedSnapshot: null,
+    savedGrouping: null,
+    saveGrouping: () => undefined,
+    stateWarning: null,
     readViewer: (previous, signal) =>
       new Promise((resolve) => {
         if (holdViewer) {
@@ -1528,4 +1531,66 @@ test('a refresh in none keeps the selected thread, or falls back to the row inde
   await load(reviewThread, otherThread);
 
   expect(selected()).toBe('thread:3');
+});
+
+test('savedGrouping sets the starting grouping', () => {
+  const { session } = makeHarness({ savedGrouping: 'type' });
+
+  expect(session.getSnapshot().grouping).toBe('type');
+});
+
+test('savedGrouping sets the starting grouping next to a saved snapshot', () => {
+  const { session } = makeHarness({
+    savedGrouping: 'none',
+    savedSnapshot: savedSnapshotOf(octocat),
+  });
+
+  expect(session.getSnapshot().grouping).toBe('none');
+  expect(session.getSnapshot().threads.length).toBeGreaterThan(0);
+});
+
+test('each cycleGrouping intent saves the new grouping once, and nothing else saves it', async () => {
+  const saved: string[] = [];
+
+  const { session } = makeHarness({
+    saveGrouping: (grouping) => {
+      saved.push(grouping);
+    },
+  });
+
+  await settle();
+  session.send({ kind: 'selectNext' });
+  session.send({ kind: 'toggleAllFolds' });
+
+  expect(saved).toEqual([]);
+
+  session.send({ kind: 'cycleGrouping' });
+
+  expect(saved).toEqual(['type']);
+
+  session.send({ kind: 'cycleGrouping' });
+
+  expect(saved).toEqual(['type', 'none']);
+});
+
+test('a saveGrouping that throws leaves the session running with the new grouping', () => {
+  const { session } = makeHarness({
+    saveGrouping: () => {
+      throw new Error('disk full');
+    },
+  });
+
+  session.send({ kind: 'cycleGrouping' });
+
+  expect(session.getSnapshot().grouping).toBe('type');
+
+  session.send({ kind: 'cycleGrouping' });
+
+  expect(session.getSnapshot().grouping).toBe('none');
+});
+
+test('stateWarning is in the starting snapshot', () => {
+  const { session } = makeHarness({ stateWarning: 'bad state file' });
+
+  expect(session.getSnapshot().stateWarning).toBe('bad state file');
 });

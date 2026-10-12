@@ -25,6 +25,9 @@ Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
+  savedGrouping: null,
+  saveGrouping: () => undefined,
+  stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
   saveSnapshot: () => undefined,
@@ -811,4 +814,10 @@ test('a node row with a long repository name keeps its marker and count, open an
   await pressAll(press, ['j', 'z']);
 
   expect(nodeLine()).toMatch(/^│ ▸ example\/a-valid.*… 1$/);
+});
+
+test('the status line shows the state warning', async () => {
+  const { setup } = await mount('dark', { ...idleEffects, stateWarning: 'state file is invalid' });
+
+  expect(setup.captureCharFrame()).toContain('state file is invalid');
 });

@@ -30,6 +30,9 @@ export const StatusLine = (props: { snapshot: Snapshot; palette: Palette }): Rea
       )}
       {snapshot.refreshStatus === 'running' ? <text fg={palette.dim}>refreshing...</text> : null}
       {snapshot.feedBusy ? <text fg={palette.dim}>feed busy, showing the last list</text> : null}
+      {snapshot.stateWarning === null ? null : (
+        <text fg={palette.error}>{snapshot.stateWarning}</text>
+      )}
       {error === null ? null : <text fg={palette.error}>{error}</text>}
     </box>
   );

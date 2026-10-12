@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -71,7 +71,7 @@ const installFakeGh = (directory: string, script: string): void => {
   chmodSync(path, 0o755);
 };
 
-const startZeta = (binDirectory: string): Child => {
+const startZeta = (binDirectory: string, stateHome: string = makeBinDirectory()): Child => {
   let output = '';
   const decoder = new TextDecoder();
 
@@ -82,6 +82,7 @@ const startZeta = (binDirectory: string): Child => {
       PATH: binDirectory,
       TERM: 'xterm-256color',
       XDG_CACHE_HOME: makeBinDirectory(),
+      XDG_STATE_HOME: stateHome,
     },
     terminal: {
       cols: 80,
@@ -141,12 +142,32 @@ const expectRestored = (output: string): void => {
   expect(output.endsWith(showCursor)).toBe(true);
 };
 
-const startWithGh = (script: string): Child => {
+const startWithGh = (script: string, stateHome?: string): Child => {
   const directory = makeBinDirectory();
 
   installFakeGh(directory, script);
 
-  return startZeta(directory);
+  return startZeta(directory, stateHome);
+};
+
+const stateFilePath = (stateHome: string): string => join(stateHome, 'zeta', 'state.json');
+
+const writeStateFile = (stateHome: string, content: string): string => {
+  const path = stateFilePath(stateHome);
+
+  mkdirSync(join(stateHome, 'zeta'), { recursive: true });
+  writeFileSync(path, content);
+
+  return path;
+};
+
+const pressAndQuit = async (child: Child, ready: string, keys: string): Promise<void> => {
+  await waitForOutput(child, ready);
+  child.processHandle.terminal?.write(keys);
+  await Bun.sleep(200);
+  child.processHandle.terminal?.write('q');
+
+  expect(await waitForExit(child)).toBe(0);
 };
 
 test('Zeta shows every thread from both pages', async () => {
@@ -203,4 +224,38 @@ test('Ctrl+C quits and restores the terminal', async () => {
 
   expect(await waitForExit(child)).toBe(0);
   expectRestored(child.getOutput());
+}, 30_000);
+
+test('a newer state file stops startup with its path and stays unchanged', async () => {
+  const stateHome = makeBinDirectory();
+  const content = '{ "version": 2, "grouping": "type" }';
+  const path = writeStateFile(stateHome, content);
+  const child = startWithGh(twoPagesScript, stateHome);
+
+  expect(await waitForExit(child)).toBe(1);
+  expect(child.getOutput()).toContain(path);
+  expect(readFileSync(path, 'utf8')).toBe(content);
+}, 30_000);
+
+test('the chosen grouping is saved at quit and restored on the next start', async () => {
+  const stateHome = makeBinDirectory();
+
+  await pressAndQuit(startWithGh(twoPagesScript, stateHome), '? help', 's');
+
+  expect(readFileSync(stateFilePath(stateHome), 'utf8')).toContain('"grouping":"type"');
+
+  await pressAndQuit(startWithGh(twoPagesScript, stateHome), '? help', 's');
+
+  expect(readFileSync(stateFilePath(stateHome), 'utf8')).toContain('"grouping":"none"');
+}, 60_000);
+
+test('an invalid state file shows a warning and is never written', async () => {
+  const stateHome = makeBinDirectory();
+  const content = '{ not json';
+  const path = writeStateFile(stateHome, content);
+  const child = startWithGh(twoPagesScript, stateHome);
+
+  await pressAndQuit(child, 'will not save', 's');
+
+  expect(readFileSync(path, 'utf8')).toBe(content);
 }, 30_000);

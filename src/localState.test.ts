@@ -5,17 +5,27 @@ import {
   closeSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
   openSync,
   rmSync,
   statSync,
   writeFileSync,
   writeSync,
 } from 'node:fs';
+import { open, rename as renameFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { LocalSnapshot } from './localState.ts';
-import { cacheDirectory, loadSnapshot, saveSnapshot } from './localState.ts';
+import type { LocalSnapshot, StateWriterEffects } from './localState.ts';
+import {
+  cacheDirectory,
+  createStateWriter,
+  loadSnapshot,
+  loadState,
+  stateDirectory,
+  saveSnapshot,
+} from './localState.ts';
 import { toViewerLogin } from './work/work.ts';
 
 let root = '';
@@ -292,4 +302,135 @@ test('recreates a cache with an empty login', () => {
   ]);
 
   expectRecreated();
+});
+
+test('a saved grouping loads back after flush', async () => {
+  const writer = createStateWriter(directory, { onFailure: () => undefined });
+
+  writer.save({ grouping: 'type' });
+  await writer.flush();
+
+  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'type' } });
+});
+
+const realEffects = (): StateWriterEffects => ({
+  makeDirectory: async (target, mode) => {
+    mkdirSync(target, { recursive: true, mode });
+  },
+  openFile: (path, mode) => open(path, 'wx', mode),
+  rename: (from, to) => renameFile(from, to),
+  remove: (path) => rm(path, { force: true }),
+});
+
+const writeStateText = (text: string): string => {
+  mkdirSync(directory, { recursive: true });
+  const path = join(directory, 'state.json');
+  writeFileSync(path, text);
+
+  return path;
+};
+
+test('the state file on disk has version 1', async () => {
+  const writer = createStateWriter(directory, { onFailure: () => undefined });
+
+  writer.save({ grouping: 'none' });
+  await writer.flush();
+
+  const body: unknown = JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'));
+
+  expect(body).toEqual({ version: 1, grouping: 'none' });
+});
+
+test('a missing state file loads as missing', () => {
+  expect(loadState(directory)).toEqual({ kind: 'missing' });
+});
+
+test.each([
+  ['bad JSON', '{nope'],
+  ['an unknown grouping', '{"version":1,"grouping":"owner"}'],
+  ['a missing version', '{"grouping":"type"}'],
+])('%s loads as invalid and leaves the file unchanged', (_name, text) => {
+  const path = writeStateText(text);
+
+  const result = loadState(directory);
+
+  expect(result.kind).toBe('invalid');
+  expect(result.kind === 'invalid' ? result.path : null).toBe(path);
+  expect(readFileSync(path, 'utf8')).toBe(text);
+});
+
+test('a newer version loads as newer with the path and version', () => {
+  const path = writeStateText('{"version":2,"grouping":"type"}');
+
+  expect(loadState(directory)).toEqual({ kind: 'newer', path, version: 2 });
+  expect(readFileSync(path, 'utf8')).toBe('{"version":2,"grouping":"type"}');
+});
+
+test('a failed rename keeps the last valid file, leaves no temporary file, and reports', async () => {
+  const failures: string[] = [];
+
+  const writer = createStateWriter(
+    directory,
+    { onFailure: (message) => failures.push(message) },
+    { ...realEffects(), rename: () => Promise.reject(new Error('rename refused')) },
+  );
+
+  const first = createStateWriter(directory, { onFailure: () => undefined });
+  first.save({ grouping: 'reason' });
+  await first.flush();
+
+  writer.save({ grouping: 'type' });
+  await writer.flush();
+
+  expect(failures).toEqual(['rename refused']);
+  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'reason' } });
+  expect(readdirSync(directory)).toEqual(['state.json']);
+});
+
+test('saves during a write collapse to the last one', async () => {
+  const renamed: string[] = [];
+  const gate = Promise.withResolvers<null>();
+  const firstRenameStarted = Promise.withResolvers<null>();
+  const effects = realEffects();
+
+  const writer = createStateWriter(
+    directory,
+    { onFailure: () => undefined },
+    {
+      ...effects,
+      rename: async (from, to) => {
+        if (renamed.length === 0) {
+          renamed.push(readFileSync(from, 'utf8'));
+          firstRenameStarted.resolve(null);
+          await gate.promise;
+        } else {
+          renamed.push(readFileSync(from, 'utf8'));
+        }
+
+        await effects.rename(from, to);
+      },
+    },
+  );
+
+  writer.save({ grouping: 'reason' });
+  await firstRenameStarted.promise;
+  writer.save({ grouping: 'type' });
+  writer.save({ grouping: 'none' });
+  writer.save({ grouping: 'type' });
+  gate.resolve(null);
+  await writer.flush();
+
+  expect(renamed.map((text): unknown => JSON.parse(text))).toEqual([
+    { version: 1, grouping: 'reason' },
+    { version: 1, grouping: 'type' },
+  ]);
+
+  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'type' } });
+});
+
+test('stateDirectory uses XDG_STATE_HOME, then HOME, then nothing', () => {
+  expect(stateDirectory({ XDG_STATE_HOME: '/xdg', HOME: '/home/a' })).toBe('/xdg/zeta');
+  expect(stateDirectory({ HOME: '/home/a' })).toBe('/home/a/.local/state/zeta');
+  expect(stateDirectory({ XDG_STATE_HOME: '', HOME: '/home/a' })).toBe('/home/a/.local/state/zeta');
+  expect(stateDirectory({})).toBeNull();
 });
