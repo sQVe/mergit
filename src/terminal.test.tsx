@@ -449,3 +449,29 @@ test('a rejected flushState does not change the exit code', async () => {
   expect(harness.exitCodes).toEqual([0]);
   expect(harness.printed).toEqual([]);
 });
+
+test('the bounded wait aborts the deadline signal it gave to stop', async () => {
+  const harness = createHarness('dark');
+  let deadline: AbortSignal | undefined;
+
+  harness.session.stop = (signal) => {
+    deadline = signal;
+
+    return Promise.withResolvers<undefined>().promise;
+  };
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(deadline?.aborted).toBe(false);
+
+  await Bun.sleep(1100);
+
+  expect(deadline?.aborted).toBe(true);
+  expect(harness.exitCodes).toEqual([0]);
+});

@@ -51,6 +51,7 @@ interface LookupCall {
 
 interface SendCall {
   threadId: ThreadId;
+  signal: AbortSignal;
   resolve: (result: GitHubResult<null>) => void;
 }
 
@@ -154,9 +155,16 @@ const makeHarness = (
     saveState: (state) => {
       saves.push(state);
     },
-    markThreadDone: (threadId) =>
+    markThreadDone: (threadId, signal) =>
       new Promise((resolve) => {
-        sends.push({ threadId, resolve });
+        sends.push({ threadId, signal, resolve });
+
+        signal.addEventListener('abort', () => {
+          resolve({
+            ok: false,
+            failure: { kind: 'requestFailed', status: null, message: 'aborted' },
+          });
+        });
       }),
     stateWarning: null,
     readViewer: (previous, signal) =>
@@ -402,7 +410,7 @@ test('a result after stop is dropped, the running refresh is aborted, and no tim
   const signal = pending[0]?.signal;
   const callsBeforeStop = calls;
 
-  await session.stop();
+  await session.stop(new AbortController().signal);
 
   expect(signal?.aborted).toBe(true);
 
@@ -418,7 +426,7 @@ test('stop cancels the scheduled poll', async () => {
   const { session, load, activeTimers } = makeHarness();
 
   await load(makeThread('1'));
-  await session.stop();
+  await session.stop(new AbortController().signal);
 
   expect(activeTimers()).toHaveLength(0);
 });
@@ -427,7 +435,7 @@ test('send after stop starts no refresh and changes nothing', async () => {
   const { session, pending } = makeHarness();
   const before = session.getSnapshot();
 
-  await session.stop();
+  await session.stop(new AbortController().signal);
   session.send({ kind: 'refresh' });
   await settle();
 
@@ -1794,7 +1802,7 @@ test('stop aborts a running lookup and drops its result', async () => {
   const thread = makeThread('1');
 
   await load(thread);
-  await session.stop();
+  await session.stop(new AbortController().signal);
 
   expect(lookups[0]?.signal.aborted).toBe(true);
 
@@ -2082,7 +2090,7 @@ test('stop sends a waiting done at once and saves its record', async () => {
 
   const before = markSelectedDone(harness);
   const readsBefore = harness.countOf('read');
-  const stopped = harness.session.stop();
+  const stopped = harness.session.stop(new AbortController().signal);
 
   expect(harness.timers[before]?.active).toBe(false);
   expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
@@ -2105,7 +2113,7 @@ test('stop sends waiting dones one at a time and saves each record', async () =>
   harness.selectThread(two);
   markSelectedDone(harness);
 
-  const stopped = harness.session.stop();
+  const stopped = harness.session.stop(new AbortController().signal);
 
   expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
 
@@ -2131,7 +2139,7 @@ test('stop waits for a send already in flight and saves its record', async () =>
 
   await fireDoneTimerAt(harness, before);
 
-  const stopped = harness.session.stop();
+  const stopped = harness.session.stop(new AbortController().signal);
 
   expect(harness.sends).toHaveLength(1);
 
@@ -2149,7 +2157,7 @@ test('a failed send at stop saves nothing', async () => {
   harness.selectThread(one);
   markSelectedDone(harness);
 
-  const stopped = harness.session.stop();
+  const stopped = harness.session.stop(new AbortController().signal);
 
   harness.sends[0]?.resolve(failure('boom'));
   await stopped;
@@ -2207,4 +2215,67 @@ test('a complete refresh that drops no done record saves nothing', async () => {
   await harness.load(makeThread('2'), makeThread('3'));
 
   expect(harness.saves).toHaveLength(0);
+});
+
+test('aborting the stop deadline aborts the send in flight and saves nothing', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+  const deadline = new AbortController();
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+
+  const stopped = harness.session.stop(deadline.signal);
+
+  expect(harness.sends[0]?.signal.aborted).toBe(false);
+
+  deadline.abort();
+  await stopped;
+
+  expect(harness.sends[0]?.signal.aborted).toBe(true);
+  expect(harness.saves).toHaveLength(0);
+});
+
+const foldedGroupHarness = async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  return { harness };
+};
+
+const expectFoldedHolder = (harness: ReturnType<typeof makeHarness>) => {
+  const snapshot = harness.session.getSnapshot();
+  const keys = visibleRows(snapshot).map((row) => row.key);
+
+  expect(snapshot.foldedNodes.reason.has('review/acme/app')).toBe(true);
+  expect(keys).toContain(snapshot.selectedRowKey ?? '');
+  expect(snapshot.selectedRowKey).toBe('node:review/acme/app');
+};
+
+test('undo of a done thread whose group was folded selects the group row and keeps the fold', async () => {
+  const { harness } = await foldedGroupHarness();
+
+  markSelectedDone(harness);
+  harness.selectThread(makeThread('2'));
+  harness.session.send({ kind: 'toggleFold' });
+  harness.session.send({ kind: 'undoDone' });
+
+  expectFoldedHolder(harness);
+});
+
+test('a failed send of a thread whose group was folded selects the group row', async () => {
+  const { harness } = await foldedGroupHarness();
+  const before = markSelectedDone(harness);
+
+  harness.selectThread(makeThread('2'));
+  harness.session.send({ kind: 'toggleFold' });
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(failure('Boom'));
+  await settle();
+
+  expectFoldedHolder(harness);
 });

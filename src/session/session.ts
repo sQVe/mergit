@@ -68,7 +68,7 @@ export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
-  markThreadDone: (threadId: ThreadId) => Promise<GitHubResult<null>>;
+  markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
   stateWarning: string | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
@@ -102,7 +102,7 @@ export interface Session {
   subscribe: (listener: () => void) => () => void;
   send: (intent: ApplicationIntent) => void;
   reportStateWrite: (outcome: StateWriteOutcome) => void;
-  stop: () => Promise<void>;
+  stop: (deadline: AbortSignal) => Promise<void>;
 }
 
 type StateIntent = Exclude<
@@ -676,7 +676,7 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const stop = (): Promise<void> => {
+  const stop = (deadline: AbortSignal): Promise<void> => {
     stopped = true;
     controller?.abort();
     controller = null;
@@ -688,7 +688,7 @@ export const createSession = (effects: SessionEffects): Session => {
     cancelToastTimer = null;
     listeners.clear();
 
-    return doneQueue.stop();
+    return doneQueue.stop(deadline);
   };
 
   return { getSnapshot, subscribe, send, reportStateWrite, stop };

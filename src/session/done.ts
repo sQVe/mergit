@@ -8,7 +8,7 @@ type UndoOutcome =
 
 export interface DoneQueueEffects {
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
-  markThreadDone: (threadId: ThreadId) => Promise<GitHubResult<null>>;
+  markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
   onSent: (thread: NotificationThread) => void;
   onFailed: (thread: NotificationThread, failure: GitHubFailure) => void;
 }
@@ -16,7 +16,7 @@ export interface DoneQueueEffects {
 export interface DoneQueue {
   add: (thread: NotificationThread) => void;
   undoLatest: () => UndoOutcome;
-  stop: () => Promise<void>;
+  stop: (deadline: AbortSignal) => Promise<void>;
 }
 
 interface Entry {
@@ -30,9 +30,10 @@ export const undoWindowMilliseconds = 5000;
 const sendSafely = async (
   effects: DoneQueueEffects,
   threadId: ThreadId,
+  signal: AbortSignal,
 ): Promise<GitHubResult<null>> => {
   try {
-    return await effects.markThreadDone(threadId);
+    return await effects.markThreadDone(threadId, signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -44,19 +45,20 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
   let entries: Entry[] = [];
   let running: Promise<void> | null = null;
   let stopping = false;
+  const sends = new AbortController();
 
   const sendDueEntries = async () => {
     for (;;) {
       const entry = entries.find((candidate) => candidate.state === 'due');
 
-      if (entry === undefined) {
+      if (entry === undefined || sends.signal.aborted) {
         return;
       }
 
       entry.state = 'sending';
 
       // oxlint-disable-next-line eslint/no-await-in-loop -- dones go out one at a time
-      const result = await sendSafely(effects, entry.thread.id);
+      const result = await sendSafely(effects, entry.thread.id, sends.signal);
 
       if (result.ok) {
         entry.state = 'sent';
@@ -103,8 +105,20 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
     return entries.length > 0 ? { kind: 'tooLate' } : { kind: 'nothing' };
   };
 
-  const stop = async () => {
+  const stop = async (deadline: AbortSignal) => {
     stopping = true;
+
+    if (deadline.aborted) {
+      sends.abort();
+    } else {
+      deadline.addEventListener(
+        'abort',
+        () => {
+          sends.abort();
+        },
+        { once: true },
+      );
+    }
 
     for (const entry of entries) {
       if (entry.state === 'waiting') {

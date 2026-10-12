@@ -116,8 +116,7 @@ if (newerVersion !== null) {
     savedSnapshot: readSavedSnapshot(),
     savedState,
     saveState: (state) => writer?.save(state),
-    markThreadDone: (threadId) =>
-      markThreadDone(githubEffects, threadId, new AbortController().signal),
+    markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),
     stateWarning,
     readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
     saveSnapshot: (viewer, feed, savedAt) => {

@@ -83,18 +83,22 @@ const listenToProcess = (
 };
 
 const waitForStop = async (
-  stop: () => Promise<void>,
+  stop: (deadline: AbortSignal) => Promise<void>,
   flushState: () => Promise<void>,
 ): Promise<void> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new AbortController();
 
   const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, flushWaitMilliseconds);
+    timer = setTimeout(() => {
+      deadline.abort();
+      resolve();
+    }, flushWaitMilliseconds);
   });
 
   try {
     const saved = async () => {
-      await stop();
+      await stop(deadline.signal);
       await flushState();
     };
 
@@ -148,7 +152,7 @@ export const startTerminal = async (
     const opened = await settledOpen();
 
     try {
-      await waitForStop(() => session.stop(), flushState);
+      await waitForStop((deadline) => session.stop(deadline), flushState);
 
       for (const remove of removers.splice(0)) {
         remove();

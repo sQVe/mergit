@@ -401,7 +401,14 @@ export const showThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => 
 
   hiddenThreadIds.delete(threadId);
 
-  return { ...snapshot, hiddenThreadIds, selectedRowKey: `thread:${threadId}` };
+  const shown = { ...snapshot, hiddenThreadIds };
+  const rows = visibleRows(shown);
+  const threadRow = rows.find((row) => row.kind === 'thread' && row.thread.id === threadId);
+  const thread = shown.threads.find((candidate) => candidate.id === threadId);
+
+  const target = threadRow ?? (thread === undefined ? undefined : deepestNodeHolding(rows, thread));
+
+  return { ...shown, selectedRowKey: target?.key ?? snapshot.selectedRowKey };
 };
 
 export const releaseThreads = (snapshot: Snapshot, threadIds: ReadonlySet<ThreadId>): Snapshot => {
