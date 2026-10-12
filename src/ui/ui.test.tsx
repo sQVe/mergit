@@ -1242,6 +1242,13 @@ test('a toast on a full list keeps the list height and wraps a long reason', asy
     .replaceAll(/[\s│╭╮╰╯─]/g, '');
 
   expect(flattened).toContain(longReason.replaceAll(/\s/g, ''));
+
+  const toastParts = after
+    .filter((line) => line.includes('▌'))
+    .map((line) => line.slice(line.indexOf('▌')));
+
+  expect(toastParts.length).toBeGreaterThan(0);
+  expect(toastParts.join('')).not.toMatch(/[│├└]|Thread/);
 });
 
 test('a toast on a terminal too narrow for text renders nothing and still expires', async () => {
