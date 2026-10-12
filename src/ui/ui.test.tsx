@@ -43,6 +43,7 @@ const idleEffects: SessionEffects = {
     }),
   verifyFeed: () =>
     Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
+  lookUpSubjects: () => Promise.resolve([]),
   now: () => new Date(0),
   setTimer: () => () => undefined,
 };
@@ -1066,4 +1067,74 @@ test('the status line stays on the last row in the full-width detail', async () 
 
   expect(rows.join('\n')).not.toContain('Third');
   expect(rows.findIndex((row) => row.includes('? help'))).toBe(rows.length - 2);
+});
+
+const factsEffects = (
+  threads: NotificationThread[],
+  facts: Map<string, { state: 'open' | 'closed' | 'merged'; author: string | null }>,
+): SessionEffects => ({
+  ...threadsEffects(threads),
+  lookUpSubjects: () =>
+    Promise.resolve(
+      threads.flatMap((thread) => {
+        const known = facts.get(thread.id);
+
+        return known === undefined
+          ? []
+          : [
+              {
+                threadId: thread.id,
+                updatedAt: thread.updatedAt,
+                facts: { ...known, latestActor: null },
+              },
+            ];
+      }),
+    ),
+});
+
+test('the side pane shows the state and author of a thread with known facts', async () => {
+  const threads = [makeThread(1, 'First title')];
+  const effects = factsEffects(threads, new Map([['1', { state: 'merged', author: 'octo' }]]));
+
+  const { setup, press } = await mount('dark', effects, 100);
+
+  await press('r');
+  await press('j');
+  await press('j');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toMatch(/State\s+merged/);
+  expect(frame).toMatch(/Author\s+octo/);
+});
+
+test('the side pane leaves out State and Author for a thread with no facts', async () => {
+  const { setup, press } = await mount('dark', threadsEffects([makeThread(1, 'First title')]), 100);
+
+  await press('r');
+  await press('j');
+  await press('j');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toMatch(/Repo\s+example\/repo/);
+  expect(frame).toMatch(/Unread\s+yes/);
+  expect(frame).not.toContain('State');
+  expect(frame).not.toContain('Author');
+});
+
+test('the side pane leaves out Author when the author is unknown', async () => {
+  const threads = [makeThread(1, 'First title')];
+  const effects = factsEffects(threads, new Map([['1', { state: 'closed', author: null }]]));
+
+  const { setup, press } = await mount('dark', effects, 100);
+
+  await press('r');
+  await press('j');
+  await press('j');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toMatch(/State\s+closed/);
+  expect(frame).not.toContain('Author');
 });
