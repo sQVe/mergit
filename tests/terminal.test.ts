@@ -77,7 +77,12 @@ const startZeta = (binDirectory: string): Child => {
 
   const processHandle = Bun.spawn([process.execPath, 'run', 'start'], {
     cwd: new URL('../', import.meta.url).pathname,
-    env: { ...process.env, PATH: binDirectory, TERM: 'xterm-256color' },
+    env: {
+      ...process.env,
+      PATH: binDirectory,
+      TERM: 'xterm-256color',
+      XDG_CACHE_HOME: makeBinDirectory(),
+    },
     terminal: {
       cols: 80,
       rows: 24,
