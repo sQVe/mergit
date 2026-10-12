@@ -9,10 +9,10 @@ import type {
   NotificationPoll,
   NotificationVerification,
 } from '../github/github.ts';
-import type { NotificationThread } from '../work/work.ts';
-import { toThreadId } from '../work/work.ts';
+import type { NotificationThread, ViewerLogin } from '../work/work.ts';
+import { toThreadId, toViewerLogin } from '../work/work.ts';
 import { createSession } from './session.ts';
-import type { SessionEffects } from './session.ts';
+import type { SavedSnapshot, SessionEffects } from './session.ts';
 
 type Call =
   | {
@@ -32,12 +32,21 @@ type Call =
       feed: NotificationFeed;
       resolve: (result: GitHubResult<NotificationVerification>) => void;
       signal: AbortSignal;
+    }
+  | {
+      kind: 'viewer';
+      resolve: (result: GitHubResult<ViewerLogin>) => void;
+      signal: AbortSignal;
     };
 
 interface FakeTimer {
   delay: number;
   callback: () => void;
   active: boolean;
+}
+
+interface HarnessOptions {
+  holdViewer?: boolean;
 }
 
 const makeThread = (
@@ -82,7 +91,10 @@ const readOf = (
 const verified = (
   kind: 'stable' | 'changed',
   pollInterval: number | null = null,
-): GitHubResult<NotificationVerification> => ({ ok: true, value: { kind, pollInterval } });
+): GitHubResult<NotificationVerification> => ({
+  ok: true,
+  value: { kind, pollInterval },
+});
 
 const stable = verified('stable');
 const changed = verified('changed');
@@ -97,7 +109,17 @@ const failure = (message: string) => ({
   failure: { kind: 'requestFailed' as const, status: 500, message },
 });
 
-const makeHarness = (overrides: Partial<SessionEffects> = {}) => {
+const octocat = toViewerLogin('octocat');
+
+const viewerOf = (login: ViewerLogin): GitHubResult<ViewerLogin> => ({
+  ok: true,
+  value: login,
+});
+
+const makeHarness = (
+  overrides: Partial<SessionEffects> = {},
+  { holdViewer = false }: HarnessOptions = {},
+) => {
   const pending: Call[] = [];
   const history: Call[] = [];
   const timers: FakeTimer[] = [];
@@ -109,6 +131,17 @@ const makeHarness = (overrides: Partial<SessionEffects> = {}) => {
   };
 
   const session = createSession({
+    savedSnapshot: null,
+    readViewer: (signal) =>
+      new Promise((resolve) => {
+        if (holdViewer) {
+          record({ kind: 'viewer', resolve, signal });
+        } else {
+          history.push({ kind: 'viewer', resolve, signal });
+          resolve(viewerOf(octocat));
+        }
+      }),
+    saveSnapshot: () => undefined,
     pollFeed: (feed, signal) =>
       new Promise((resolve) => {
         record({ kind: 'poll', feed, resolve, signal });
@@ -155,6 +188,11 @@ const makeHarness = (overrides: Partial<SessionEffects> = {}) => {
     await settle();
   };
 
+  const answerViewer = async (result: GitHubResult<ViewerLogin>) => {
+    take('viewer').resolve(result);
+    await settle();
+  };
+
   const answerPoll = async (result: GitHubResult<NotificationPoll>) => {
     take('poll').resolve(result);
     await settle();
@@ -179,6 +217,7 @@ const makeHarness = (overrides: Partial<SessionEffects> = {}) => {
 
   const loadWith = async (label: string, threads: NotificationThread[], pollInterval?: number) => {
     session.send({ kind: 'refresh' });
+    await settle();
     await answerRead(readOf(label, threads, pollInterval ?? null));
     await answerVerify(stable);
   };
@@ -202,6 +241,7 @@ const makeHarness = (overrides: Partial<SessionEffects> = {}) => {
     answerRead,
     answerVerify,
     answerPoll,
+    answerViewer,
     countOf,
     activeTimers,
     fireTimer,
@@ -240,6 +280,7 @@ test('a refresh holds the open threads in feed order and selects the first', asy
   const done = makeThread('3', { unread: false, lastReadAt: null });
 
   session.send({ kind: 'refresh' });
+  await settle();
 
   expect(pending).toHaveLength(1);
   expect(session.getSnapshot().refreshStatus).toBe('running');
@@ -304,6 +345,7 @@ test('a result after stop is dropped, the running refresh is aborted, and no tim
   });
 
   session.send({ kind: 'refresh' });
+  await settle();
 
   const before = session.getSnapshot();
   const signal = pending[0]?.signal;
@@ -330,12 +372,13 @@ test('stop cancels the scheduled poll', async () => {
   expect(activeTimers()).toHaveLength(0);
 });
 
-test('send after stop starts no refresh and changes nothing', () => {
+test('send after stop starts no refresh and changes nothing', async () => {
   const { session, pending } = makeHarness();
   const before = session.getSnapshot();
 
   session.stop();
   session.send({ kind: 'refresh' });
+  await settle();
 
   expect(pending).toHaveLength(0);
   expect(session.getSnapshot()).toBe(before);
@@ -345,9 +388,13 @@ test('three refresh intents during one refresh start exactly one follow-up', asy
   const { session, pending, answerRead, answerVerify } = makeHarness();
 
   session.send({ kind: 'refresh' });
+  await settle();
   session.send({ kind: 'refresh' });
+  await settle();
   session.send({ kind: 'refresh' });
+  await settle();
   session.send({ kind: 'refresh' });
+  await settle();
 
   expect(pending).toHaveLength(1);
 
@@ -370,6 +417,7 @@ test('r sends its first pass with no previous feed', async () => {
 
   await load(makeThread('1'));
   session.send({ kind: 'refresh' });
+  await settle();
 
   const request = history.findLast((call) => call.kind === 'read')?.request;
 
@@ -382,6 +430,7 @@ test('a failed refresh keeps the previous threads, sets the error, and schedules
 
   await load(thread);
   session.send({ kind: 'refresh' });
+  await settle();
 
   expect(activeTimers()).toHaveLength(0);
 
@@ -407,6 +456,7 @@ test('a failed second pass keeps the list and shows the error', async () => {
 
   await load(thread);
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead(readOf('next', []));
   await answerVerify(failure('Verify failed'));
 
@@ -464,11 +514,13 @@ test('a rejected read is a failed refresh and the session keeps running', async 
 
   session.send({ kind: 'refresh' });
   await settle();
+  await settle();
 
   expect(session.getSnapshot().errorMessage).toBe('socket closed');
   expect(session.getSnapshot().refreshStatus).toBe('idle');
 
   session.send({ kind: 'refresh' });
+  await settle();
   await settle();
 
   expect(session.getSnapshot().threads).toEqual([thread]);
@@ -484,6 +536,7 @@ test('a read that throws is a failed refresh', async () => {
 
   session.send({ kind: 'refresh' });
   await settle();
+  await settle();
 
   expect(session.getSnapshot().errorMessage).toBe('spawn failed');
   expect(session.getSnapshot().refreshStatus).toBe('idle');
@@ -496,6 +549,7 @@ test('ghMissing and notSignedIn set the notice and a later success clears it', a
   await load(thread);
 
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead({ ok: false, failure: { kind: 'ghMissing' } });
 
   expect(session.getSnapshot().notice).toBe('ghMissing');
@@ -503,6 +557,7 @@ test('ghMissing and notSignedIn set the notice and a later success clears it', a
   expect(session.getSnapshot().threads).toEqual([thread]);
 
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead({ ok: false, failure: { kind: 'notSignedIn' } });
 
   expect(session.getSnapshot().notice).toBe('notSignedIn');
@@ -514,6 +569,7 @@ test('ghMissing and notSignedIn set the notice and a later success clears it', a
 
 test('selectNext and selectPrevious move one row and stop at the ends', async () => {
   const { session, load, selected } = makeHarness();
+
   const [a, b, c] = [makeThread('1'), makeThread('2'), makeThread('3')] as const;
 
   await load(a, b, c);
@@ -537,6 +593,7 @@ test('selectNext and selectPrevious move one row and stop at the ends', async ()
 
 test('selection stays on the same thread across a refresh that reorders threads', async () => {
   const { session, load, selected } = makeHarness();
+
   const [a, b, c] = [makeThread('1'), makeThread('2'), makeThread('3')] as const;
 
   await load(a, b, c);
@@ -553,6 +610,7 @@ test('selection stays on the same thread across a refresh that reorders threads'
 
 test('when the selected thread leaves, the thread now in its row is selected', async () => {
   const { session, load, selected } = makeHarness();
+
   const [a, b, c] = [makeThread('1'), makeThread('2'), makeThread('3')] as const;
 
   await load(a, b, c);
@@ -584,11 +642,15 @@ test('a changed page 1 starts a full refresh that reuses that page, and a gone t
   await loadWith('first', [a, b]);
 
   const feedAfterLoad = history.findLast((call) => call.kind === 'verify')?.feed;
+
   const page = makePage('second', [a]);
 
   await fireTimer();
 
-  await answerPoll({ ok: true, value: { kind: 'changed', page, pollInterval: null } });
+  await answerPoll({
+    ok: true,
+    value: { kind: 'changed', page, pollInterval: null },
+  });
 
   expect(session.getSnapshot().refreshStatus).toBe('running');
   expect(session.getSnapshot().threads).toEqual([a, b]);
@@ -607,11 +669,13 @@ test('a changed page 1 starts a full refresh that reuses that page, and a gone t
 
 test('a second pass that sees a change leaves the list and runs again at once', async () => {
   const { session, load, answerRead, answerVerify, countOf, pending } = makeHarness();
+
   const old = makeThread('1');
   const fresh = makeThread('2');
 
   await load(old);
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead(readOf('moved', [fresh]));
   await answerVerify(changed);
 
@@ -639,6 +703,7 @@ test('the fourth failed attempt marks the feed busy and the next poll runs a ful
   const readsBefore = countOf('read');
 
   session.send({ kind: 'refresh' });
+  await settle();
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await answerRead(readOf(`moved${attempt}`, [fresh]));
@@ -690,6 +755,7 @@ test('the second pass interval sets the next poll', async () => {
   const { session, answerRead, answerVerify, activeTimers } = makeHarness();
 
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead(readOf('feed', [], 60));
   await answerVerify(verified('stable', 120));
 
@@ -700,6 +766,7 @@ test('a second pass without an interval keeps the first pass interval', async ()
   const { session, answerRead, answerVerify, activeTimers } = makeHarness();
 
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead(readOf('feed', [], 120));
   await answerVerify(verified('stable', null));
 
@@ -740,6 +807,7 @@ test('a timer that fires during a refresh is dropped', async () => {
 
   const staleCallback = activeTimers()[0]?.callback;
   session.send({ kind: 'refresh' });
+  await settle();
 
   const callsBefore = history.length;
 
@@ -803,7 +871,9 @@ test('r during the pause sends no request and queues no follow-up', async () => 
   await answerPoll(limitedUntil(new Date(now().getTime() + fiveMinutes)));
 
   session.send({ kind: 'refresh' });
+  await settle();
   session.send({ kind: 'refresh' });
+  await settle();
 
   expect(pending).toHaveLength(0);
   expect(countOf('read')).toBe(1);
@@ -825,6 +895,7 @@ test('r after the reset time but before the timer fires refreshes once', async (
   advance(fiveMinutes);
 
   session.send({ kind: 'refresh' });
+  await settle();
 
   expect(countOf('read')).toBe(2);
   expect(session.getSnapshot().pausedUntil).toBeNull();
@@ -836,7 +907,9 @@ test('a follow-up queued during the refresh that hit the limit sends nothing bef
 
   await load(makeThread('1'));
   session.send({ kind: 'refresh' });
+  await settle();
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead(limitedUntil(new Date(now().getTime() + fiveMinutes)));
 
   expect(countOf('read')).toBe(2);
@@ -857,11 +930,14 @@ test('a rate limit on the second pass pauses the session', async () => {
 
   await load(makeThread('1'));
   session.send({ kind: 'refresh' });
+  await settle();
   await answerRead(readOf('feed', [makeThread('1')]));
   await answerVerify(limitedUntil(new Date(now().getTime() + fiveMinutes)));
 
   expect(session.getSnapshot().threads).toHaveLength(1);
+
   expect(session.getSnapshot().pausedUntil).toEqual(new Date(now().getTime() + fiveMinutes));
+
   expect(pending).toHaveLength(0);
   expect(activeTimers().map((timer) => timer.delay)).toEqual([fiveMinutes]);
   expect(countOf('read')).toBe(2);
@@ -883,4 +959,174 @@ test('the pause clears when the refresh after it succeeds, and polls resume', as
 
   expect(session.getSnapshot().pausedUntil).toBeNull();
   expect(activeTimers().map((timer) => timer.delay)).toEqual([60_000]);
+});
+
+const savedThreads = [makeThread('1'), makeThread('2')];
+const savedAt = new Date('2026-01-05T08:00:00Z');
+
+const savedSnapshotOf = (login: ViewerLogin): SavedSnapshot => ({
+  login,
+  savedAt,
+  feed: makeFeed('saved', savedThreads),
+  threads: savedThreads,
+});
+
+const makeSavedHarness = (login: ViewerLogin, overrides: Partial<SessionEffects> = {}) => {
+  const harness = makeHarness(
+    { savedSnapshot: savedSnapshotOf(login), ...overrides },
+    { holdViewer: true },
+  );
+
+  const send = async () => {
+    harness.session.send({ kind: 'refresh' });
+    await settle();
+  };
+
+  return { ...harness, send };
+};
+
+test('a saved snapshot shows its threads at start and its feed goes out on the first refresh', async () => {
+  const { session, send, answerViewer, take } = makeSavedHarness(octocat);
+
+  expect(session.getSnapshot().threads).toEqual(savedThreads);
+  expect(session.getSnapshot().savedAt).toEqual(savedAt);
+  expect(session.getSnapshot().hasLoaded).toBe(true);
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+
+  expect(take('read').request.previous).toEqual(makeFeed('saved', savedThreads));
+});
+
+test('another account empties the list before the feed answers and reads without a previous feed', async () => {
+  const { session, send, answerViewer, take } = makeSavedHarness(octocat);
+
+  await send();
+  await answerViewer(viewerOf(toViewerLogin('hubot')));
+
+  expect(session.getSnapshot().threads).toEqual([]);
+  expect(session.getSnapshot().selectedThreadId).toBeNull();
+  expect(session.getSnapshot().savedAt).toBeNull();
+  expect(take('read').request.previous).toBeNull();
+});
+
+test('a loaded refresh saves the new feed once and applyThreads clears the saved time', async () => {
+  const saves: { login: ViewerLogin; feed: NotificationFeed; savedAt: Date }[] = [];
+
+  const { session, send, answerViewer, answerRead, answerVerify, now } = makeSavedHarness(octocat, {
+    saveSnapshot: (login, feed, savedAtTime) => {
+      saves.push({ login, feed, savedAt: savedAtTime });
+    },
+  });
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(readOf('fresh', [makeThread('3')]));
+  await answerVerify(stable);
+
+  expect(saves).toEqual([
+    {
+      login: octocat,
+      feed: makeFeed('fresh', [makeThread('3')]),
+      savedAt: now(),
+    },
+  ]);
+
+  expect(session.getSnapshot().savedAt).toBeNull();
+});
+
+test('a busy or failed refresh saves nothing', async () => {
+  const saves: unknown[] = [];
+
+  const { send, answerViewer, answerRead, answerVerify, take } = makeSavedHarness(octocat, {
+    saveSnapshot: (...args) => {
+      saves.push(args);
+    },
+  });
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await answerRead(readOf('moving', []));
+    await answerVerify(changed);
+  }
+
+  await send();
+  take('read');
+
+  expect(saves).toEqual([]);
+});
+
+test('a failed read saves nothing', async () => {
+  const saves: unknown[] = [];
+
+  const { send, answerViewer, answerRead } = makeSavedHarness(octocat, {
+    saveSnapshot: (...args) => {
+      saves.push(args);
+    },
+  });
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(failure('boom'));
+
+  expect(saves).toEqual([]);
+});
+
+test('a save that throws does not stop the session', async () => {
+  const { session, send, answerViewer, answerRead, answerVerify, fireTimer, countOf } =
+    makeSavedHarness(octocat, {
+      saveSnapshot: () => {
+        throw new Error('disk full');
+      },
+    });
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(readOf('fresh', [makeThread('3')]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().threads).toEqual([makeThread('3')]);
+
+  await fireTimer();
+
+  expect(countOf('poll')).toBe(1);
+});
+
+test('a failed viewer read shows the failure and keeps the saved threads', async () => {
+  const { session, send, answerViewer, countOf } = makeSavedHarness(octocat);
+
+  await send();
+  await answerViewer(failure('offline'));
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.errorMessage).toBe('offline');
+  expect(snapshot.threads).toEqual(savedThreads);
+  expect(snapshot.refreshStatus).toBe('idle');
+  expect(countOf('read')).toBe(0);
+});
+
+test('a poll timer after a failed viewer read runs a full refresh, not a poll', async () => {
+  const { send, answerViewer, fireTimer, countOf } = makeSavedHarness(octocat);
+
+  await send();
+  await answerViewer(failure('offline'));
+  await fireTimer();
+
+  expect(countOf('poll')).toBe(0);
+  expect(countOf('viewer')).toBe(2);
+});
+
+test('the viewer is read once per session', async () => {
+  const { send, answerViewer, answerRead, answerVerify, countOf } = makeSavedHarness(octocat);
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(readOf('fresh', []));
+  await answerVerify(stable);
+  await send();
+
+  expect(countOf('viewer')).toBe(1);
 });

@@ -3,6 +3,7 @@ import {
   createGhRunner,
   pollNotificationFeed,
   readNotificationFeed,
+  readViewer,
   verifyNotificationFeed,
 } from './github/github.ts';
 import { createSession } from './session/session.ts';
@@ -21,6 +22,9 @@ const setTimer = (delayMilliseconds: number, callback: () => void) => {
 
 await startTerminal({
   session: createSession({
+    savedSnapshot: null,
+    readViewer: (signal) => readViewer(githubEffects, signal),
+    saveSnapshot: () => undefined,
     pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
     readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
     verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),

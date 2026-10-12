@@ -2,8 +2,12 @@ import { expect, test } from 'bun:test';
 
 import { catalog } from './commands.ts';
 import { createSession } from './session/session.ts';
+import { toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
+  savedSnapshot: null,
+  readViewer: () => Promise.resolve({ ok: true as const, value: toViewerLogin('octocat') }),
+  saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({
       ok: true as const,

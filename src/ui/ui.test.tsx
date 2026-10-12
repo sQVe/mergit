@@ -11,7 +11,7 @@ import { catalog } from '../commands.ts';
 import type { TerminalIntent } from '../commands.ts';
 import { createSession } from '../session/session.ts';
 import type { SessionEffects } from '../session/session.ts';
-import { toThreadId } from '../work/work.ts';
+import { toThreadId, toViewerLogin } from '../work/work.ts';
 import type { NotificationThread } from '../work/work.ts';
 import { pickPalette } from './palette.ts';
 import { App } from './ui.tsx';
@@ -24,6 +24,9 @@ type ReadFailure = Extract<Awaited<ReturnType<SessionEffects['readFeed']>>, { ok
 Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
+  savedSnapshot: null,
+  readViewer: () => Promise.resolve({ ok: true as const, value: toViewerLogin('octocat') }),
+  saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({
       ok: true as const,

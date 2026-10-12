@@ -12,6 +12,7 @@ export interface Snapshot {
   notice: Notice | null;
   hasLoaded: boolean;
   refreshedAt: Date | null;
+  savedAt: Date | null;
   feedBusy: boolean;
   pausedUntil: Date | null;
 }
@@ -24,6 +25,7 @@ export const initialSnapshot: Snapshot = {
   notice: null,
   hasLoaded: false,
   refreshedAt: null,
+  savedAt: null,
   feedBusy: false,
   pausedUntil: null,
 };
@@ -66,10 +68,32 @@ export const applyThreads = (
     notice: null,
     hasLoaded: true,
     refreshedAt: now,
+    savedAt: null,
     feedBusy: false,
     pausedUntil: null,
   };
 };
+
+export const showSavedThreads = (saved: NotificationThread[], savedAt: Date): Snapshot => {
+  const threads = selectOpenThreads(saved);
+
+  return {
+    ...initialSnapshot,
+    threads,
+    selectedThreadId: threads[0]?.id ?? null,
+    hasLoaded: true,
+    savedAt,
+  };
+};
+
+export const clearAccount = (snapshot: Snapshot): Snapshot => ({
+  ...snapshot,
+  threads: [],
+  selectedThreadId: null,
+  hasLoaded: false,
+  refreshedAt: null,
+  savedAt: null,
+});
 
 export const markFeedBusy = (snapshot: Snapshot): Snapshot => ({
   ...snapshot,
