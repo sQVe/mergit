@@ -19,7 +19,7 @@ import {
 } from './localState.ts';
 import type { StateWriter } from './localState.ts';
 import { createSession } from './session/session.ts';
-import type { SavedSnapshot } from './session/session.ts';
+import type { SavedSnapshot, Session } from './session/session.ts';
 import { refuseStart, startTerminal } from './terminal.tsx';
 import type { Grouping } from './work/work.ts';
 
@@ -66,15 +66,34 @@ const readSavedSnapshot = (): SavedSnapshot | null => {
   return { viewer: { login, etag: viewerEtag }, savedAt, ...restored.value };
 };
 
+const shortenHome = (path: string): string => {
+  const home = Bun.env['HOME'];
+
+  if (home === undefined || home === '' || !path.startsWith(`${home}/`)) {
+    return path;
+  }
+
+  return `~${path.slice(home.length)}`;
+};
+
 const stateHome = stateDirectory(Bun.env);
 const loadedState = stateHome === null ? null : loadState(stateHome);
 let writer: StateWriter | undefined;
+let session: Session | undefined;
 let savedGrouping: Grouping | null = null;
 let stateWarning: string | null = null;
 let newerVersion: string | null = null;
 
 if (stateHome !== null && loadedState?.kind !== 'invalid' && loadedState?.kind !== 'newer') {
-  writer = createStateWriter(stateHome, { onFailure: () => undefined });
+  writer = createStateWriter(stateHome, {
+    onFailure: (failure) =>
+      session?.reportStateWrite({
+        ok: false,
+        reason: failure.reason,
+        path: shortenHome(failure.path),
+      }),
+    onSaved: () => session?.reportStateWrite({ ok: true }),
+  });
 }
 
 if (loadedState?.kind === 'loaded') {
@@ -92,31 +111,33 @@ if (loadedState?.kind === 'newer') {
 if (newerVersion !== null) {
   refuseStart(newerVersion);
 } else {
+  session = createSession({
+    savedSnapshot: readSavedSnapshot(),
+    savedGrouping,
+    saveGrouping: (grouping) => writer?.save({ grouping }),
+    stateWarning,
+    readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
+    saveSnapshot: (viewer, feed, savedAt) => {
+      if (directory !== null) {
+        saveSnapshot(directory, {
+          host,
+          login: viewer.login,
+          viewerEtag: viewer.etag,
+          savedAt,
+          pages: feed.pages.map(toSavedPage),
+        });
+      }
+    },
+    pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
+    readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
+    verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),
+    lookUpSubjects: (threads, signal) => lookUpSubjects(githubEffects, threads, signal),
+    now,
+    setTimer,
+  });
+
   await startTerminal({
-    session: createSession({
-      savedSnapshot: readSavedSnapshot(),
-      savedGrouping,
-      saveGrouping: (grouping) => writer?.save({ grouping }),
-      stateWarning,
-      readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
-      saveSnapshot: (viewer, feed, savedAt) => {
-        if (directory !== null) {
-          saveSnapshot(directory, {
-            host,
-            login: viewer.login,
-            viewerEtag: viewer.etag,
-            savedAt,
-            pages: feed.pages.map(toSavedPage),
-          });
-        }
-      },
-      pollFeed: (feed, signal) => pollNotificationFeed(githubEffects, feed, signal),
-      readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
-      verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),
-      lookUpSubjects: (threads, signal) => lookUpSubjects(githubEffects, threads, signal),
-      now,
-      setTimer,
-    }),
+    session,
     catalog,
     flushState: () => writer?.flush() ?? Promise.resolve(),
   });

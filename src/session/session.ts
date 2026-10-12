@@ -10,7 +10,7 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import type { Grouping, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
-import type { Snapshot } from './sessionState.ts';
+import type { Snapshot, Toast, UnsavedChange } from './sessionState.ts';
 import {
   applyFailure,
   applySubjectLookups,
@@ -81,10 +81,13 @@ type FullRefreshOutcome =
   | { kind: 'aborted' }
   | { kind: 'failed'; failure: GitHubFailure };
 
+type StateWriteOutcome = { ok: true } | { ok: false; reason: string; path: string };
+
 export interface Session {
   getSnapshot: () => Snapshot;
   subscribe: (listener: () => void) => () => void;
   send: (intent: ApplicationIntent) => void;
+  reportStateWrite: (outcome: StateWriteOutcome) => void;
   stop: () => void;
 }
 
@@ -99,6 +102,11 @@ const fullRefreshAfterMilliseconds =
   fullRefreshAfterMinutes * secondsPerMinute * millisecondsPerSecond;
 
 const maximumRetries = 3;
+const toastMilliseconds = 4000;
+
+const unsavedLabels: Record<UnsavedChange, string> = {
+  grouping: 'Grouping',
+};
 
 const guard = async <Value>(
   read: () => Promise<GitHubResult<Value>>,
@@ -150,6 +158,8 @@ export const createSession = (effects: SessionEffects): Session => {
   let followUpPending = false;
   let feed: NotificationFeed | null = savedSnapshot?.feed ?? null;
   let cancelTimer: (() => void) | null = null;
+  let cancelToastTimer: (() => void) | null = null;
+  let unsavedChanges = new Set<UnsavedChange>();
   let pollSeconds = minimumPollSeconds;
   let lastFullRefreshAt = 0;
   let lookupController: AbortController | null = null;
@@ -331,7 +341,41 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
+  const showToast = (content: Omit<Toast, 'durationMilliseconds'>) => {
+    const toast = { ...content, durationMilliseconds: toastMilliseconds };
+
+    cancelToastTimer?.();
+    update({ ...snapshot, toast });
+
+    cancelToastTimer = effects.setTimer(toast.durationMilliseconds, () => {
+      cancelToastTimer = null;
+      update({ ...snapshot, toast: null });
+    });
+  };
+
+  const reportStateWrite = (outcome: StateWriteOutcome) => {
+    if (stopped) {
+      return;
+    }
+
+    if (outcome.ok) {
+      unsavedChanges = new Set();
+
+      return;
+    }
+
+    const names = [...unsavedChanges].map((change) => unsavedLabels[change]);
+
+    showToast({
+      title: `${names.join(' and ')} not saved`,
+      lines: [outcome.reason, outcome.path],
+      tone: 'error',
+    });
+  };
+
   const saveGroupingQuietly = (grouping: Grouping) => {
+    unsavedChanges.add('grouping');
+
     try {
       effects.saveGrouping(grouping);
     } catch {
@@ -539,8 +583,10 @@ export const createSession = (effects: SessionEffects): Session => {
     lookupController = null;
     cancelTimer?.();
     cancelTimer = null;
+    cancelToastTimer?.();
+    cancelToastTimer = null;
     listeners.clear();
   };
 
-  return { getSnapshot, subscribe, send, stop };
+  return { getSnapshot, subscribe, send, reportStateWrite, stop };
 };

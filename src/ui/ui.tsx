@@ -14,6 +14,7 @@ import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
 import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
+import { Toast } from './Toast.tsx';
 
 type UiAction = Extract<Intent, { kind: 'ui' }>['action'];
 
@@ -205,6 +206,7 @@ export const App = (props: AppProps): ReactNode => {
         />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
+      <Toast snapshot={snapshot} palette={palette} />
       {helpOpen ? <HelpOverlay catalog={props.catalog} palette={palette} /> : null}
     </KeymapProvider>
   );

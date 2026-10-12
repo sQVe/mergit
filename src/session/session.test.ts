@@ -278,6 +278,7 @@ const makeHarness = (
     answerViewer,
     countOf,
     activeTimers,
+    timers,
     fireTimer,
     loadWith,
     load,
@@ -1747,4 +1748,63 @@ test('stop aborts a running lookup and drops its result', async () => {
   await settle();
 
   expect(session.getSnapshot().subjectFacts.size).toBe(0);
+});
+
+test('a failed state write after a grouping change shows an error toast naming the grouping, the reason, and the file', () => {
+  const { session } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  const { toast } = session.getSnapshot();
+
+  expect(toast?.tone).toBe('error');
+  expect(toast?.title.toLowerCase()).toContain('grouping');
+  expect(toast?.lines).toEqual(['disk full', '~/state.json']);
+});
+
+test('a successful write after a failure shows no new toast', () => {
+  const { session, timers } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+  timers.at(-1)?.callback();
+  session.reportStateWrite({ ok: true });
+
+  expect(session.getSnapshot().toast).toBeNull();
+});
+
+test('the toast clears after four seconds, and a newer toast replaces it and restarts the timer', () => {
+  const { session, timers } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, reason: 'first', path: '~/state.json' });
+
+  const firstTimer = timers.at(-1);
+
+  session.reportStateWrite({ ok: false, reason: 'second', path: '~/state.json' });
+
+  const secondTimer = timers.at(-1);
+
+  expect(firstTimer?.active).toBe(false);
+  expect(secondTimer).not.toBe(firstTimer);
+  expect(secondTimer?.delay).toBe(4000);
+  expect(session.getSnapshot().toast?.durationMilliseconds).toBe(4000);
+  expect(session.getSnapshot().toast?.lines[0]).toBe('second');
+
+  secondTimer?.callback();
+
+  expect(session.getSnapshot().toast).toBeNull();
+});
+
+test("a toast's duration equals the delay of its expiry timer", () => {
+  const { session, timers } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  const toastTimer = timers.at(-1);
+
+  expect(toastTimer?.delay).toBeDefined();
+  expect(session.getSnapshot().toast?.durationMilliseconds).toBe(toastTimer?.delay);
 });

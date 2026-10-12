@@ -62,8 +62,14 @@ export interface StateWriterEffects {
   remove: (path: string) => Promise<void>;
 }
 
+interface StateWriteFailure {
+  reason: string;
+  path: string;
+}
+
 export interface StateWriterOptions {
-  onFailure: (message: string) => void;
+  onFailure: (failure: StateWriteFailure) => void;
+  onSaved: () => void;
 }
 
 export interface StateWriter {
@@ -132,6 +138,21 @@ const fail = (error: unknown): { ok: false; failure: LocalStateFailure } => ({
 });
 
 const stateFileName = 'state.json';
+
+const plainReasons: Record<string, string> = {
+  EACCES: 'Permission denied',
+  EPERM: 'Permission denied',
+  ENOSPC: 'Disk full',
+  EROFS: 'Read-only file system',
+};
+
+const describeWriteError = (error: unknown): string => {
+  const code = error instanceof Error && 'code' in error ? error.code : undefined;
+  const plain = typeof code === 'string' ? plainReasons[code] : undefined;
+
+  return plain ?? describeError(error);
+};
+
 const stateVersion = 1;
 
 const stateBody = z.object({
@@ -210,7 +231,7 @@ const writeStateFile = async (
   effects: StateWriterEffects,
   directory: string,
   state: LocalStateFile,
-): Promise<LocalStateResult<null>> => {
+): Promise<{ ok: true } | { ok: false; error: unknown }> => {
   const temporaryPath = join(directory, `${stateFileName}.${crypto.randomUUID()}.tmp`);
   const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping })}\n`;
 
@@ -228,11 +249,11 @@ const writeStateFile = async (
 
     await effects.rename(temporaryPath, join(directory, stateFileName));
 
-    return { ok: true, value: null };
+    return { ok: true };
   } catch (error) {
     await effects.remove(temporaryPath).catch(() => undefined);
 
-    return fail(error);
+    return { ok: false, error };
   }
 };
 
@@ -243,6 +264,8 @@ export const createStateWriter = (
 ): StateWriter => {
   let pending: LocalStateFile | null = null;
   let running: Promise<void> | null = null;
+
+  const hasPending = () => pending !== null;
 
   const drain = async (): Promise<void> => {
     const state = pending;
@@ -258,7 +281,12 @@ export const createStateWriter = (
     const written = await writeStateFile(effects, directory, state);
 
     if (!written.ok) {
-      options.onFailure(written.failure.message);
+      options.onFailure({
+        reason: describeWriteError(written.error),
+        path: join(directory, stateFileName),
+      });
+    } else if (!hasPending()) {
+      options.onSaved();
     }
 
     return drain();

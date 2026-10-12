@@ -25,6 +25,8 @@ wins.
 - The file rules of ADR 0009 stay: versioned JSON in `config.json` and `state.json`, one parser per
   file, atomic writes, migrations, and a stop on a newer version.
 - Where ADR 0009 names dismissals, read saved local state.
+- A failed write shows a short-lived message that names what was not saved. Zeta does not mark the
+  change as unsaved, as ADR 0009 did.
 
 ## Consequences
 
@@ -47,6 +49,11 @@ Keep ADR 0009. Rejected because it rules out a second writer.
 
 Use locks or merging between writers. Deferred because a lost entry costs a marker, the grouping, or
 one more done.
+
+### Mark unsaved changes until a write succeeds
+
+Mark a change as unsaved until a later write succeeds, as ADR 0009 did. Rejected because a lost
+entry costs little, and a lasting marker takes status-line space.
 
 ### TOML for config
 
