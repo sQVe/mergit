@@ -13,7 +13,7 @@ const statusLineHeight = 1;
 
 export const ThreadList = (props: { snapshot: Snapshot; palette: Palette }): ReactNode => {
   const { snapshot, palette } = props;
-  const { threads, selectedThreadId, refreshedAt } = snapshot;
+  const { threads, selectedThreadId, refreshedAt, savedAt } = snapshot;
   const dimensions = useTerminalDimensions();
   const [top, setTop] = useState(0);
   const height = Math.max(1, dimensions.height - statusLineHeight);
@@ -25,7 +25,7 @@ export const ThreadList = (props: { snapshot: Snapshot; palette: Palette }): Rea
   }
 
   const titleWidth = Math.max(1, dimensions.width - typeWidth - numberWidth - ageWidth);
-  const now = refreshedAt ?? new Date(0);
+  const now = savedAt ?? refreshedAt ?? new Date(0);
   const visible = threads.slice(visibleTop, visibleTop + height);
 
   return (
