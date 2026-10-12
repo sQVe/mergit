@@ -16,6 +16,11 @@ export type GitHubFailure =
 
 export type GitHubResult<T> = { ok: true; value: T } | { ok: false; failure: GitHubFailure };
 
+export interface GraphqlVariables {
+  strings: Record<string, string>;
+  integers: Record<string, number>;
+}
+
 export interface GhResponse {
   status: number;
   headers: ReadonlyMap<string, string>;
@@ -177,14 +182,12 @@ const readStatusFailure = (parsed: ParsedHttp, now: Date): GitHubFailure => {
   return { kind: 'requestFailed', status: parsed.status, message: readErrorMessage(parsed) };
 };
 
-export const requestGh = async (
+const runApi = async (
   effects: GitHubEffects,
-  endpoint: string,
+  args: readonly string[],
   signal: AbortSignal,
-  etag: string | null = null,
 ): Promise<GitHubResult<GhResponse>> => {
-  const conditional = etag === null ? [] : ['-H', `If-None-Match: ${etag}`];
-  const run = await effects.runGh(['api', '--include', ...conditional, endpoint], signal);
+  const run = await effects.runGh(args, signal);
 
   if (run.kind === 'missing') {
     return fail({ kind: 'ghMissing' });
@@ -226,4 +229,38 @@ export const requestGh = async (
       bodyText: parsed.bodyText,
     },
   };
+};
+
+export const requestGh = (
+  effects: GitHubEffects,
+  endpoint: string,
+  signal: AbortSignal,
+  etag: string | null = null,
+): Promise<GitHubResult<GhResponse>> => {
+  const conditional = etag === null ? [] : ['-H', `If-None-Match: ${etag}`];
+
+  return runApi(effects, ['api', '--include', ...conditional, endpoint], signal);
+};
+
+export const requestGraphql = (
+  effects: GitHubEffects,
+  query: string,
+  variables: GraphqlVariables,
+  signal: AbortSignal,
+): Promise<GitHubResult<GhResponse>> => {
+  const strings = Object.entries(variables.strings).flatMap(([name, value]) => [
+    '-f',
+    `${name}=${value}`,
+  ]);
+
+  const integers = Object.entries(variables.integers).flatMap(([name, value]) => [
+    '-F',
+    `${name}=${value}`,
+  ]);
+
+  return runApi(
+    effects,
+    ['api', 'graphql', '--include', '-f', `query=${query}`, ...strings, ...integers],
+    signal,
+  );
 };

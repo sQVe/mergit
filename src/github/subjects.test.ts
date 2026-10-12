@@ -1,0 +1,263 @@
+import { expect, test } from 'bun:test';
+
+import type { NotificationThread } from '../work/work.ts';
+import { toThreadId } from '../work/work.ts';
+import type { GhRun } from './ghApi.ts';
+import type { GitHubEffects } from './github.ts';
+import { lookUpSubjects } from './github.ts';
+
+const signal = new AbortController().signal;
+
+const makeThread = (
+  id: number,
+  overrides: Partial<NotificationThread> = {},
+): NotificationThread => ({
+  id: toThreadId(String(id)),
+  reason: 'subscribed',
+  unread: true,
+  updatedAt: '2026-01-02T03:04:05Z',
+  lastReadAt: null,
+  title: `Change ${id}`,
+  subjectType: 'PullRequest',
+  subjectUrl: `https://api.github.com/repos/octo/widgets/pulls/${id}`,
+  repository: 'octo/widgets',
+  ...overrides,
+});
+
+const httpResponse = (body: unknown, status = '200 OK'): GhRun => ({
+  kind: 'exited',
+  exitCode: 0,
+  stdout: `HTTP/2.0 ${status}\r\n\r\n${typeof body === 'string' ? body : JSON.stringify(body)}`,
+  stderr: '',
+});
+
+const readQuery = (args: readonly string[]): string =>
+  args.find((argument) => argument.startsWith('query='))?.slice('query='.length) ?? '';
+
+const countAliases = (args: readonly string[]): number =>
+  readQuery(args).match(/t\d+: repository/g)?.length ?? 0;
+
+const pullRequestFacts = {
+  state: 'MERGED',
+  author: { login: 'octo' },
+  timelineItems: { nodes: [{ actor: { login: 'mona' } }] },
+};
+
+const repositoryWith = (subject: unknown, kind: 'pullRequest' | 'issue' = 'pullRequest') => ({
+  [kind]: subject,
+});
+
+const makeEffects = (answer: (args: readonly string[], call: number) => GhRun) => {
+  const calls: (readonly string[])[] = [];
+
+  const effects: GitHubEffects = {
+    runGh: async (args) => {
+      calls.push(args);
+
+      return answer(args, calls.length - 1);
+    },
+    now: () => new Date('2026-01-01T00:00:00Z'),
+  };
+
+  return { effects, calls };
+};
+
+const subject = (node: unknown) => ({
+  state: 'OPEN',
+  author: { login: 'octo' },
+  timelineItems: { nodes: [node] },
+});
+
+const answerEveryAlias = (args: readonly string[]): GhRun => {
+  const data: Record<string, unknown> = {};
+
+  for (let index = 0; index < countAliases(args); index += 1) {
+    data[`t${index}`] = repositoryWith(pullRequestFacts);
+  }
+
+  return httpResponse({ data });
+};
+
+test('looks up pull requests and issues in one request', async () => {
+  const { effects, calls } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith(pullRequestFacts),
+        t1: repositoryWith({
+          state: 'OPEN',
+          author: { login: 'hubot' },
+          timelineItems: { nodes: [] },
+        }),
+        t2: repositoryWith(
+          { state: 'CLOSED', author: { login: 'monalisa' }, timelineItems: { nodes: [] } },
+          'issue',
+        ),
+      },
+    }),
+  );
+
+  const threads = [
+    makeThread(1),
+    makeThread(2),
+    makeThread(3, {
+      subjectType: 'Issue',
+      subjectUrl: 'https://api.github.com/repos/octo/widgets/issues/3',
+    }),
+  ];
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.slice(0, 3)).toEqual(['api', 'graphql', '--include']);
+  expect(readQuery(calls[0] ?? [])).toContain('issue(number: $n2)');
+
+  expect(result).toEqual([
+    {
+      threadId: toThreadId('1'),
+      updatedAt: '2026-01-02T03:04:05Z',
+      facts: { state: 'merged', author: 'octo', latestActor: 'mona' },
+    },
+    {
+      threadId: toThreadId('2'),
+      updatedAt: '2026-01-02T03:04:05Z',
+      facts: { state: 'open', author: 'hubot', latestActor: null },
+    },
+    {
+      threadId: toThreadId('3'),
+      updatedAt: '2026-01-02T03:04:05Z',
+      facts: { state: 'closed', author: 'monalisa', latestActor: null },
+    },
+  ]);
+});
+
+test('sends 120 pull requests as batches of 50, 50, and 20', async () => {
+  const { effects, calls } = makeEffects(answerEveryAlias);
+  const threads = Array.from({ length: 120 }, (_, index) => makeThread(index + 1));
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(calls.map(countAliases)).toEqual([50, 50, 20]);
+  expect(result).toHaveLength(120);
+});
+
+test('skips other subject types and threads without a subject URL', async () => {
+  const { effects, calls } = makeEffects(answerEveryAlias);
+
+  const threads = [
+    makeThread(1),
+    makeThread(2, { subjectType: 'Discussion' }),
+    makeThread(3, { subjectUrl: null }),
+    makeThread(4, { subjectUrl: 'https://example.com/not-a-subject' }),
+    makeThread(5, { subjectType: 'Release' }),
+  ];
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(calls.map(countAliases)).toEqual([1]);
+  expect(result.map((entry) => String(entry.threadId))).toEqual(['1']);
+});
+
+test('keeps other facts when one alias has a GraphQL error', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith(pullRequestFacts),
+        t1: null,
+        t2: repositoryWith(pullRequestFacts),
+      },
+      errors: [{ type: 'NOT_FOUND', path: ['t1', 'pullRequest'], message: 'Missing' }],
+    }),
+  );
+
+  const threads = [makeThread(1), makeThread(2), makeThread(3)];
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(result.map((entry) => entry.facts?.state ?? null)).toEqual(['merged', null, 'merged']);
+  expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2', '3']);
+});
+
+test('gives no entries for a failed batch and keeps the other batches', async () => {
+  const { effects } = makeEffects((args, call) => {
+    if (call === 0) {
+      return httpResponse({ message: 'Boom' }, '502 Bad Gateway');
+    }
+
+    return answerEveryAlias(args);
+  });
+
+  const threads = Array.from({ length: 60 }, (_, index) => makeThread(index + 1));
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(result).toHaveLength(10);
+
+  expect(result.map((entry) => String(entry.threadId))).toEqual(
+    Array.from({ length: 10 }, (_, index) => String(index + 51)),
+  );
+});
+
+test('gives no entries for a batch with an invalid body', async () => {
+  const { effects } = makeEffects((args, call) => {
+    if (call === 0) {
+      return httpResponse({ data: 'nope' });
+    }
+
+    return answerEveryAlias(args);
+  });
+
+  const threads = Array.from({ length: 51 }, (_, index) => makeThread(index + 1));
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(result.map((entry) => String(entry.threadId))).toEqual(['51']);
+});
+
+test('gives no entries when gh is missing', async () => {
+  const effects: GitHubEffects = {
+    runGh: async () => ({ kind: 'missing' }),
+    now: () => new Date('2026-01-01T00:00:00Z'),
+  };
+
+  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(result).toEqual([]);
+});
+
+test('reports a null author with the state', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith({ state: 'CLOSED', author: null, timelineItems: { nodes: [] } }),
+      },
+    }),
+  );
+
+  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(result[0]?.facts).toEqual({ state: 'closed', author: null, latestActor: null });
+});
+
+test('reads the latest actor and gives null for an unread event type', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith(subject({ author: { login: 'reviewer' } })),
+        t1: repositoryWith(subject({ commit: { author: { user: { login: 'committer' } } } })),
+        t2: repositoryWith(subject({})),
+        t3: repositoryWith(subject({ actor: null })),
+      },
+    }),
+  );
+
+  const threads = [makeThread(1), makeThread(2), makeThread(3), makeThread(4)];
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(result.map((entry) => entry.facts?.latestActor)).toEqual([
+    'reviewer',
+    'committer',
+    null,
+    null,
+  ]);
+});
