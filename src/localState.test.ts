@@ -372,12 +372,45 @@ test('a newer version loads as newer with the path and version', () => {
   expect(readFileSync(path, 'utf8')).toBe('{"version":2,"grouping":"type"}');
 });
 
+const failRename = async (error: Error) => {
+  const failures: { reason: string; path: string }[] = [];
+
+  const writer = createStateWriter(
+    directory,
+    { onFailure: (failure) => failures.push(failure), onSaved: () => undefined },
+    { ...realEffects(), rename: () => Promise.reject(error) },
+  );
+
+  writer.save({ grouping: 'type' });
+  await writer.flush();
+
+  return failures;
+};
+
+test('a failed write with EACCES reports Permission denied and the state file, not the temporary file', async () => {
+  const error = Object.assign(new Error("EACCES: permission denied, rename 'a.tmp'"), {
+    code: 'EACCES',
+  });
+
+  expect(await failRename(error)).toEqual([
+    { reason: 'Permission denied', path: join(directory, 'state.json') },
+  ]);
+});
+
+test('a failed write with an unmapped error keeps its raw message', async () => {
+  const error = Object.assign(new Error('EIO: i/o error, write'), { code: 'EIO' });
+
+  expect(await failRename(error)).toEqual([
+    { reason: 'EIO: i/o error, write', path: join(directory, 'state.json') },
+  ]);
+});
+
 test('a failed rename keeps the last valid file, leaves no temporary file, and reports', async () => {
   const failures: string[] = [];
 
   const writer = createStateWriter(
     directory,
-    { onFailure: (message) => failures.push(message), onSaved: () => undefined },
+    { onFailure: (failure) => failures.push(failure.reason), onSaved: () => undefined },
     { ...realEffects(), rename: () => Promise.reject(new Error('rename refused')) },
   );
 

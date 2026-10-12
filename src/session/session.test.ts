@@ -1750,24 +1750,24 @@ test('stop aborts a running lookup and drops its result', async () => {
   expect(session.getSnapshot().subjectFacts.size).toBe(0);
 });
 
-test('a failed state write after a grouping change shows an error toast naming the grouping and the reason', () => {
+test('a failed state write after a grouping change shows an error toast naming the grouping, the reason, and the file', () => {
   const { session } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, message: 'disk full' });
+  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
 
   const { toast } = session.getSnapshot();
 
   expect(toast?.tone).toBe('error');
-  expect(toast?.text).toContain('grouping');
-  expect(toast?.text).toContain('disk full');
+  expect(toast?.title.toLowerCase()).toContain('grouping');
+  expect(toast?.lines).toEqual(['disk full', '~/state.json']);
 });
 
 test('a successful write after a failure shows no new toast', () => {
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, message: 'disk full' });
+  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
   timers.at(-1)?.callback();
   session.reportStateWrite({ ok: true });
 
@@ -1778,18 +1778,18 @@ test('the toast clears after five seconds, and a newer toast replaces it and res
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, message: 'first' });
+  session.reportStateWrite({ ok: false, reason: 'first', path: '~/state.json' });
 
   const firstTimer = timers.at(-1);
 
-  session.reportStateWrite({ ok: false, message: 'second' });
+  session.reportStateWrite({ ok: false, reason: 'second', path: '~/state.json' });
 
   const secondTimer = timers.at(-1);
 
   expect(firstTimer?.active).toBe(false);
   expect(secondTimer).not.toBe(firstTimer);
   expect(secondTimer?.delay).toBe(5000);
-  expect(session.getSnapshot().toast?.text).toContain('second');
+  expect(session.getSnapshot().toast?.lines[0]).toBe('second');
 
   secondTimer?.callback();
 

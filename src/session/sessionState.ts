@@ -13,7 +13,8 @@ import { groupings, selectOpenThreads, treeRows } from '../work/work.ts';
 type Notice = 'ghMissing' | 'notSignedIn';
 
 export interface Toast {
-  text: string;
+  title: string;
+  lines: string[];
   tone: 'info' | 'error';
 }
 

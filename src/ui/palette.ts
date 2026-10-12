@@ -6,6 +6,8 @@ export interface Palette {
   selectedBackground: string;
   typeLabel: string;
   error: string;
+  errorBackground: string;
+  infoBackground: string;
 }
 
 const darkPalette: Palette = {
@@ -16,6 +18,8 @@ const darkPalette: Palette = {
   selectedBackground: '#2c313c',
   typeLabel: '#61afef',
   error: '#e06c75',
+  errorBackground: '#2e2226',
+  infoBackground: '#1f2a36',
 };
 
 const lightPalette: Palette = {
@@ -26,6 +30,8 @@ const lightPalette: Palette = {
   selectedBackground: '#dfe3ea',
   typeLabel: '#2f6fb3',
   error: '#ca1243',
+  errorBackground: '#fdf0f2',
+  infoBackground: '#eef4fb',
 };
 
 export const pickPalette = (mode: 'light' | 'dark' | null): Palette => {

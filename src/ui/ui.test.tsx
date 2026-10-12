@@ -1141,12 +1141,12 @@ test('the side pane leaves out Author when the author is unknown', async () => {
 });
 
 const failWrite = async (
-  session: { reportStateWrite: (outcome: { ok: false; message: string }) => void },
+  session: { reportStateWrite: (outcome: { ok: false; reason: string; path: string }) => void },
   settle: () => Promise<void>,
-  message = 'disk full',
+  reason = 'disk full',
 ) => {
   await act(async () => {
-    session.reportStateWrite({ ok: false, message });
+    session.reportStateWrite({ ok: false, reason, path: '~/state.json' });
   });
 
   await settle();
@@ -1162,6 +1162,48 @@ test('a failed write shows a toast and no unsaved marker in the status line', as
 
   expect(frame).toContain('disk full');
   expect(frame).not.toContain('unsaved');
+});
+
+test('a toast shows its title, reason, and file, each on a row starting with the bar and with no line border', async () => {
+  const { setup, session, press, settle } = await mount();
+
+  await press('s');
+  await failWrite(session, settle);
+
+  const rows = setup
+    .captureCharFrame()
+    .split('\n')
+    .filter((row) => row.includes('▌'));
+
+  const texts = ['✗ Grouping not saved', 'disk full', '~/state.json'];
+
+  for (const text of texts) {
+    const row = rows.find((candidate) => candidate.includes(text));
+
+    expect(row).toBeDefined();
+    expect(row?.slice(row.indexOf('▌'), row.indexOf('▌') + 2)).toBe('▌ ');
+  }
+
+  expect(rows.join('')).not.toMatch(/[│╭╮╰╯─]/);
+});
+
+test('a toast with short lines draws a block narrower than the width limit', async () => {
+  const { setup, session, press, settle } = await mount();
+
+  await press('s');
+  await failWrite(session, settle);
+
+  const rows = setup
+    .captureCharFrame()
+    .split('\n')
+    .filter((row) => row.includes('▌'));
+
+  const barColumn = rows[0]?.indexOf('▌') ?? -1;
+  const blockWidth = (rows[0]?.length ?? 0) - barColumn - 1;
+  const widthLimit = 50;
+
+  expect(rows.length).toBeGreaterThan(0);
+  expect(blockWidth).toBeLessThan(widthLimit);
 });
 
 const longReason = `disk full ${'/very/long/path'.repeat(8)}`;
@@ -1201,3 +1243,31 @@ test('a toast on a full list keeps the list height and wraps a long reason', asy
 
   expect(flattened).toContain(longReason.replaceAll(/\s/g, ''));
 });
+
+test('a toast on a terminal too narrow for text renders nothing and still expires', async () => {
+  const callbacks: (() => void)[] = [];
+
+  const effects: SessionEffects = {
+    ...idleEffects,
+    setTimer: (_delay, callback) => {
+      callbacks.push(callback);
+
+      return () => undefined;
+    },
+  };
+
+  const { setup, session, press, settle } = await mount('dark', effects, 6);
+
+  await press('s');
+  await failWrite(session, settle);
+
+  expect(setup.captureCharFrame()).not.toContain('▌');
+
+  await act(async () => {
+    callbacks.at(-1)?.();
+  });
+
+  await settle();
+
+  expect(session.getSnapshot().toast).toBeNull();
+}, 5000);

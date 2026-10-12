@@ -81,7 +81,7 @@ type FullRefreshOutcome =
   | { kind: 'aborted' }
   | { kind: 'failed'; failure: GitHubFailure };
 
-type StateWriteOutcome = { ok: true } | { ok: false; message: string };
+type StateWriteOutcome = { ok: true } | { ok: false; reason: string; path: string };
 
 export interface Session {
   getSnapshot: () => Snapshot;
@@ -105,7 +105,7 @@ const maximumRetries = 3;
 const toastMilliseconds = 5000;
 
 const unsavedLabels: Record<UnsavedChange, string> = {
-  grouping: 'the grouping',
+  grouping: 'Grouping',
 };
 
 const guard = async <Value>(
@@ -364,7 +364,11 @@ export const createSession = (effects: SessionEffects): Session => {
 
     const names = [...unsavedChanges].map((change) => unsavedLabels[change]);
 
-    showToast({ text: `Could not save ${names.join(' and ')}: ${outcome.message}`, tone: 'error' });
+    showToast({
+      title: `${names.join(' and ')} not saved`,
+      lines: [outcome.reason, outcome.path],
+      tone: 'error',
+    });
   };
 
   const saveGroupingQuietly = (grouping: Grouping) => {

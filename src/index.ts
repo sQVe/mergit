@@ -66,6 +66,16 @@ const readSavedSnapshot = (): SavedSnapshot | null => {
   return { viewer: { login, etag: viewerEtag }, savedAt, ...restored.value };
 };
 
+const shortenHome = (path: string): string => {
+  const home = Bun.env['HOME'];
+
+  if (home === undefined || home === '' || !path.startsWith(`${home}/`)) {
+    return path;
+  }
+
+  return `~${path.slice(home.length)}`;
+};
+
 const stateHome = stateDirectory(Bun.env);
 const loadedState = stateHome === null ? null : loadState(stateHome);
 let writer: StateWriter | undefined;
@@ -76,7 +86,12 @@ let newerVersion: string | null = null;
 
 if (stateHome !== null && loadedState?.kind !== 'invalid' && loadedState?.kind !== 'newer') {
   writer = createStateWriter(stateHome, {
-    onFailure: (message) => session?.reportStateWrite({ ok: false, message }),
+    onFailure: (failure) =>
+      session?.reportStateWrite({
+        ok: false,
+        reason: failure.reason,
+        path: shortenHome(failure.path),
+      }),
     onSaved: () => session?.reportStateWrite({ ok: true }),
   });
 }
