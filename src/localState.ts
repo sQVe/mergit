@@ -2,6 +2,8 @@ import { Database } from 'bun:sqlite';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { z } from 'zod';
+
 import type { ViewerLogin } from './work/work.ts';
 import { toViewerLogin } from './work/work.ts';
 
@@ -27,18 +29,26 @@ export type LocalStateResult<T> =
   | { ok: true; value: T }
   | { ok: false; failure: LocalStateFailure };
 
-interface PageRow {
-  path: string;
-  etag: string | null;
-  next: string | null;
-  body: string;
-}
+type Attempt<T> =
+  | { kind: 'done'; value: T }
+  | { kind: 'corrupt'; message: string }
+  | { kind: 'failed'; message: string };
 
-interface LastRow {
-  host: string;
-  login: string;
-  savedAt: number;
-}
+const pageRow = z.object({
+  path: z.string(),
+  etag: z.string().nullable(),
+  next: z.string().nullable(),
+  body: z.string(),
+});
+
+const lastRow = z.object({
+  host: z.string(),
+  login: z.string(),
+  savedAt: z.number(),
+});
+
+const busyTimeoutMilliseconds = 250;
+const corruptionCodes = new Set(['SQLITE_CORRUPT', 'SQLITE_NOTADB']);
 
 const schemaVersion = 1;
 
@@ -91,65 +101,78 @@ const removeDatabaseFiles = (file: string): void => {
   }
 };
 
-const prepareDatabase = (file: string): Database => {
-  const database = new Database(file, { create: true });
-
-  try {
-    const row = database.query<{ user_version: number }, []>('PRAGMA user_version').get();
-    const version = row?.user_version ?? 0;
-
-    if (version !== 0 && version !== schemaVersion) {
-      throw new Error(`Unknown cache schema version ${version}`);
-    }
-
-    database.run(schema);
-    database.run(`PRAGMA user_version = ${schemaVersion}`);
-
-    return database;
-  } catch (error) {
-    database.close();
-    throw error;
+const errorCode = (error: unknown): string | null => {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    return typeof error.code === 'string' ? error.code : null;
   }
+
+  return null;
 };
 
-const openDatabase = (directory: string): Database => {
-  mkdirSync(directory, { recursive: true });
-  const file = join(directory, 'cache.db');
+const classifyError = (error: unknown): Attempt<never> => {
+  const code = errorCode(error);
+  const message = describeError(error);
 
-  try {
-    return prepareDatabase(file);
-  } catch {
-    removeDatabaseFiles(file);
-
-    return prepareDatabase(file);
+  if (code !== null && corruptionCodes.has(code)) {
+    return { kind: 'corrupt', message };
   }
+
+  return { kind: 'failed', message };
 };
 
-const readSnapshot = (database: Database): LocalSnapshot | null => {
-  const last = database
-    .query<LastRow, []>('SELECT host, login, savedAt FROM last WHERE id = 1')
+const prepareDatabase = (database: Database): Attempt<null> => {
+  const row = database.query<{ user_version: number }, []>('PRAGMA user_version').get();
+  const version = row?.user_version ?? 0;
+
+  if (version === schemaVersion) {
+    return { kind: 'done', value: null };
+  }
+
+  if (version !== 0) {
+    return { kind: 'corrupt', message: `Unknown cache schema version ${version}` };
+  }
+
+  database.run(schema);
+  database.run(`PRAGMA user_version = ${schemaVersion}`);
+
+  return { kind: 'done', value: null };
+};
+
+const readSnapshot = (database: Database): Attempt<LocalSnapshot | null> => {
+  const lastRaw = database
+    .query<unknown, []>('SELECT host, login, savedAt FROM last WHERE id = 1')
     .get();
 
-  if (last === null) {
-    return null;
+  if (lastRaw === null) {
+    return { kind: 'done', value: null };
   }
 
-  const rows = database
-    .query<PageRow, [string, string]>(
+  const last = lastRow.safeParse(lastRaw);
+
+  if (!last.success) {
+    return { kind: 'corrupt', message: 'Invalid last row in the cache' };
+  }
+
+  const rowsRaw = database
+    .query<unknown, [string, string]>(
       'SELECT path, etag, next, body FROM pages WHERE host = ? AND login = ? ORDER BY position',
     )
-    .all(last.host, last.login);
+    .all(last.data.host, last.data.login);
+
+  const rows = z.array(pageRow).safeParse(rowsRaw);
+
+  if (!rows.success) {
+    return { kind: 'corrupt', message: 'Invalid page row in the cache' };
+  }
 
   return {
-    host: last.host,
-    login: toViewerLogin(last.login),
-    savedAt: new Date(last.savedAt),
-    pages: rows.map((row) => ({
-      path: row.path,
-      etag: row.etag,
-      next: row.next,
-      body: row.body,
-    })),
+    kind: 'done',
+    value: {
+      host: last.data.host,
+      login: toViewerLogin(last.data.login),
+      savedAt: new Date(last.data.savedAt),
+      pages: rows.data,
+    },
   };
 };
 
@@ -182,35 +205,58 @@ const writeSnapshot = (database: Database, snapshot: LocalSnapshot): void => {
   write();
 };
 
-export const loadSnapshot = (directory: string): LocalStateResult<LocalSnapshot | null> => {
-  try {
-    const database = openDatabase(directory);
+const attempt = <T>(file: string, operation: (database: Database) => Attempt<T>): Attempt<T> => {
+  let database: Database | null = null;
 
-    try {
-      return { ok: true, value: readSnapshot(database) };
-    } finally {
-      database.close();
+  try {
+    database = new Database(file, { create: true });
+    database.run(`PRAGMA busy_timeout = ${busyTimeoutMilliseconds}`);
+
+    const prepared = prepareDatabase(database);
+
+    if (prepared.kind !== 'done') {
+      return prepared;
     }
+
+    return operation(database);
   } catch (error) {
-    return fail(error);
+    return classifyError(error);
+  } finally {
+    database?.close();
   }
 };
 
-export const saveSnapshot = (
+const toResult = <T>(result: Attempt<T>): LocalStateResult<T> =>
+  result.kind === 'done' ? { ok: true, value: result.value } : fail(result.message);
+
+// A busy or locked database is never deleted. Only corruption is recreated, once.
+const withDatabase = <T>(
   directory: string,
-  snapshot: LocalSnapshot,
-): LocalStateResult<null> => {
+  operation: (database: Database) => Attempt<T>,
+): LocalStateResult<T> => {
   try {
-    const database = openDatabase(directory);
+    mkdirSync(directory, { recursive: true });
+    const file = join(directory, 'cache.db');
+    const first = attempt(file, operation);
 
-    try {
-      writeSnapshot(database, snapshot);
-
-      return { ok: true, value: null };
-    } finally {
-      database.close();
+    if (first.kind !== 'corrupt') {
+      return toResult(first);
     }
+
+    removeDatabaseFiles(file);
+
+    return toResult(attempt(file, operation));
   } catch (error) {
     return fail(error);
   }
 };
+
+export const loadSnapshot = (directory: string): LocalStateResult<LocalSnapshot | null> =>
+  withDatabase(directory, readSnapshot);
+
+export const saveSnapshot = (directory: string, snapshot: LocalSnapshot): LocalStateResult<null> =>
+  withDatabase(directory, (database) => {
+    writeSnapshot(database, snapshot);
+
+    return { kind: 'done', value: null };
+  });

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, openSync, closeSync, rmSync, writeSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -83,6 +83,51 @@ test('recreates a cache with an unknown schema version', () => {
   const database = new Database(join(directory, 'cache.db'));
   database.run('PRAGMA user_version = 999');
   database.close();
+
+  expect(loadValue()).toBeNull();
+  expect(saveSnapshot(directory, snapshot).ok).toBe(true);
+  expect(loadValue()).toEqual(snapshot);
+});
+
+test('keeps the cache when another connection holds a write lock during a load', () => {
+  const snapshot = makeSnapshot('octocat', ['a']);
+  saveSnapshot(directory, snapshot);
+
+  const other = new Database(join(directory, 'cache.db'));
+  other.run('BEGIN IMMEDIATE');
+
+  try {
+    loadSnapshot(directory);
+    saveSnapshot(directory, makeSnapshot('hubot', ['b']));
+  } finally {
+    other.run('ROLLBACK');
+    other.close();
+  }
+
+  expect(loadValue()).toEqual(snapshot);
+});
+
+test('recreates a cache whose pages table is damaged', () => {
+  const snapshot = makeSnapshot('octocat', ['a']);
+  saveSnapshot(directory, snapshot);
+
+  const file = join(directory, 'cache.db');
+  const database = new Database(file);
+
+  const pagesTable = database
+    .query<{ rootpage: number }, []>("SELECT rootpage FROM sqlite_master WHERE name = 'pages'")
+    .get();
+
+  const pageSize = database.query<{ page_size: number }, []>('PRAGMA page_size').get();
+
+  database.close();
+
+  const handle = openSync(file, 'r+');
+  const size = pageSize?.page_size ?? 4096;
+
+  writeSync(handle, new Uint8Array(size), 0, size, ((pagesTable?.rootpage ?? 1) - 1) * size);
+
+  closeSync(handle);
 
   expect(loadValue()).toBeNull();
   expect(saveSnapshot(directory, snapshot).ok).toBe(true);
