@@ -754,3 +754,20 @@ test('Z folds every group, and unfolds them when all are folded', async () => {
   expect(setup.captureCharFrame()).toContain('Fix parser');
   expect(setup.captureCharFrame()).toContain('│ ▾ example/beta 1');
 });
+
+test('a node row with a long repository name keeps its marker and count, open and folded', async () => {
+  const longRepository = 'example/a-valid-repository-name-longer-than-the-terminal-width';
+  const threads = [treeThread(1, 'Fix parser', { repository: longRepository })];
+  const { setup, press } = await mount('dark', threadsEffects(threads));
+
+  await press('r');
+
+  const nodeLine = (): string | undefined =>
+    frameLines(setup).find((line) => line.startsWith('│ ') && line.includes('example/a-valid'));
+
+  expect(nodeLine()).toMatch(/^│ ▾ example\/a-valid.*… 1$/);
+
+  await pressAll(press, ['j', 'z']);
+
+  expect(nodeLine()).toMatch(/^│ ▸ example\/a-valid.*… 1$/);
+});

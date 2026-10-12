@@ -27,8 +27,11 @@ const numberWidth = 7;
 const ageWidth = 5;
 const statusLineHeight = 1;
 
-const NodeLine = (props: RowProps & { row: NodeRow }): ReactNode => {
+const NodeLine = (props: RowProps & { row: NodeRow; width: number }): ReactNode => {
   const { row, palette, selected } = props;
+  const prefix = `${guideFor(row.depth)}${row.folded ? '▸ ' : '▾ '}`;
+  const suffix = ` ${row.threads.length}`;
+  const titleWidth = Math.max(1, props.width - prefix.length - suffix.length);
 
   return (
     <box
@@ -36,9 +39,13 @@ const NodeLine = (props: RowProps & { row: NodeRow }): ReactNode => {
       height={1}
       backgroundColor={selected ? palette.selectedBackground : 'transparent'}
     >
-      <text fg={palette.dim}>{`${guideFor(row.depth)}${row.folded ? '▸ ' : '▾ '}`}</text>
-      <text fg={palette.text}>{row.title}</text>
-      <text fg={palette.dim}>{` ${row.threads.length}`}</text>
+      <text fg={palette.dim} width={prefix.length}>
+        {prefix}
+      </text>
+      <text fg={palette.text}>{truncate(row.title, titleWidth)}</text>
+      <text fg={palette.dim} width={suffix.length}>
+        {suffix}
+      </text>
     </box>
   );
 };
@@ -95,7 +102,15 @@ export const ThreadList = (props: { snapshot: Snapshot; palette: Palette }): Rea
         const selected = row.key === selectedRowKey;
 
         if (row.kind === 'node') {
-          return <NodeLine key={row.key} row={row} palette={palette} selected={selected} />;
+          return (
+            <NodeLine
+              key={row.key}
+              row={row}
+              palette={palette}
+              selected={selected}
+              width={dimensions.width}
+            />
+          );
         }
 
         return (

@@ -46,6 +46,35 @@ export const visibleRows = (snapshot: Snapshot): TreeRow[] =>
     snapshot.foldedNodes[snapshot.grouping],
   );
 
+const topLevelRowOf = (rows: TreeRow[], index: number): NodeRow | undefined => {
+  for (let candidate = index; candidate >= 0; candidate -= 1) {
+    const row = rows[candidate];
+
+    if (row?.kind === 'node' && row.topLevel) {
+      return row;
+    }
+  }
+
+  return undefined;
+};
+
+const holdersOf = (previousRows: TreeRow[], previousIndex: number): string[] => {
+  const row = previousRows[previousIndex];
+  const holders: string[] = [];
+
+  if (row?.kind === 'thread') {
+    holders.push(row.nodeRowKey);
+  }
+
+  const topLevel = topLevelRowOf(previousRows, previousIndex);
+
+  if (topLevel !== undefined) {
+    holders.push(topLevel.key);
+  }
+
+  return holders;
+};
+
 const selectAfterRefresh = (
   previousRows: TreeRow[],
   previousKey: string | null,
@@ -56,6 +85,15 @@ const selectAfterRefresh = (
   }
 
   const previousIndex = previousRows.findIndex((row) => row.key === previousKey);
+
+  const holder = holdersOf(previousRows, previousIndex).find((key) =>
+    rows.some((row) => row.key === key),
+  );
+
+  if (holder !== undefined) {
+    return holder;
+  }
+
   const index = Math.min(Math.max(previousIndex, 0), rows.length - 1);
 
   return rows[index]?.key ?? null;
@@ -186,8 +224,11 @@ export const selectEdge = (snapshot: Snapshot, edge: 'first' | 'last'): Snapshot
 export const jumpTopLevel = (snapshot: Snapshot, step: 1 | -1): Snapshot => {
   const rows = visibleRows(snapshot);
   const current = selectedIndex(snapshot, rows);
+  const holder = topLevelRowOf(rows, current);
+  const holderIndex = holder === undefined ? -1 : rows.indexOf(holder);
+  const start = step === -1 && holderIndex >= 0 ? holderIndex : current;
 
-  for (let index = current + step; index >= 0 && index < rows.length; index += step) {
+  for (let index = start + step; index >= 0 && index < rows.length; index += step) {
     const row = rows[index];
 
     if (row?.kind === 'node' && row.topLevel) {
@@ -224,18 +265,6 @@ export const toggleFold = (snapshot: Snapshot): Snapshot => {
   }
 
   return select(withFolds(snapshot, folds), nodeRowOf(row));
-};
-
-const topLevelRowOf = (rows: TreeRow[], index: number): NodeRow | undefined => {
-  for (let candidate = index; candidate >= 0; candidate -= 1) {
-    const row = rows[candidate];
-
-    if (row?.kind === 'node' && row.topLevel) {
-      return row;
-    }
-  }
-
-  return undefined;
 };
 
 export const toggleAllFolds = (snapshot: Snapshot): Snapshot => {

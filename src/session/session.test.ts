@@ -628,20 +628,17 @@ test('selection stays on the same thread across a refresh that reorders threads'
   expect(selected()).toBe(`thread:${a.id}`);
 });
 
-test('when the selected thread leaves, the row now at its index is selected', async () => {
+test('when the selected thread and its group leave, the row now at its index is selected', async () => {
   const { session, load, selected, selectThread } = makeHarness();
 
-  const [a, b, c] = [makeThread('1'), makeThread('2'), makeThread('3')] as const;
+  const first = makeThread('1');
+  const mention = makeThread('2', { reason: 'mention' });
 
-  await load(a, b, c);
-  selectThread(b);
-  await load(a, c);
+  await load(first, mention);
+  selectThread(mention);
+  await load(first);
 
-  expect(selected()).toBe(`thread:${c.id}`);
-
-  await load(a);
-
-  expect(selected()).toBe(`thread:${a.id}`);
+  expect(selected()).toBe(`thread:${first.id}`);
 
   await load();
 
@@ -1418,4 +1415,42 @@ test('a refresh keeps the grouping, the folds, and the selected row', async () =
   expect(session.getSnapshot().grouping).toBe('repo');
   expect([...session.getSnapshot().foldedNodes.repo].toSorted()).toEqual(['acme/app', 'acme/lib']);
   expect(selected()).toBe(key);
+});
+
+test('selectPreviousGroup from a thread in the second group selects the first group row', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(mentionThread);
+  session.send({ kind: 'selectPreviousGroup' });
+
+  expect(selected()).toBe('node:review');
+});
+
+test('a refresh that removes the selected thread selects its repo row while the repo remains', async () => {
+  const { load, selected, selectThread } = makeHarness();
+  const second = makeThread('3');
+
+  await load(reviewThread, second, mentionThread);
+  selectThread(second);
+
+  expect(selected()).toBe('thread:3');
+
+  await load(reviewThread, mentionThread);
+
+  expect(selected()).toBe('node:review/acme/app');
+});
+
+test('a refresh that removes the selected thread and its repo selects the group row', async () => {
+  const { load, selected, selectThread } = makeHarness();
+  const other = makeThread('4', { repository: 'acme/other' });
+
+  await load(reviewThread, other, mentionThread);
+  selectThread(other);
+
+  expect(selected()).toBe('thread:4');
+
+  await load(reviewThread, mentionThread);
+
+  expect(selected()).toBe('node:review');
 });
