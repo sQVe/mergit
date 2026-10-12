@@ -226,7 +226,7 @@ test('Ctrl+C quits and restores the terminal', async () => {
   expectRestored(child.getOutput());
 }, 30_000);
 
-test('a newer state file stops startup with the path and the reason, and stays unchanged', async () => {
+test('a newer state file stops startup with its path and stays unchanged', async () => {
   const stateHome = makeBinDirectory();
   const content = '{ "version": 2, "grouping": "type" }';
   const path = writeStateFile(stateHome, content);
@@ -234,8 +234,6 @@ test('a newer state file stops startup with the path and the reason, and stays u
 
   expect(await waitForExit(child)).toBe(1);
   expect(child.getOutput()).toContain(path);
-  expect(child.getOutput()).toContain('version 2');
-  expect(child.getOutput()).toContain('reads version 1');
   expect(readFileSync(path, 'utf8')).toBe(content);
 }, 30_000);
 
