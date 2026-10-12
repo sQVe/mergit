@@ -922,6 +922,28 @@ test('at 90 columns and up, the side pane summarizes a selected group and repo b
   expect(repo).toMatch(/1\s+subscribed/);
 });
 
+test('the side pane counts distinct unknown types separately by full name', async () => {
+  const threads = [
+    { ...makeThread(1, 'Invite'), repository: 'acme/alpha', subjectType: 'RepositoryInvitation' },
+    {
+      ...makeThread(2, 'Alert'),
+      repository: 'acme/alpha',
+      subjectType: 'RepositoryVulnerabilityAlert',
+    },
+  ];
+
+  const { setup, press } = await mount('dark', threadsEffects(threads), 100);
+
+  await press('r');
+  await press('j');
+
+  const repo = paneText(setup, 100).replace(/[\s│]+/g, '');
+
+  expect(repo).toContain('1RepositoryInvitation');
+  expect(repo).toContain('1RepositoryVulnerabilityAlert');
+  expect(repo).not.toContain('2REP');
+});
+
 test('resizing across 90 columns removes and restores the side pane and keeps the selected row', async () => {
   const { setup, press, resize } = await mount('dark', threadsEffects(threeThreads), 100);
 

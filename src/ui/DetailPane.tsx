@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { NodeRow, NotificationThread, ThreadRow, TreeRow } from '../work/work.ts';
 import type { Palette } from './palette.ts';
-import { formatAge, numberLabelFor, typeLabelFor } from './threadRow.ts';
+import { formatAge, numberLabelFor, typeLabelFor, typeSummaryLabelFor } from './threadRow.ts';
 
 interface PaneProps {
   palette: Palette;
@@ -60,7 +60,7 @@ const ThreadDetail = (props: PaneProps & { row: ThreadRow; now: Date }): ReactNo
 
 const NodeDetail = (props: PaneProps & { row: NodeRow }): ReactNode => {
   const { row, palette } = props;
-  const byType = countBy(row.threads, typeLabelFor);
+  const byType = countBy(row.threads, (thread) => thread.subjectType);
   const byReason = countBy(row.threads, (thread) => thread.reason);
 
   return (
@@ -69,8 +69,13 @@ const NodeDetail = (props: PaneProps & { row: NodeRow }): ReactNode => {
       <Fact palette={palette} label="Threads" value={String(row.threads.length)} />
       <text> </text>
       <text fg={palette.dim}>By type</text>
-      {byType.map(([label, count]) => (
-        <Fact key={label} palette={palette} label={String(count)} value={label} />
+      {byType.map(([subjectType, count]) => (
+        <Fact
+          key={subjectType}
+          palette={palette}
+          label={String(count)}
+          value={typeSummaryLabelFor(subjectType)}
+        />
       ))}
       <text> </text>
       <text fg={palette.dim}>By reason</text>
