@@ -156,7 +156,7 @@ const mount = async (
     />
   );
 
-  const setup = await act(() => testRender(node, { width, height: 20 }));
+  const setup = await act(() => testRender(node, { width, height: 24 }));
 
   setups.push(setup);
 
@@ -771,7 +771,7 @@ test('z and Space fold the node that holds the selection, from a thread or a nod
   expect(setup.captureCharFrame()).not.toContain('Fix parser');
 });
 
-test('Enter folds a group and does nothing on a thread', async () => {
+test('Enter on a group folds and unfolds it, and j moves on to its threads', async () => {
   const { setup, press } = await mount('dark', threadsEffects(treeThreads));
 
   await pressAll(press, ['r', 'return']);
@@ -783,10 +783,19 @@ test('Enter folds a group and does nothing on a thread', async () => {
 
   expect(frameLines(setup)[0]).toBe('▾ Review requested 2');
 
-  await pressAll(press, ['j', 'j', 'return']);
+  await pressAll(press, ['j', 'j']);
 
   expect(selectedLine(setup)).toContain('Fix parser');
-  expect(setup.captureCharFrame()).toContain('Add cache');
+});
+
+test('Enter on a group below 90 columns folds it and opens no detail', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'return']);
+
+  expect(frameLines(setup)[0]).toBe('▸ Review requested 2');
+  expect(setup.captureCharFrame()).not.toContain('Unread');
+  expect(setup.captureCharFrame()).not.toContain('Repo ');
 });
 
 test('Z folds every group, and unfolds them when all are folded', async () => {
@@ -953,4 +962,86 @@ test('a long title stays inside the list columns and clear of the pane at 90 col
   expect(row.slice(0, listWidth)).toContain('…');
   expect(row.slice(0, listWidth)).toMatch(/3h\s*$/);
   expect(border.slice(0, 5).every((char) => char === '│')).toBe(true);
+});
+
+test('below 90 columns, Enter on a thread opens the full-width detail and Escape returns to the same row', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+
+  await pressAll(press, ['r', 'j', 'j', 'j']);
+
+  const before = selectedRowText(setup);
+
+  await press('return');
+
+  const detail = setup.captureCharFrame();
+
+  expect(detail).toContain('Second');
+  expect(detail).toMatch(/Repo\s+example\/repo/);
+  expect(detail).not.toContain('First');
+  expect(detail).not.toContain('Third');
+
+  await press('escape');
+
+  const list = setup.captureCharFrame();
+
+  expect(list).toContain('First');
+  expect(list).toContain('Second');
+  expect(list).toContain('Third');
+  expect(selectedRowText(setup)).toBe(before);
+  expect(selectedRowText(setup)).toContain('Second');
+});
+
+test('j and k do not move the selection while the full-width detail is open', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+
+  await pressAll(press, ['r', 'j', 'j', 'j', 'return', 'j', 'k', 'k']);
+
+  expect(setup.captureCharFrame()).toContain('Second');
+  expect(setup.captureCharFrame()).not.toContain('First');
+
+  await press('escape');
+
+  expect(selectedRowText(setup)).toContain('Second');
+});
+
+test('Escape with help open inside the detail closes help only', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+
+  await pressAll(press, ['r', 'j', 'j', 'j', 'return', '?', 'escape']);
+
+  expect(setup.captureCharFrame()).toMatch(/Repo\s+example\/repo/);
+  expect(setup.captureCharFrame()).not.toContain('Third');
+});
+
+test('resizing wide shows the side pane and resizing narrow again shows the list, not the detail', async () => {
+  const { setup, press, resize } = await mount('dark', threadsEffects(threeThreads));
+
+  await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
+
+  expect(setup.captureCharFrame()).not.toContain('Third');
+
+  await resize(100, 20);
+
+  expect(setup.captureCharFrame()).toContain('Third');
+  expect(paneText(setup, 100)).toMatch(/Repo\s+example\/repo/);
+
+  await resize(60, 20);
+
+  const narrow = setup.captureCharFrame();
+
+  expect(narrow).toContain('First');
+  expect(narrow).toContain('Third');
+  expect(narrow).not.toContain('Unread');
+  expect(selectedRowText(setup)).toContain('Second');
+});
+
+test('the status line stays on the last row in the full-width detail', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+
+  await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
+
+  const rows = setup.captureCharFrame().split('\n');
+
+  expect(rows.join('\n')).not.toContain('Third');
+  expect(rows.findIndex((row) => row.includes('? help'))).toBe(rows.length - 2);
 });
