@@ -343,6 +343,16 @@ test('readNotificationFeed returns invalidResponse for an empty id', async () =>
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
 });
 
+test('readNotificationFeed returns invalidResponse for an updated_at that is not a time', async () => {
+  const { effects } = makeEffects({
+    [firstUrl]: page([{ ...rawThread('301'), updated_at: 'yesterday' }]),
+  });
+
+  const result = await readNotificationFeed(effects, { previous: null }, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
 test('readNotificationFeed reports a null poll interval when the header is invalid', async () => {
   const invalid: GhRun = {
     kind: 'exited',

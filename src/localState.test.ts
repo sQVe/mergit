@@ -425,6 +425,10 @@ test.each([
   ['a version 1 file with an unknown grouping', '{"version":1,"grouping":"owner"}'],
   ['a version 2 file without done records', '{"version":2,"grouping":"type"}'],
   ['a version 3 file without seen records', '{"version":3,"grouping":"type","done":{}}'],
+  [
+    'a version 3 file with a seen value that is not a time',
+    '{"version":3,"grouping":"type","done":{},"seen":{"github.com/octocat":{"1":"yesterday"}}}',
+  ],
   ['a missing version', '{"grouping":"type"}'],
 ])('%s loads as invalid and leaves the file unchanged', (_name, text) => {
   const path = writeStateText(text);

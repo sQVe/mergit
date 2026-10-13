@@ -159,11 +159,16 @@ export const stateVersion = 3;
 
 const accountRecordsBody = z.record(z.string().min(1), z.record(z.string().min(1), z.string()));
 
+const seenRecordsBody = z.record(
+  z.string().min(1),
+  z.record(z.string().min(1), z.iso.datetime({ offset: true })),
+);
+
 const stateBody = z.object({
   version: z.literal(stateVersion),
   grouping: z.enum(groupings),
   done: accountRecordsBody,
-  seen: accountRecordsBody,
+  seen: seenRecordsBody,
 });
 
 const versionTwoBody = z.object({

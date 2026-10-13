@@ -20,7 +20,7 @@ const notificationThreadSchema = z
     id: z.string().min(1),
     unread: z.boolean(),
     reason: z.string(),
-    updated_at: z.string(),
+    updated_at: z.iso.datetime({ offset: true }),
     last_read_at: z.string().nullable(),
     subject: z.object({
       title: z.string(),
