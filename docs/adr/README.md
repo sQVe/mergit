@@ -42,3 +42,4 @@ line that links to the replacement.
 - [0016: A SQLite snapshot with a checked full refresh](./0016-snapshot-and-full-refresh.md)
 - [0017: GitHub-style qualifiers, evaluated locally](./0017-local-query-language.md)
 - [0018: Local state for two Zeta processes](./0018-local-state-and-config.md)
+- [0019: A confirmation prompt is a modal with its own command scope](./0019-confirmation-scope.md)
