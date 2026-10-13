@@ -2869,3 +2869,60 @@ test('markThreadsDone with hidden or unknown ids changes nothing and sends nothi
   expect(harness.timers.length).toBe(timersBefore);
   expect(harness.sends).toHaveLength(0);
 });
+
+test('openConfirmation captures the threads of the selected node and changes nothing else', async () => {
+  const harness = makeHarness();
+  const threads = await loadFive(harness);
+  const node = rowKeysOf(harness.session).find((key) => key.startsWith('node:'));
+  const before = harness.session.getSnapshot();
+
+  harness.session.send({ kind: 'selectFirst' });
+  harness.session.send({ kind: 'openConfirmation' });
+
+  const open = harness.session.getSnapshot();
+
+  expect(node).toBeDefined();
+  expect(open.confirmation?.threadIds).toEqual(threads.map((thread) => thread.id));
+
+  expect({ ...before, selectedRowKey: open.selectedRowKey }).toEqual({
+    ...open,
+    confirmation: null,
+  });
+
+  harness.session.send({ kind: 'closeConfirmation' });
+
+  expect(harness.session.getSnapshot().confirmation).toBeNull();
+});
+
+test('openConfirmation does nothing on a thread row', async () => {
+  const harness = makeHarness();
+
+  await loadFive(harness);
+  harness.session.send({ kind: 'selectLast' });
+  harness.session.send({ kind: 'openConfirmation' });
+
+  expect(harness.session.getSnapshot().confirmation).toBeNull();
+});
+
+test('a refresh keeps the confirmation, and confirming marks only the captured threads still shown', async () => {
+  const harness = makeHarness();
+  const threads = await loadFive(harness);
+  const captured = threads.map((thread) => thread.id);
+
+  harness.session.send({ kind: 'selectFirst' });
+  harness.session.send({ kind: 'openConfirmation' });
+  harness.session.send({ kind: 'selectNext' });
+  harness.session.send({ kind: 'selectNext' });
+  harness.session.send({ kind: 'markDone' });
+
+  await harness.load(...threads);
+
+  expect(harness.session.getSnapshot().confirmation?.threadIds).toEqual(captured);
+
+  harness.session.send({ kind: 'markThreadsDone', threadIds: captured });
+
+  const after = harness.session.getSnapshot();
+
+  expect(after.confirmation).toBeNull();
+  expect(rowKeysOf(harness.session).some((key) => key.startsWith('thread:'))).toBe(false);
+});

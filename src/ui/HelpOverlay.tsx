@@ -12,7 +12,7 @@ export const HelpOverlay = (props: {
   return (
     <box
       position="absolute"
-      top={2}
+      top={1}
       left={2}
       border
       borderStyle="rounded"

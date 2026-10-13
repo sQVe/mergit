@@ -19,11 +19,13 @@ import {
   applyThreads,
   clearAccount,
   clearFailure,
+  closeConfirmation,
   failureMessage,
   hideThreads,
   initialSnapshot,
   isViewerActor,
   markFeedBusy,
+  openConfirmation,
   cycleGrouping,
   jumpTopLevel,
   moveSelection,
@@ -54,6 +56,8 @@ export type ApplicationIntent =
   | { kind: 'cycleGrouping' }
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
+  | { kind: 'openConfirmation' }
+  | { kind: 'closeConfirmation' }
   | { kind: 'undoDone' };
 
 export interface SavedState {
@@ -170,6 +174,8 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   toggleFold,
   toggleAllFolds,
   cycleGrouping,
+  openConfirmation,
+  closeConfirmation,
 };
 
 const copyAccountRecords = (
@@ -860,6 +866,8 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const markThreadsDone = (threadIds: readonly ThreadId[]) => {
+    update(closeConfirmation(snapshot));
+
     const requested = new Set(threadIds);
 
     const threads = snapshot.threads.filter(

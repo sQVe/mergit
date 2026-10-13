@@ -1,5 +1,5 @@
 import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { KeymapProvider, useBindings } from '@opentui/keymap/react';
+import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/react';
 import { useTerminalDimensions } from '@opentui/react';
 import type { ReactNode } from 'react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
@@ -35,6 +35,7 @@ export interface AppProps {
 
 interface KeysProps extends AppProps {
   helpOpen: boolean;
+  confirming: boolean;
   setHelpOpen: (open: boolean) => void;
   detailOpen: boolean;
   setDetailOpen: (open: boolean) => void;
@@ -45,7 +46,20 @@ const sidePaneMinimumWidth = 90;
 const sidePaneMaximumWidth = 44;
 const sidePaneShare = 0.36;
 
-const isActive = (command: Command, helpOpen: boolean, detailOpen: boolean): boolean => {
+const isActive = (
+  command: Command,
+  state: { helpOpen: boolean; detailOpen: boolean; confirming: boolean },
+): boolean => {
+  const { helpOpen, detailOpen, confirming } = state;
+
+  if (command.scope === 'confirmation') {
+    return confirming;
+  }
+
+  if (confirming) {
+    return false;
+  }
+
   if (command.scope === 'modal') {
     return helpOpen;
   }
@@ -64,9 +78,7 @@ const isActive = (command: Command, helpOpen: boolean, detailOpen: boolean): boo
 const Keys = (props: KeysProps): null => {
   const { session, onTerminalIntent, setHelpOpen, setDetailOpen } = props;
 
-  const commands = props.catalog.filter((command) =>
-    isActive(command, props.helpOpen, props.detailOpen),
-  );
+  const commands = props.catalog.filter((command) => isActive(command, props));
 
   const runUiAction = (action: UiAction) => {
     if (action === 'openDetail') {
@@ -96,6 +108,35 @@ const Keys = (props: KeysProps): null => {
     }
   };
 
+  const keymap = useKeymap();
+
+  // While the confirmation is open, only its confirm keys reach the bindings. Any other key cancels.
+  useEffect(() => {
+    if (!props.confirming) {
+      return undefined;
+    }
+
+    const confirmKeys = new Set(
+      props.catalog.flatMap((command) => (command.id === 'confirm' ? command.keys : [])),
+    );
+
+    return keymap.intercept('key', ({ event, consume }) => {
+      const plain = !event.ctrl && !event.meta && !event.shift;
+
+      if (plain && confirmKeys.has(event.name)) {
+        return;
+      }
+
+      consume({ preventDefault: true, stopPropagation: true });
+
+      const cancel = props.catalog.find((command) => command.id === 'cancel');
+
+      if (cancel !== undefined) {
+        run(cancel);
+      }
+    });
+  }, [props.confirming, props.catalog, keymap, session]);
+
   useBindings(
     () => ({
       bindings: commands.flatMap((command) =>
@@ -110,6 +151,7 @@ const Keys = (props: KeysProps): null => {
     [
       props.helpOpen,
       props.detailOpen,
+      props.confirming,
       props.sideLayout,
       props.catalog,
       session,
@@ -205,6 +247,7 @@ export const App = (props: AppProps): ReactNode => {
       <Keys
         {...props}
         helpOpen={helpOpen}
+        confirming={snapshot.confirmation !== null}
         setHelpOpen={setHelpOpen}
         detailOpen={fullDetail}
         setDetailOpen={setDetailOpen}

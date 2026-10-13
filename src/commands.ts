@@ -11,7 +11,7 @@ export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 export interface Command {
   id: string;
   label: string;
-  scope: 'global' | 'list' | 'preview' | 'modal';
+  scope: 'global' | 'list' | 'preview' | 'modal' | 'confirmation';
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   intent: (snapshot: Snapshot) => Intent;
@@ -139,6 +139,15 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'markDone' } }),
   },
   {
+    id: 'markNodeDone',
+    label: 'Mark every thread in the group or repo done',
+    scope: 'list',
+    keys: ['shift+d'],
+    disabledReason: (snapshot) =>
+      selectedRowOf(snapshot)?.kind === 'node' ? undefined : 'Select a group or repo',
+    intent: () => ({ kind: 'application', intent: { kind: 'openConfirmation' } }),
+  },
+  {
     id: 'undoDone',
     label: 'Undo the last done',
     scope: 'list',
@@ -161,5 +170,26 @@ export const catalog: readonly Command[] = [
     keys: ['escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'closeHelp' }),
+  },
+  {
+    id: 'confirm',
+    label: 'Confirm marking done',
+    scope: 'confirmation',
+    keys: ['y'],
+    disabledReason: (snapshot) =>
+      snapshot.confirmation === null ? 'Nothing to confirm' : undefined,
+    intent: (snapshot) => ({
+      kind: 'application',
+      intent: { kind: 'markThreadsDone', threadIds: snapshot.confirmation?.threadIds ?? [] },
+    }),
+  },
+  {
+    id: 'cancel',
+    label: 'Cancel marking done',
+    scope: 'confirmation',
+    keys: ['escape'],
+    disabledReason: (snapshot) =>
+      snapshot.confirmation === null ? 'Nothing to cancel' : undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'closeConfirmation' } }),
   },
 ];
