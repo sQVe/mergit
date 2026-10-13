@@ -319,21 +319,36 @@ test('a saved grouping loads back after flush', async () => {
   });
 });
 
-test('saved done records load back with the same thread IDs and updated_at values', async () => {
+test('done records of two accounts load back and are written in the version 2 shape keyed by host and login', async () => {
   const writer = createStateWriter(directory, {
     onFailure: () => undefined,
     onSaved: () => undefined,
   });
 
   const done = new Map([
-    [toThreadId('11'), '2026-01-02T10:00:00Z'],
-    [toThreadId('12'), '2026-01-03T11:30:00Z'],
+    [
+      'github.com/octocat',
+      new Map([
+        [toThreadId('11'), '2026-01-02T10:00:00Z'],
+        [toThreadId('12'), '2026-01-03T11:30:00Z'],
+      ]),
+    ],
+    ['github.com/hubot', new Map([[toThreadId('11'), '2026-01-04T09:00:00Z']])],
   ]);
 
   writer.save({ grouping: 'none', done });
   await writer.flush();
 
   expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'none', done } });
+
+  expect(JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'))).toEqual({
+    version: 2,
+    grouping: 'none',
+    done: {
+      'github.com/octocat': { '11': '2026-01-02T10:00:00Z', '12': '2026-01-03T11:30:00Z' },
+      'github.com/hubot': { '11': '2026-01-04T09:00:00Z' },
+    },
+  });
 });
 
 const writeStateText = (text: string): string => {

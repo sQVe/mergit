@@ -151,6 +151,7 @@ const makeHarness = (
 
   const session = createSession({
     savedSnapshot: null,
+    host: 'github.com',
     savedState: null,
     saveState: (state) => {
       saves.push(state);
@@ -162,7 +163,11 @@ const makeHarness = (
         signal.addEventListener('abort', () => {
           resolve({
             ok: false,
-            failure: { kind: 'requestFailed', status: null, message: 'aborted' },
+            failure: {
+              kind: 'requestFailed',
+              status: null,
+              message: 'aborted',
+            },
           });
         });
       }),
@@ -1227,7 +1232,10 @@ test('a saved snapshot sends its viewer etag on the first read', async () => {
 
   await send();
 
-  expect(take('viewer').previous).toEqual({ login: octocat, etag: '"saved-viewer"' });
+  expect(take('viewer').previous).toEqual({
+    login: octocat,
+    etag: '"saved-viewer"',
+  });
 });
 
 test('the next full refresh sends the etag of the previous viewer read', async () => {
@@ -1262,7 +1270,10 @@ test('a changed login saves the new viewer etag', async () => {
 
 const reviewThread = makeThread('1');
 
-const mentionThread = makeThread('2', { reason: 'mention', repository: 'acme/lib' });
+const mentionThread = makeThread('2', {
+  reason: 'mention',
+  repository: 'acme/lib',
+});
 
 const threadKeys = (session: ReturnType<typeof makeHarness>['session']): string[] =>
   visibleRows(session.getSnapshot()).map((row) => row.key);
@@ -1368,7 +1379,11 @@ test('toggleAllFolds unfolds all top-level nodes when only one is folded', async
 
 test('cycleGrouping goes reason, type, none, reason and keeps the cursor on the same thread', async () => {
   const { session, load, selected, selectThread } = makeHarness();
-  const issue = makeThread('3', { subjectType: 'Issue', repository: 'acme/lib' });
+
+  const issue = makeThread('3', {
+    subjectType: 'Issue',
+    repository: 'acme/lib',
+  });
 
   await load(reviewThread, mentionThread, issue);
   selectThread(mentionThread);
@@ -1574,8 +1589,15 @@ test('a refresh in none keeps the selected thread, or falls back to the row inde
 const doneOf = (...threads: NotificationThread[]) =>
   new Map(threads.map((thread) => [thread.id, thread.updatedAt]));
 
+const accountKeyOf = (login: ViewerLogin) => `github.com/${login}`;
+
+const doneFor = (login: ViewerLogin, ...threads: NotificationThread[]) =>
+  new Map([[accountKeyOf(login), doneOf(...threads)]]);
+
 test('savedState sets the starting grouping', () => {
-  const { session } = makeHarness({ savedState: { grouping: 'type', done: new Map() } });
+  const { session } = makeHarness({
+    savedState: { grouping: 'type', done: new Map() },
+  });
 
   expect(session.getSnapshot().grouping).toBe('type');
 });
@@ -1594,7 +1616,7 @@ test('a saved done record hides its thread in the saved list and after a refresh
   const [first, second] = savedThreads;
 
   const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
-    savedState: { grouping: 'reason', done: doneOf(first!) },
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
   });
 
   expect(session.getSnapshot().threads).toEqual([second!]);
@@ -1612,7 +1634,7 @@ test('a thread with a done record shows again after a refresh with a newer updat
   const newer = { ...first!, updatedAt: '2026-01-09T10:00:00Z' };
 
   const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
-    savedState: { grouping: 'reason', done: doneOf(first!) },
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
   });
 
   await send();
@@ -1624,8 +1646,8 @@ test('a thread with a done record shows again after a refresh with a newer updat
 });
 
 test('each cycleGrouping intent saves the full state with the done records unchanged, and nothing else saves it', async () => {
-  const saved: { grouping: string; done: ReadonlyMap<string, string> }[] = [];
-  const done = doneOf(makeThread('9'));
+  const saved: SavedState[] = [];
+  const done = doneFor(octocat, makeThread('9'));
 
   const { session } = makeHarness({
     savedState: { grouping: 'reason', done },
@@ -1647,7 +1669,7 @@ test('each cycleGrouping intent saves the full state with the done records uncha
   session.send({ kind: 'cycleGrouping' });
 
   expect(saved.map((state) => state.grouping)).toEqual(['type', 'none']);
-  expect(saved.every((state) => state.done.size === 1)).toBe(true);
+  expect(saved.every((state) => state.done.get(accountKeyOf(octocat))?.size === 1)).toBe(true);
 });
 
 test('a saveState that throws leaves the session running with the new grouping', () => {
@@ -1816,7 +1838,12 @@ test('a failed state write after a grouping change shows an error toast naming t
   const { session } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'disk full',
+    path: '~/state.json',
+  });
 
   const { toast } = session.getSnapshot();
 
@@ -1829,7 +1856,13 @@ test('a successful write after a failure shows no new toast', () => {
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'disk full',
+    path: '~/state.json',
+  });
+
   timers.at(-1)?.callback();
   session.reportStateWrite({ ok: true });
 
@@ -1840,11 +1873,20 @@ test('the toast clears after four seconds, and a newer toast replaces it and res
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'first', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'first',
+    path: '~/state.json',
+  });
 
   const firstTimer = timers.at(-1);
 
-  session.reportStateWrite({ ok: false, reason: 'second', path: '~/state.json' });
+  session.reportStateWrite({
+    ok: false,
+    reason: 'second',
+    path: '~/state.json',
+  });
 
   const secondTimer = timers.at(-1);
 
@@ -1863,7 +1905,12 @@ test("a toast's duration equals the delay of its expiry timer", () => {
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'disk full',
+    path: '~/state.json',
+  });
 
   const toastTimer = timers.at(-1);
 
@@ -2076,7 +2123,10 @@ test('a successful send saves the done record and starts a full refresh', async 
   await settle();
   await settle();
 
-  expect(harness.saves.at(-1)?.done.get(one.id)).toBe('2026-01-05T08:00:00Z');
+  expect(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.get(one.id)).toBe(
+    '2026-01-05T08:00:00Z',
+  );
+
   expect(harness.countOf('read')).toBe(readsBefore + 1);
   expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
 });
@@ -2099,7 +2149,10 @@ test('stop sends a waiting done at once and saves its record', async () => {
   harness.sends[0]?.resolve(sentOk);
   await stopped;
 
-  expect(harness.saves.at(-1)?.done.get(one.id)).toBe('2026-01-05T08:00:00Z');
+  expect(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.get(one.id)).toBe(
+    '2026-01-05T08:00:00Z',
+  );
+
   expect(harness.countOf('read')).toBe(readsBefore);
 });
 
@@ -2125,7 +2178,10 @@ test('stop sends waiting dones one at a time and saves each record', async () =>
   harness.sends[1]?.resolve(sentOk);
   await stopped;
 
-  expect([...(harness.saves.at(-1)?.done.keys() ?? [])]).toEqual([one.id, two.id]);
+  expect([...(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.keys() ?? [])]).toEqual([
+    one.id,
+    two.id,
+  ]);
 });
 
 test('stop waits for a send already in flight and saves its record', async () => {
@@ -2146,7 +2202,7 @@ test('stop waits for a send already in flight and saves its record', async () =>
   harness.sends[0]?.resolve(sentOk);
   await stopped;
 
-  expect(harness.saves.at(-1)?.done.has(one.id)).toBe(true);
+  expect(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.has(one.id)).toBe(true);
 });
 
 test('a failed send at stop saves nothing', async () => {
@@ -2190,8 +2246,13 @@ test('a complete refresh deletes done records of threads no longer in the feed',
   const savedState: SavedState = {
     grouping: 'reason',
     done: new Map([
-      [toThreadId('1'), '2026-01-02T10:00:00Z'],
-      [toThreadId('2'), '2026-01-02T10:00:00Z'],
+      [
+        accountKeyOf(octocat),
+        new Map([
+          [toThreadId('1'), '2026-01-02T10:00:00Z'],
+          [toThreadId('2'), '2026-01-02T10:00:00Z'],
+        ]),
+      ],
     ]),
   };
 
@@ -2201,13 +2262,16 @@ test('a complete refresh deletes done records of threads no longer in the feed',
 
   const lastSave = harness.saves.at(-1);
 
-  expect([...(lastSave?.done.keys() ?? [])]).toEqual([toThreadId('2')]);
+  expect([...(lastSave?.done.get(accountKeyOf(octocat))?.keys() ?? [])]).toEqual([toThreadId('2')]);
 });
 
 test('a complete refresh that drops no done record saves nothing', async () => {
   const savedState: SavedState = {
     grouping: 'reason',
-    done: new Map([[toThreadId('2'), '2026-01-02T10:00:00Z']]),
+    done: doneFor(octocat, {
+      ...makeThread('2'),
+      updatedAt: '2026-01-02T10:00:00Z',
+    }),
   };
 
   const harness = makeHarness({ savedState });
@@ -2278,4 +2342,79 @@ test('a failed send of a thread whose group was folded selects the group row', a
   await settle();
 
   expectFoldedHolder(harness);
+});
+
+test('after an account switch a complete refresh keeps the other account done records and saves them', async () => {
+  const hubot = toViewerLogin('hubot');
+  const [first, second] = savedThreads;
+  const hubotThread = makeThread('7');
+
+  const { send, answerViewer, answerRead, answerVerify, saves } = makeSavedHarness(octocat, {
+    savedState: {
+      grouping: 'reason',
+      done: new Map([...doneFor(octocat, first!), ...doneFor(hubot, hubotThread)]),
+    },
+  });
+
+  await send();
+  await answerViewer(viewerOf(hubot));
+  await answerRead(readOf('fresh', [second!]));
+  await answerVerify(stable);
+
+  const lastSave = saves.at(-1);
+
+  expect(lastSave?.done.get(accountKeyOf(octocat))).toEqual(doneOf(first!));
+  expect(lastSave?.done.get(accountKeyOf(hubot))?.size ?? 0).toBe(0);
+});
+
+test('a done record of one account does not hide the same thread of another account', async () => {
+  const hubot = toViewerLogin('hubot');
+  const [first, second] = savedThreads;
+
+  const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
+  });
+
+  expect(session.getSnapshot().threads).toEqual([second!]);
+
+  await send();
+  await answerViewer(viewerOf(hubot));
+  await answerRead(readOf('fresh', [first!, second!]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().threads).toEqual([first!, second!]);
+});
+
+test('a done sent as one account that succeeds after a switch is saved under that account', async () => {
+  const hubot = toViewerLogin('hubot');
+  const other = makeThread('7');
+  let login = octocat;
+
+  const harness = makeHarness({
+    savedState: { grouping: 'reason', done: doneFor(hubot, other) },
+    readViewer: () => Promise.resolve(viewerOf(login)),
+  });
+
+  const one = makeThread('1', { updatedAt: '2026-01-05T08:00:00Z' });
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+
+  login = hubot;
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerRead(readOf('fresh', [one, makeThread('2'), other]));
+  await harness.answerVerify(stable);
+
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+
+  const lastSave = harness.saves.at(-1);
+
+  expect(lastSave?.done.get(accountKeyOf(octocat))).toEqual(doneOf({ ...one }));
+  expect(lastSave?.done.get(accountKeyOf(hubot))).toEqual(doneOf(other));
 });

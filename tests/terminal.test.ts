@@ -327,7 +327,7 @@ test('pressing d and quitting at once sends one DELETE and saves the done record
   expect(deletes[0]).toContain('/notifications/threads/1');
 
   expect(readFileSync(stateFilePath(stateHome), 'utf8')).toContain(
-    '"done":{"1":"2026-10-02T00:00:00Z"}',
+    '"done":{"github.com/octocat":{"1":"2026-10-02T00:00:00Z"}}',
   );
 }, 30_000);
 

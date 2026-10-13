@@ -9,18 +9,19 @@ type UndoOutcome =
 export interface DoneQueueEffects {
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
-  onSent: (thread: NotificationThread) => void;
+  onSent: (thread: NotificationThread, account: string) => void;
   onFailed: (thread: NotificationThread, failure: GitHubFailure) => void;
 }
 
 export interface DoneQueue {
-  add: (thread: NotificationThread) => void;
+  add: (thread: NotificationThread, account: string) => void;
   undoLatest: () => UndoOutcome;
   stop: (deadline: AbortSignal) => Promise<void>;
 }
 
 interface Entry {
   thread: NotificationThread;
+  account: string;
   state: 'waiting' | 'due' | 'sending' | 'sent';
   cancelTimer: () => void;
 }
@@ -62,7 +63,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
 
       if (result.ok) {
         entry.state = 'sent';
-        effects.onSent(entry.thread);
+        effects.onSent(entry.thread, entry.account);
       } else {
         entries = entries.filter((candidate) => candidate !== entry);
 
@@ -81,8 +82,8 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
     return running;
   };
 
-  const add = (thread: NotificationThread) => {
-    const entry: Entry = { thread, state: 'waiting', cancelTimer: () => undefined };
+  const add = (thread: NotificationThread, account: string) => {
+    const entry: Entry = { thread, account, state: 'waiting', cancelTimer: () => undefined };
 
     entry.cancelTimer = effects.setTimer(undoWindowMilliseconds, () => {
       entry.state = 'due';

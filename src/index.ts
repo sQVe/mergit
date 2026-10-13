@@ -114,6 +114,7 @@ if (newerVersion !== null) {
 } else {
   session = createSession({
     savedSnapshot: readSavedSnapshot(),
+    host,
     savedState,
     saveState: (state) => writer?.save(state),
     markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),

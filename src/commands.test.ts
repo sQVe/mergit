@@ -7,6 +7,7 @@ import { toThreadId, toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
   savedSnapshot: null,
+  host: 'github.com',
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true as const, value: null }),

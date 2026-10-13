@@ -47,7 +47,7 @@ type Attempt<T> =
 
 interface LocalStateFile {
   grouping: Grouping;
-  done: ReadonlyMap<ThreadId, string>;
+  done: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>;
 }
 
 export type StateLoad =
@@ -159,7 +159,7 @@ export const stateVersion = 2;
 const stateBody = z.object({
   version: z.literal(stateVersion),
   grouping: z.enum(groupings),
-  done: z.record(z.string().min(1), z.string()),
+  done: z.record(z.string().min(1), z.record(z.string().min(1), z.string())),
 });
 
 const versionOneBody = z.object({
@@ -238,9 +238,11 @@ export const loadState = (directory: string): StateLoad => {
   }
 
   const done = new Map(
-    Object.entries(body.data.done).map(([threadId, updatedAt]) => [
-      toThreadId(threadId),
-      updatedAt,
+    Object.entries(body.data.done).map(([account, records]) => [
+      account,
+      new Map(
+        Object.entries(records).map(([threadId, updatedAt]) => [toThreadId(threadId), updatedAt]),
+      ),
     ]),
   );
 
@@ -253,7 +255,11 @@ const writeStateFile = async (
   state: LocalStateFile,
 ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
   const temporaryPath = join(directory, `${stateFileName}.${crypto.randomUUID()}.tmp`);
-  const done = Object.fromEntries(state.done);
+
+  const done = Object.fromEntries(
+    [...state.done].map(([account, records]) => [account, Object.fromEntries(records)]),
+  );
+
   const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping, done })}\n`;
 
   try {

@@ -26,6 +26,7 @@ Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
+  host: 'github.com',
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true, value: null }),

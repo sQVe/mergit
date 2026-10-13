@@ -54,7 +54,7 @@ export type ApplicationIntent =
 
 export interface SavedState {
   grouping: Grouping;
-  done: ReadonlyMap<ThreadId, string>;
+  done: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>;
 }
 
 export interface SavedSnapshot {
@@ -66,6 +66,7 @@ export interface SavedSnapshot {
 
 export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
+  host: string;
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
@@ -157,7 +158,17 @@ export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
 
-  const doneRecords = new Map<ThreadId, string>(effects.savedState?.done);
+  const accountRecords = new Map<string, Map<ThreadId, string>>(
+    [...(effects.savedState?.done ?? [])].map(([account, records]) => [account, new Map(records)]),
+  );
+
+  let currentLogin: ViewerLogin | null = savedSnapshot?.viewer.login ?? null;
+  const noRecords: ReadonlyMap<ThreadId, string> = new Map();
+
+  const currentRecords = (): ReadonlyMap<ThreadId, string> =>
+    currentLogin === null
+      ? noRecords
+      : (accountRecords.get(`${effects.host}/${currentLogin}`) ?? noRecords);
 
   const startSnapshot: Snapshot = {
     ...initialSnapshot,
@@ -168,7 +179,12 @@ export const createSession = (effects: SessionEffects): Session => {
   let snapshot: Snapshot =
     savedSnapshot === null
       ? startSnapshot
-      : showSavedThreads(startSnapshot, savedSnapshot.threads, doneRecords, savedSnapshot.savedAt);
+      : showSavedThreads(
+          startSnapshot,
+          savedSnapshot.threads,
+          currentRecords(),
+          savedSnapshot.savedAt,
+        );
 
   let viewerLogin: ViewerLogin | null = null;
   let lastViewer: Viewer | null = savedSnapshot?.viewer ?? null;
@@ -261,6 +277,7 @@ export const createSession = (effects: SessionEffects): Session => {
     const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
 
     viewerLogin = viewer.login;
+    currentLogin = viewer.login;
     lastViewer = viewer;
 
     if (accountChanged) {
@@ -401,7 +418,7 @@ export const createSession = (effects: SessionEffects): Session => {
     unsavedChanges.add(change);
 
     try {
-      effects.saveState({ grouping: snapshot.grouping, done: doneRecords });
+      effects.saveState({ grouping: snapshot.grouping, done: accountRecords });
     } catch {
       // A failed save must not stop the session.
     }
@@ -459,12 +476,17 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const pruneDoneRecords = (fetched: NotificationThread[]) => {
+    if (currentLogin === null) {
+      return;
+    }
+
+    const records = accountRecords.get(`${effects.host}/${currentLogin}`);
     const fetchedIds = new Set(fetched.map((thread) => thread.id));
     let changed = false;
 
-    for (const threadId of doneRecords.keys()) {
+    for (const threadId of records?.keys() ?? []) {
       if (!fetchedIds.has(threadId)) {
-        doneRecords.delete(threadId);
+        records?.delete(threadId);
         changed = true;
       }
     }
@@ -491,7 +513,7 @@ export const createSession = (effects: SessionEffects): Session => {
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
       pruneDoneRecords(outcome.read.threads);
-      update(applyThreads(snapshot, outcome.read.threads, doneRecords, now));
+      update(applyThreads(snapshot, outcome.read.threads, currentRecords(), now));
       releaseSentThreads();
       saveQuietly(outcome.viewer, now);
       startLookup();
@@ -606,11 +628,18 @@ export const createSession = (effects: SessionEffects): Session => {
     later.startFullRefresh?.({ previous: null });
   };
 
+  const recordDone = (thread: NotificationThread, key: string) => {
+    const records = accountRecords.get(key) ?? new Map<ThreadId, string>();
+
+    records.set(thread.id, thread.updatedAt);
+    accountRecords.set(key, records);
+  };
+
   const doneQueue = createDoneQueue({
     setTimer: effects.setTimer,
     markThreadDone: effects.markThreadDone,
-    onSent: (thread) => {
-      doneRecords.set(thread.id, thread.updatedAt);
+    onSent: (thread, account) => {
+      recordDone(thread, account);
       sentThreadIds.add(thread.id);
       saveStateQuietly('done');
 
@@ -632,11 +661,11 @@ export const createSession = (effects: SessionEffects): Session => {
   const markDone = () => {
     const thread = selectedThreadOf(snapshot);
 
-    if (thread === undefined) {
+    if (thread === undefined || currentLogin === null) {
       return;
     }
 
-    doneQueue.add(thread);
+    doneQueue.add(thread, `${effects.host}/${currentLogin}`);
     update(hideThread(snapshot, thread.id));
 
     showToast(
