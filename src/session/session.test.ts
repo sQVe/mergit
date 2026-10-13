@@ -2655,3 +2655,41 @@ test('a loaded full refresh deletes the seen value of a thread missing from the 
   expect(seen?.get(b.id)).toBe(b.updatedAt);
   expect(seen?.get(c.id)).toBe(c.updatedAt);
 });
+
+test('a selected thread that leaves the feed keeps no seen value after the refresh', async () => {
+  const { a, b, savedState } = newThreadsFixture();
+  const harness = makeHarness({ savedState });
+
+  await harness.load(a, b);
+  harness.selectThread(b);
+  await harness.loadWith('feed2', [a]);
+
+  expect(harness.saves.at(-1)?.seen.get(accountKeyOf(octocat))?.has(b.id)).toBe(false);
+});
+
+test('an account change records the selected thread as seen for the account the cursor left', async () => {
+  const hubot = toViewerLogin('hubot');
+  const { a, b } = newThreadsFixture();
+  let login = octocat;
+
+  const harness = makeHarness({
+    savedState: stateWithSeen(
+      new Map([
+        ...seenFor(octocat, [a, a.updatedAt], [b, '2026-01-01T10:00:00Z']),
+        [accountKeyOf(hubot), new Map()],
+      ]),
+    ),
+    readViewer: () => Promise.resolve(viewerOf(login)),
+  });
+
+  await harness.load(a, b);
+  harness.selectThread(b);
+
+  login = hubot;
+  await harness.loadWith('hubot', []);
+
+  const lastSave = harness.saves.at(-1);
+
+  expect(seenOf(lastSave, b)).toBe(b.updatedAt);
+  expect(lastSave?.seen.get(accountKeyOf(hubot))?.has(b.id)).toBe(false);
+});

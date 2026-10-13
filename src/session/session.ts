@@ -364,10 +364,7 @@ export const createSession = (effects: SessionEffects): Session => {
 
     const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
 
-    viewerLogin = viewer.login;
-    currentLogin = viewer.login;
-    lastViewer = viewer;
-
+    // Clear before the login changes, so the thread the cursor leaves is seen by its own account.
     if (accountChanged) {
       feed = null;
       lookupController?.abort();
@@ -375,7 +372,13 @@ export const createSession = (effects: SessionEffects): Session => {
       lookedUp.clear();
       pendingLookups.clear();
       update(clearAccount(snapshot));
+    }
 
+    viewerLogin = viewer.login;
+    currentLogin = viewer.login;
+    lastViewer = viewer;
+
+    if (accountChanged) {
       return { ...request, previous: null };
     }
 
@@ -644,12 +647,12 @@ export const createSession = (effects: SessionEffects): Session => {
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
       pruneDoneRecords(outcome.read.threads);
-      pruneSeenRecords(outcome.read.threads);
-
       const next = applyThreads(snapshot, outcome.read.threads, currentRecords(), now);
 
       startLookup(next.threads);
       update(next);
+      // After the update, so a selected thread that left the feed is not saved again as seen.
+      pruneSeenRecords(outcome.read.threads);
       releaseSentThreads();
       saveQuietly(outcome.viewer, now);
     } else if (outcome.kind === 'busy') {
