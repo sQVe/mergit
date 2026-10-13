@@ -310,16 +310,16 @@ test('a saved grouping loads back after flush', async () => {
     onSaved: () => undefined,
   });
 
-  writer.save({ grouping: 'type', done: new Map() });
+  writer.save({ grouping: 'type', done: new Map(), seen: new Map() });
   await writer.flush();
 
   expect(loadState(directory)).toEqual({
     kind: 'loaded',
-    state: { grouping: 'type', done: new Map() },
+    state: { grouping: 'type', done: new Map(), seen: new Map() },
   });
 });
 
-test('done records of two accounts load back and are written in the version 2 shape keyed by host and login', async () => {
+test('done records of two accounts load back and are written in the version 3 shape keyed by host and login', async () => {
   const writer = createStateWriter(directory, {
     onFailure: () => undefined,
     onSaved: () => undefined,
@@ -336,18 +336,22 @@ test('done records of two accounts load back and are written in the version 2 sh
     ['github.com/hubot', new Map([[toThreadId('11'), '2026-01-04T09:00:00Z']])],
   ]);
 
-  writer.save({ grouping: 'none', done });
+  writer.save({ grouping: 'none', done, seen: new Map() });
   await writer.flush();
 
-  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'none', done } });
+  expect(loadState(directory)).toEqual({
+    kind: 'loaded',
+    state: { grouping: 'none', done, seen: new Map() },
+  });
 
   expect(JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'))).toEqual({
-    version: 2,
+    version: 3,
     grouping: 'none',
     done: {
       'github.com/octocat': { '11': '2026-01-02T10:00:00Z', '12': '2026-01-03T11:30:00Z' },
       'github.com/hubot': { '11': '2026-01-04T09:00:00Z' },
     },
+    seen: {},
   });
 });
 
@@ -359,11 +363,15 @@ const writeStateText = (text: string): string => {
   return path;
 };
 
-test('a version 1 file loads with its grouping and no done records, then is written as version 2', async () => {
+test('a version 1 file loads with its grouping and no done records, then is written as version 3', async () => {
   const path = writeStateText('{"version":1,"grouping":"reason"}');
   const loaded = loadState(directory);
 
-  expect(loaded).toEqual({ kind: 'loaded', state: { grouping: 'reason', done: new Map() } });
+  expect(loaded).toEqual({
+    kind: 'loaded',
+    state: { grouping: 'reason', done: new Map(), seen: new Map() },
+  });
+
   expect(readFileSync(path, 'utf8')).toBe('{"version":1,"grouping":"reason"}');
 
   const writer = createStateWriter(directory, {
@@ -371,12 +379,17 @@ test('a version 1 file loads with its grouping and no done records, then is writ
     onSaved: () => undefined,
   });
 
-  writer.save(loaded.kind === 'loaded' ? loaded.state : { grouping: 'none', done: new Map() });
+  writer.save(
+    loaded.kind === 'loaded'
+      ? loaded.state
+      : { grouping: 'none', done: new Map(), seen: new Map() },
+  );
+
   await writer.flush();
 
   const body: unknown = JSON.parse(readFileSync(path, 'utf8'));
 
-  expect(body).toEqual({ version: 2, grouping: 'reason', done: {} });
+  expect(body).toEqual({ version: 3, grouping: 'reason', done: {}, seen: {} });
 });
 
 const realEffects = (): StateWriterEffects => ({
@@ -388,18 +401,18 @@ const realEffects = (): StateWriterEffects => ({
   remove: (path) => rm(path, { force: true }),
 });
 
-test('the state file on disk has version 2', async () => {
+test('the state file on disk has version 3', async () => {
   const writer = createStateWriter(directory, {
     onFailure: () => undefined,
     onSaved: () => undefined,
   });
 
-  writer.save({ grouping: 'none', done: new Map() });
+  writer.save({ grouping: 'none', done: new Map(), seen: new Map() });
   await writer.flush();
 
   const body: unknown = JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'));
 
-  expect(body).toEqual({ version: 2, grouping: 'none', done: {} });
+  expect(body).toEqual({ version: 3, grouping: 'none', done: {}, seen: {} });
 });
 
 test('a missing state file loads as missing', () => {
@@ -408,9 +421,14 @@ test('a missing state file loads as missing', () => {
 
 test.each([
   ['bad JSON', '{nope'],
-  ['an unknown grouping', '{"version":2,"grouping":"owner","done":{}}'],
+  ['an unknown grouping', '{"version":3,"grouping":"owner","done":{},"seen":{}}'],
   ['a version 1 file with an unknown grouping', '{"version":1,"grouping":"owner"}'],
   ['a version 2 file without done records', '{"version":2,"grouping":"type"}'],
+  ['a version 3 file without seen records', '{"version":3,"grouping":"type","done":{}}'],
+  [
+    'a version 3 file with a seen value that is not a time',
+    '{"version":3,"grouping":"type","done":{},"seen":{"github.com/octocat":{"1":"yesterday"}}}',
+  ],
   ['a missing version', '{"grouping":"type"}'],
 ])('%s loads as invalid and leaves the file unchanged', (_name, text) => {
   const path = writeStateText(text);
@@ -422,11 +440,11 @@ test.each([
   expect(readFileSync(path, 'utf8')).toBe(text);
 });
 
-test('a version 3 file loads as newer with the path and version and stays unchanged', () => {
-  const text = '{"version":3,"grouping":"type","done":{}}';
+test('a version 4 file loads as newer with the path and version and stays unchanged', () => {
+  const text = '{"version":4,"grouping":"type","done":{},"seen":{}}';
   const path = writeStateText(text);
 
-  expect(loadState(directory)).toEqual({ kind: 'newer', path, version: 3 });
+  expect(loadState(directory)).toEqual({ kind: 'newer', path, version: 4 });
   expect(readFileSync(path, 'utf8')).toBe(text);
 });
 
@@ -439,7 +457,7 @@ const failRename = async (error: Error) => {
     { ...realEffects(), rename: () => Promise.reject(error) },
   );
 
-  writer.save({ grouping: 'type', done: new Map() });
+  writer.save({ grouping: 'type', done: new Map(), seen: new Map() });
   await writer.flush();
 
   return failures;
@@ -477,17 +495,17 @@ test('a failed rename keeps the last valid file, leaves no temporary file, and r
     onSaved: () => undefined,
   });
 
-  first.save({ grouping: 'reason', done: new Map() });
+  first.save({ grouping: 'reason', done: new Map(), seen: new Map() });
   await first.flush();
 
-  writer.save({ grouping: 'type', done: new Map() });
+  writer.save({ grouping: 'type', done: new Map(), seen: new Map() });
   await writer.flush();
 
   expect(failures).toEqual(['rename refused']);
 
   expect(loadState(directory)).toEqual({
     kind: 'loaded',
-    state: { grouping: 'reason', done: new Map() },
+    state: { grouping: 'reason', done: new Map(), seen: new Map() },
   });
 
   expect(readdirSync(directory)).toEqual(['state.json']);
@@ -518,22 +536,22 @@ test('saves during a write collapse to the last one', async () => {
     },
   );
 
-  writer.save({ grouping: 'reason', done: new Map() });
+  writer.save({ grouping: 'reason', done: new Map(), seen: new Map() });
   await firstRenameStarted.promise;
-  writer.save({ grouping: 'type', done: new Map() });
-  writer.save({ grouping: 'none', done: new Map() });
-  writer.save({ grouping: 'type', done: new Map() });
+  writer.save({ grouping: 'type', done: new Map(), seen: new Map() });
+  writer.save({ grouping: 'none', done: new Map(), seen: new Map() });
+  writer.save({ grouping: 'type', done: new Map(), seen: new Map() });
   gate.resolve(null);
   await writer.flush();
 
   expect(renamed.map((text): unknown => JSON.parse(text))).toEqual([
-    { version: 2, grouping: 'reason', done: {} },
-    { version: 2, grouping: 'type', done: {} },
+    { version: 3, grouping: 'reason', done: {}, seen: {} },
+    { version: 3, grouping: 'type', done: {}, seen: {} },
   ]);
 
   expect(loadState(directory)).toEqual({
     kind: 'loaded',
-    state: { grouping: 'type', done: new Map() },
+    state: { grouping: 'type', done: new Map(), seen: new Map() },
   });
 });
 
@@ -569,17 +587,81 @@ test('onSaved runs after a successful write, and not while a newer state is pend
     },
   );
 
-  writer.save({ grouping: 'reason', done: new Map() });
+  writer.save({ grouping: 'reason', done: new Map(), seen: new Map() });
   await renameStarted.promise;
-  writer.save({ grouping: 'type', done: new Map() });
+  writer.save({ grouping: 'type', done: new Map(), seen: new Map() });
   gate.resolve(null);
   await writer.flush();
 
   expect(saved).toBe(1);
   expect(renames).toBe(2);
 
-  writer.save({ grouping: 'none', done: new Map() });
+  writer.save({ grouping: 'none', done: new Map(), seen: new Map() });
   await writer.flush();
 
   expect(saved).toBe(2);
+});
+
+test('a version 2 file loads with its grouping and done records and no seen records, then is written as version 3', async () => {
+  const text =
+    '{"version":2,"grouping":"type","done":{"github.com/octocat":{"T1":"2026-10-01T10:00:00Z"}}}';
+
+  const path = writeStateText(text);
+  const loaded = loadState(directory);
+
+  const done = new Map([
+    ['github.com/octocat', new Map([[toThreadId('T1'), '2026-10-01T10:00:00Z']])],
+  ]);
+
+  expect(loaded).toEqual({ kind: 'loaded', state: { grouping: 'type', done, seen: new Map() } });
+  expect(readFileSync(path, 'utf8')).toBe(text);
+
+  const writer = createStateWriter(directory, {
+    onFailure: () => undefined,
+    onSaved: () => undefined,
+  });
+
+  writer.save(
+    loaded.kind === 'loaded'
+      ? loaded.state
+      : { grouping: 'none', done: new Map(), seen: new Map() },
+  );
+
+  await writer.flush();
+
+  const body: unknown = JSON.parse(readFileSync(path, 'utf8'));
+
+  expect(body).toEqual({
+    version: 3,
+    grouping: 'type',
+    done: { 'github.com/octocat': { T1: '2026-10-01T10:00:00Z' } },
+    seen: {},
+  });
+});
+
+test('seen records of two accounts, one empty, load back unchanged', async () => {
+  const writer = createStateWriter(directory, {
+    onFailure: () => undefined,
+    onSaved: () => undefined,
+  });
+
+  const seen = new Map([
+    ['github.com/octocat', new Map([[toThreadId('11'), '2026-01-02T10:00:00Z']])],
+    ['github.com/hubot', new Map<ReturnType<typeof toThreadId>, string>()],
+  ]);
+
+  writer.save({ grouping: 'none', done: new Map(), seen });
+  await writer.flush();
+
+  expect(loadState(directory)).toEqual({
+    kind: 'loaded',
+    state: { grouping: 'none', done: new Map(), seen },
+  });
+
+  expect(JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'))).toEqual({
+    version: 3,
+    grouping: 'none',
+    done: {},
+    seen: { 'github.com/octocat': { '11': '2026-01-02T10:00:00Z' }, 'github.com/hubot': {} },
+  });
 });

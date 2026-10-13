@@ -19,12 +19,13 @@ export interface Toast {
   durationMilliseconds: number;
 }
 
-export type UnsavedChange = 'grouping' | 'done';
+export type UnsavedChange = 'grouping' | 'done' | 'seen';
 
 export interface Snapshot {
   threads: NotificationThread[];
   hiddenThreadIds: ReadonlySet<ThreadId>;
   subjectFacts: ReadonlyMap<ThreadId, SubjectFacts>;
+  newThreadIds: ReadonlySet<ThreadId>;
   selectedRowKey: string | null;
   grouping: Grouping;
   foldedNodes: Record<Grouping, ReadonlySet<string>>;
@@ -40,10 +41,19 @@ export interface Snapshot {
   toast: Toast | null;
 }
 
+export interface NewThreadInput {
+  threads: NotificationThread[];
+  seen: ReadonlyMap<ThreadId, string> | undefined;
+  subjectFacts: ReadonlyMap<ThreadId, SubjectFacts>;
+  viewerLogin: string;
+  pendingThreadIds: ReadonlySet<ThreadId>;
+}
+
 export const initialSnapshot: Snapshot = {
   threads: [],
   hiddenThreadIds: new Set(),
   subjectFacts: new Map(),
+  newThreadIds: new Set(),
   selectedRowKey: null,
   grouping: 'reason',
   foldedNodes: {
@@ -61,6 +71,32 @@ export const initialSnapshot: Snapshot = {
   pausedUntil: null,
   stateWarning: null,
   toast: null,
+};
+
+export const isViewerActor = (facts: SubjectFacts | undefined, viewerLogin: string): boolean =>
+  facts?.latestActor?.toLowerCase() === viewerLogin.toLowerCase();
+
+export const newThreadIdsOf = (input: NewThreadInput): ReadonlySet<ThreadId> => {
+  const { seen, subjectFacts, viewerLogin, pendingThreadIds } = input;
+  const newIds = new Set<ThreadId>();
+
+  if (seen === undefined) {
+    return newIds;
+  }
+
+  for (const thread of input.threads) {
+    const seenAt = seen.get(thread.id);
+
+    const changed = seenAt === undefined || Date.parse(thread.updatedAt) > Date.parse(seenAt);
+
+    const ownActivity = isViewerActor(subjectFacts.get(thread.id), viewerLogin);
+
+    if (changed && !ownActivity && !pendingThreadIds.has(thread.id)) {
+      newIds.add(thread.id);
+    }
+  }
+
+  return newIds;
 };
 
 export const visibleRows = (snapshot: Snapshot): TreeRow[] => {
@@ -206,6 +242,7 @@ export const clearAccount = (snapshot: Snapshot): Snapshot => ({
   ...snapshot,
   threads: [],
   subjectFacts: new Map(),
+  newThreadIds: new Set(),
   selectedRowKey: null,
   hasLoaded: false,
   refreshedAt: null,
@@ -267,6 +304,7 @@ const selectedIndex = (snapshot: Snapshot, rows: TreeRow[]): number =>
 
 export const moveSelection = (snapshot: Snapshot, step: 1 | -1): Snapshot => {
   const rows = visibleRows(snapshot);
+
   const next = Math.min(Math.max(selectedIndex(snapshot, rows) + step, 0), rows.length - 1);
 
   return select(snapshot, rows[next]?.key ?? null);
@@ -331,7 +369,9 @@ export const toggleFold = (snapshot: Snapshot): Snapshot => {
 
 export const toggleAllFolds = (snapshot: Snapshot): Snapshot => {
   const rows = visibleRows(snapshot);
+
   const topLevel = rows.filter((row): row is NodeRow => row.kind === 'node' && row.topLevel);
+
   const folds = new Set(snapshot.foldedNodes[snapshot.grouping]);
   const anyFolded = topLevel.some((row) => folds.has(row.nodeKey));
 
@@ -345,6 +385,7 @@ export const toggleAllFolds = (snapshot: Snapshot): Snapshot => {
 
   const folded = withFolds(snapshot, folds);
   const holder = topLevelRowOf(rows, selectedIndex(snapshot, rows));
+
   const stillVisible = visibleRows(folded).some((row) => row.key === snapshot.selectedRowKey);
 
   return select(folded, stillVisible ? snapshot.selectedRowKey : (holder?.key ?? null));
@@ -365,12 +406,14 @@ const deepestNodeHolding = (rows: TreeRow[], thread: NotificationThread): NodeRo
 export const cycleGrouping = (snapshot: Snapshot): Snapshot => {
   const rows = visibleRows(snapshot);
   const anchor = anchorThread(rows[selectedIndex(snapshot, rows)]);
+
   const next = groupings[(groupings.indexOf(snapshot.grouping) + 1) % groupings.length];
 
   invariant(next !== undefined, 'groupings is not empty');
 
   const regrouped = { ...snapshot, grouping: next };
   const nextRows = visibleRows(regrouped);
+
   const threadRow = nextRows.find((row) => row.kind === 'thread' && row.thread.id === anchor?.id);
 
   const target =
@@ -387,9 +430,14 @@ export const selectedThreadOf = (snapshot: Snapshot): NotificationThread | undef
 
 export const hideThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => {
   const rows = visibleRows(snapshot);
+
   const index = rows.findIndex((row) => row.kind === 'thread' && row.thread.id === threadId);
 
-  const hidden = { ...snapshot, hiddenThreadIds: new Set([...snapshot.hiddenThreadIds, threadId]) };
+  const hidden = {
+    ...snapshot,
+    hiddenThreadIds: new Set([...snapshot.hiddenThreadIds, threadId]),
+  };
+
   const nextRows = visibleRows(hidden);
   const next = nextRows[Math.min(index, nextRows.length - 1)];
 
@@ -403,7 +451,9 @@ export const showThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => 
 
   const shown = { ...snapshot, hiddenThreadIds };
   const rows = visibleRows(shown);
+
   const threadRow = rows.find((row) => row.kind === 'thread' && row.thread.id === threadId);
+
   const thread = shown.threads.find((candidate) => candidate.id === threadId);
 
   const target = threadRow ?? (thread === undefined ? undefined : deepestNodeHolding(rows, thread));

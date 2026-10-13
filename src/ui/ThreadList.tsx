@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
 import { visibleRows } from '../session/session.ts';
-import type { NodeRow, ThreadRow } from '../work/work.ts';
+import type { NodeRow, ThreadId, ThreadRow } from '../work/work.ts';
 import type { Palette } from './palette.ts';
 import {
   branchFor,
@@ -22,6 +22,7 @@ interface RowProps {
   selected: boolean;
 }
 
+const markerWidth = 2;
 const typeWidth = 5;
 const numberWidth = 7;
 const ageWidth = 5;
@@ -30,11 +31,15 @@ const minimumRepositoryWidth = 6;
 const minimumFlatTitleWidth = 12;
 const statusLineHeight = 1;
 
-const NodeLine = (props: RowProps & { row: NodeRow; width: number }): ReactNode => {
+const NodeLine = (
+  props: RowProps & { row: NodeRow; width: number; newThreadIds: ReadonlySet<ThreadId> },
+): ReactNode => {
   const { row, palette, selected } = props;
   const prefix = `${guideFor(row.depth)}${row.folded ? '▸ ' : '▾ '}`;
-  const suffix = ` ${row.threads.length}`;
-  const titleWidth = Math.max(1, props.width - prefix.length - suffix.length);
+  const newCount = row.threads.filter((thread) => props.newThreadIds.has(thread.id)).length;
+  const newPart = newCount === 0 ? '' : ` ${newCount}`;
+  const totalPart = newCount === 0 ? ` ${row.threads.length}` : `/${row.threads.length}`;
+  const titleWidth = Math.max(1, props.width - prefix.length - newPart.length - totalPart.length);
 
   return (
     <box
@@ -46,26 +51,33 @@ const NodeLine = (props: RowProps & { row: NodeRow; width: number }): ReactNode 
         {prefix}
       </text>
       <text fg={palette.text}>{truncate(row.title, titleWidth)}</text>
-      <text fg={palette.dim} width={suffix.length}>
-        {suffix}
+      {newPart === '' ? null : (
+        <text fg={palette.newMarker} width={newPart.length}>
+          {newPart}
+        </text>
+      )}
+      <text fg={palette.dim} width={totalPart.length}>
+        {totalPart}
       </text>
     </box>
   );
 };
 
-const ThreadLine = (props: RowProps & { row: ThreadRow; width: number; now: Date }): ReactNode => {
+const ThreadLine = (
+  props: RowProps & { row: ThreadRow; width: number; now: Date; isNew: boolean },
+): ReactNode => {
   const { row, palette, selected, now } = props;
   const { thread } = row;
   const flat = row.nodeRowKey === null;
   const prefixWidth = flat ? 0 : row.depth * guideWidth + guideWidth;
-  const fixedWidth = typeWidth + numberWidth + ageWidth + minimumFlatTitleWidth;
+  const fixedWidth = markerWidth + typeWidth + numberWidth + ageWidth + minimumFlatTitleWidth;
   const repositoryRoom = Math.min(repositoryWidth, props.width - fixedWidth);
   const repositoryFits = flat && repositoryRoom >= minimumRepositoryWidth;
   const repositoryColumn = repositoryFits ? repositoryRoom : 0;
 
   const titleWidth = Math.max(
     1,
-    props.width - prefixWidth - typeWidth - numberWidth - repositoryColumn - ageWidth,
+    props.width - prefixWidth - markerWidth - typeWidth - numberWidth - repositoryColumn - ageWidth,
   );
 
   return (
@@ -75,6 +87,9 @@ const ThreadLine = (props: RowProps & { row: ThreadRow; width: number; now: Date
       backgroundColor={selected ? palette.selectedBackground : 'transparent'}
     >
       {flat ? null : <text fg={palette.dim}>{`${guideFor(row.depth)}${branchFor(row.last)}`}</text>}
+      <text fg={palette.newMarker} width={markerWidth}>
+        {props.isNew ? '●' : ' '}
+      </text>
       <text fg={palette.typeLabel} width={typeWidth}>
         {typeLabelFor(thread)}
       </text>
@@ -102,7 +117,7 @@ export const ThreadList = (props: {
   width: number;
 }): ReactNode => {
   const { snapshot, palette, width } = props;
-  const { selectedRowKey, refreshedAt, savedAt } = snapshot;
+  const { selectedRowKey, refreshedAt, savedAt, newThreadIds } = snapshot;
   const rows = visibleRows(snapshot);
   const dimensions = useTerminalDimensions();
   const [top, setTop] = useState(0);
@@ -124,7 +139,14 @@ export const ThreadList = (props: {
 
         if (row.kind === 'node') {
           return (
-            <NodeLine key={row.key} row={row} palette={palette} selected={selected} width={width} />
+            <NodeLine
+              key={row.key}
+              row={row}
+              palette={palette}
+              selected={selected}
+              width={width}
+              newThreadIds={newThreadIds}
+            />
           );
         }
 
@@ -136,6 +158,7 @@ export const ThreadList = (props: {
             selected={selected}
             width={width}
             now={now}
+            isNew={newThreadIds.has(row.thread.id)}
           />
         );
       })}
