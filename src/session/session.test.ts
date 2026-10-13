@@ -2980,3 +2980,22 @@ test('confirming done on an unfolded node selects a remaining row', async () => 
   expect(snapshot.selectedRowKey).not.toBeNull();
   expect(selectionIsShown(snapshot)).toBe(true);
 });
+
+test('confirming done on a folded node that a refresh grew keeps the node selected', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one);
+  harness.session.send({ kind: 'selectFirst' });
+  harness.session.send({ kind: 'toggleFold' });
+  harness.session.send({ kind: 'openConfirmation' });
+
+  const selected = harness.session.getSnapshot().selectedRowKey;
+  const threadIds = harness.session.getSnapshot().confirmation?.threadIds ?? [];
+
+  await harness.load(one, two);
+  harness.session.send({ kind: 'markThreadsDone', threadIds });
+
+  expect(selected).not.toBeNull();
+  expect(harness.session.getSnapshot().selectedRowKey).toBe(selected);
+});

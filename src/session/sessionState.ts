@@ -445,6 +445,11 @@ export const hideThreads = (snapshot: Snapshot, threadIds: ReadonlySet<ThreadId>
   const nextRows = visibleRows(hidden);
   const remainingKeys = new Set(nextRows.map((row) => row.key));
   const index = rows.findIndex((row) => !remainingKeys.has(row.key));
+
+  if (index === -1) {
+    return hidden;
+  }
+
   const next = nextRows[Math.min(index, nextRows.length - 1)];
 
   return { ...hidden, selectedRowKey: next?.key ?? null };
