@@ -20,19 +20,6 @@ export const StatusLine = (props: { snapshot: Snapshot; palette: Palette }): Rea
   const { snapshot, palette } = props;
   const error = readError(snapshot);
 
-  if (snapshot.confirmation !== null) {
-    const count = snapshot.confirmation.threadIds.length;
-    const noun = count === 1 ? 'thread' : 'threads';
-
-    return (
-      <box height={1} flexShrink={0} flexDirection="row">
-        <text fg={palette.dim}>
-          mark {count} {noun} done? y
-        </text>
-      </box>
-    );
-  }
-
   return (
     <box height={1} flexShrink={0} flexDirection="row" gap={2}>
       <text fg={palette.dim}>? help</text>

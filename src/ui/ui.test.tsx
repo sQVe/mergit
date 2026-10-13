@@ -1626,25 +1626,14 @@ const fiveThreads = Array.from({ length: 5 }, (_, index) =>
   makeThread(index + 1, `Batch thread ${index + 1}`),
 );
 
-const promptOf = (setup: Setup): string | undefined =>
-  frameLines(setup).find((line) => line.includes('threads done?'));
-
-test('D on a repo node with 5 threads asks once, then y hides all 5', async () => {
+test('d on a repo node with 5 threads hides all 5 at once', async () => {
   const { setup, press, sent } = await mount('dark', threadsEffects(fiveThreads));
 
   await pressAll(press, ['r', 'g', 'j']);
 
   expect(selectedLine(setup)).toContain('example/repo');
 
-  await press('D');
-
-  expect(promptOf(setup)).toContain('mark 5 threads done? y');
-
-  expect(sent.filter((intent) => (intent as { kind: string }).kind === 'markThreadsDone')).toEqual(
-    [],
-  );
-
-  await press('y');
+  await press('d');
 
   const frame = setup.captureCharFrame();
 
@@ -1652,82 +1641,31 @@ test('D on a repo node with 5 threads asks once, then y hides all 5', async () =
     expect(frame).not.toContain(thread.title);
   }
 
-  expect(promptOf(setup)).toBeUndefined();
-
   expect(sent.filter((intent) => (intent as { kind: string }).kind === 'markThreadsDone')).toEqual([
     { kind: 'markThreadsDone', threadIds: fiveThreads.map((thread) => thread.id) },
   ]);
 });
 
-test('escape and another key each close the prompt and change nothing', async () => {
-  for (const key of ['escape', 'j']) {
-    const { setup, press, sent } = await mount('dark', threadsEffects(fiveThreads));
-
-    await pressAll(press, ['r', 'g', 'j']);
-
-    const before = selectedLine(setup);
-
-    await press('D');
-    expect(promptOf(setup)).toBeDefined();
-
-    await press(key);
-
-    const frame = setup.captureCharFrame();
-
-    expect(promptOf(setup)).toBeUndefined();
-    expect(selectedLine(setup)).toBe(before);
-
-    for (const thread of fiveThreads) {
-      expect(frame).toContain(thread.title);
-    }
-
-    const kinds = sent.map((intent) => (intent as { kind: string }).kind);
-
-    expect(kinds).not.toContain('markThreadsDone');
-    expect(kinds.filter((kind) => kind === 'selectNext')).toHaveLength(1);
-  }
-});
-
-test('a list key pressed while the prompt is open does not run its list command', async () => {
-  const { setup, press, sent } = await mount('dark', threadsEffects(fiveThreads));
-
-  await pressAll(press, ['r', 'g', 'j', 'D', 's']);
-
-  const kinds = sent.map((intent) => (intent as { kind: string }).kind);
-
-  expect(kinds).not.toContain('cycleGrouping');
-  expect(promptOf(setup)).toBeUndefined();
-});
-
-test('q and ? cancel the prompt and do nothing else', async () => {
-  const { setup, press, terminalIntents } = await mount('dark', threadsEffects(fiveThreads));
-
-  for (const key of ['q', '?']) {
-    await pressAll(press, ['r', 'g', 'j', 'D', key]);
-
-    expect(promptOf(setup)).toBeUndefined();
-    expect(terminalIntents).toEqual([]);
-    expect(setup.captureCharFrame()).not.toContain('Toggle help');
-  }
-});
-
-test('D on a folded group marks every thread under it, and D on a thread opens no prompt', async () => {
+test('d on a folded group hides every thread under it, and one u brings them all back', async () => {
   const { setup, press } = await mount('dark', threadsEffects(treeThreads));
 
-  await pressAll(press, ['r', 'g', 'j', 'j', 'D']);
+  await pressAll(press, ['r', 'g', 'z']);
 
-  expect(selectedLine(setup)).toContain('Fix parser');
-  expect(promptOf(setup)).toBeUndefined();
+  const before = setup.captureCharFrame();
 
-  await pressAll(press, ['g', 'z', 'D']);
+  expect(selectedLine(setup)).toContain('Review requested');
 
-  expect(promptOf(setup)).toContain('mark 2 threads done? y');
+  await press('d');
 
-  await press('y');
+  const hidden = setup.captureCharFrame();
 
-  const frame = setup.captureCharFrame();
+  expect(hidden).not.toContain('Review requested');
+  expect(hidden).toContain('Crash on start');
 
-  expect(frame).not.toContain('Review requested');
-  expect(frame).toContain('Crash on start');
-  expect(frame).toContain('Stale crash');
+  await press('u');
+
+  const restored = setup.captureCharFrame();
+
+  expect(restored).toContain('Review requested');
+  expect(restored.split('\n').slice(0, 8)).toEqual(before.split('\n').slice(0, 8));
 });

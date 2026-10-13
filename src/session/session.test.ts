@@ -2870,64 +2870,14 @@ test('markThreadsDone with hidden or unknown ids changes nothing and sends nothi
   expect(harness.sends).toHaveLength(0);
 });
 
-test('openConfirmation captures the threads of the selected node and changes nothing else', async () => {
-  const harness = makeHarness();
-  const threads = await loadFive(harness);
-  const node = rowKeysOf(harness.session).find((key) => key.startsWith('node:'));
-  const before = harness.session.getSnapshot();
+const selectedNodeThreadIds = (harness: ReturnType<typeof makeHarness>) => {
+  const snapshot = harness.session.getSnapshot();
+  const row = visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
 
-  harness.session.send({ kind: 'selectFirst' });
-  harness.session.send({ kind: 'openConfirmation' });
+  return row?.kind === 'node' ? row.threads.map((thread) => thread.id) : [];
+};
 
-  const open = harness.session.getSnapshot();
-
-  expect(node).toBeDefined();
-  expect(open.confirmation?.threadIds).toEqual(threads.map((thread) => thread.id));
-
-  expect({ ...before, selectedRowKey: open.selectedRowKey }).toEqual({
-    ...open,
-    confirmation: null,
-  });
-
-  harness.session.send({ kind: 'closeConfirmation' });
-
-  expect(harness.session.getSnapshot().confirmation).toBeNull();
-});
-
-test('openConfirmation does nothing on a thread row', async () => {
-  const harness = makeHarness();
-
-  await loadFive(harness);
-  harness.session.send({ kind: 'selectLast' });
-  harness.session.send({ kind: 'openConfirmation' });
-
-  expect(harness.session.getSnapshot().confirmation).toBeNull();
-});
-
-test('a refresh keeps the confirmation, and confirming marks only the captured threads still shown', async () => {
-  const harness = makeHarness();
-  const threads = await loadFive(harness);
-  const captured = threads.map((thread) => thread.id);
-
-  harness.session.send({ kind: 'selectFirst' });
-  harness.session.send({ kind: 'openConfirmation' });
-  harness.session.send({ kind: 'selectNext' });
-  harness.session.send({ kind: 'selectNext' });
-  harness.session.send({ kind: 'markDone' });
-
-  await harness.load(...threads);
-
-  expect(harness.session.getSnapshot().confirmation?.threadIds).toEqual(captured);
-
-  harness.session.send({ kind: 'markThreadsDone', threadIds: captured });
-
-  const after = harness.session.getSnapshot();
-
-  expect(after.confirmation).toBeNull();
-  expect(rowKeysOf(harness.session).some((key) => key.startsWith('thread:'))).toBe(false);
-});
-
-const confirmNodeAt = async (steps: number, fold: boolean) => {
+const markNodeAt = async (steps: number, fold: boolean) => {
   const harness = makeHarness();
 
   await harness.load(
@@ -2947,11 +2897,7 @@ const confirmNodeAt = async (steps: number, fold: boolean) => {
     harness.session.send({ kind: 'toggleFold' });
   }
 
-  harness.session.send({ kind: 'openConfirmation' });
-
-  const threadIds = harness.session.getSnapshot().confirmation?.threadIds ?? [];
-
-  harness.session.send({ kind: 'markThreadsDone', threadIds });
+  harness.session.send({ kind: 'markThreadsDone', threadIds: selectedNodeThreadIds(harness) });
 
   return harness.session.getSnapshot();
 };
@@ -2960,37 +2906,36 @@ const selectionIsShown = (
   snapshot: ReturnType<typeof createSession>['getSnapshot'] extends () => infer S ? S : never,
 ) => visibleRows(snapshot).some((row) => row.key === snapshot.selectedRowKey);
 
-test('confirming done on a folded repo node selects a remaining row', async () => {
-  const snapshot = await confirmNodeAt(1, true);
+test('marking done on a folded repo node selects a remaining row', async () => {
+  const snapshot = await markNodeAt(1, true);
 
   expect(snapshot.selectedRowKey).not.toBeNull();
   expect(selectionIsShown(snapshot)).toBe(true);
 });
 
-test('confirming done on a folded group node selects a remaining row', async () => {
-  const snapshot = await confirmNodeAt(0, true);
+test('marking done on a folded group node selects a remaining row', async () => {
+  const snapshot = await markNodeAt(0, true);
 
   expect(snapshot.selectedRowKey).not.toBeNull();
   expect(selectionIsShown(snapshot)).toBe(true);
 });
 
-test('confirming done on an unfolded node selects a remaining row', async () => {
-  const snapshot = await confirmNodeAt(1, false);
+test('marking done on an unfolded node selects a remaining row', async () => {
+  const snapshot = await markNodeAt(1, false);
 
   expect(snapshot.selectedRowKey).not.toBeNull();
   expect(selectionIsShown(snapshot)).toBe(true);
 });
 
-test('confirming done on an unfolded node that a refresh grew keeps the node selected', async () => {
+test('marking done on an unfolded node that a refresh grew keeps the node selected', async () => {
   const harness = makeHarness();
   const [one, two] = [makeThread('1'), makeThread('2')];
 
   await harness.load(one);
   harness.session.send({ kind: 'selectFirst' });
-  harness.session.send({ kind: 'openConfirmation' });
 
   const selected = harness.session.getSnapshot().selectedRowKey;
-  const threadIds = harness.session.getSnapshot().confirmation?.threadIds ?? [];
+  const threadIds = selectedNodeThreadIds(harness);
 
   await harness.load(one, two);
   harness.session.send({ kind: 'markThreadsDone', threadIds });
@@ -2999,17 +2944,16 @@ test('confirming done on an unfolded node that a refresh grew keeps the node sel
   expect(harness.session.getSnapshot().selectedRowKey).toBe(selected);
 });
 
-test('confirming done on a folded node that a refresh grew keeps the node selected', async () => {
+test('marking done on a folded node that a refresh grew keeps the node selected', async () => {
   const harness = makeHarness();
   const [one, two] = [makeThread('1'), makeThread('2')];
 
   await harness.load(one);
   harness.session.send({ kind: 'selectFirst' });
   harness.session.send({ kind: 'toggleFold' });
-  harness.session.send({ kind: 'openConfirmation' });
 
   const selected = harness.session.getSnapshot().selectedRowKey;
-  const threadIds = harness.session.getSnapshot().confirmation?.threadIds ?? [];
+  const threadIds = selectedNodeThreadIds(harness);
 
   await harness.load(one, two);
   harness.session.send({ kind: 'markThreadsDone', threadIds });

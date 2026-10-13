@@ -21,10 +21,6 @@ export interface Toast {
 
 export type UnsavedChange = 'grouping' | 'done' | 'seen';
 
-interface Confirmation {
-  threadIds: readonly ThreadId[];
-}
-
 export interface Snapshot {
   threads: NotificationThread[];
   hiddenThreadIds: ReadonlySet<ThreadId>;
@@ -43,7 +39,6 @@ export interface Snapshot {
   pausedUntil: Date | null;
   stateWarning: string | null;
   toast: Toast | null;
-  confirmation: Confirmation | null;
 }
 
 export interface NewThreadInput {
@@ -76,7 +71,6 @@ export const initialSnapshot: Snapshot = {
   pausedUntil: null,
   stateWarning: null,
   toast: null,
-  confirmation: null,
 };
 
 export const isViewerActor = (facts: SubjectFacts | undefined, viewerLogin: string): boolean =>
@@ -480,16 +474,3 @@ export const releaseThreads = (snapshot: Snapshot, threadIds: ReadonlySet<Thread
 
   return { ...snapshot, hiddenThreadIds };
 };
-
-export const openConfirmation = (snapshot: Snapshot): Snapshot => {
-  const row = visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
-
-  if (row?.kind !== 'node') {
-    return snapshot;
-  }
-
-  return { ...snapshot, confirmation: { threadIds: row.threads.map((thread) => thread.id) } };
-};
-
-export const closeConfirmation = (snapshot: Snapshot): Snapshot =>
-  snapshot.confirmation === null ? snapshot : { ...snapshot, confirmation: null };

@@ -2,10 +2,7 @@
 
 **Date**: 2026-10-01\
 **Status**: Accepted\
-**Extended by**:
-[ADR 0019: A confirmation prompt is a modal with its own command scope](./0019-confirmation-scope.md)\
-**Related**:
-[ADR 0003: OpenTUI with React bindings as the renderer](./0003-opentui-react-renderer.md),
+**Related**: [ADR 0003: OpenTUI with React bindings as the renderer](./0003-opentui-react-renderer.md),
 [ADR 0005: One session store outside React](./0005-session-store.md),
 [ADR 0009: Versioned local state and config](./0009-local-state-and-config.md)
 

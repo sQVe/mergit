@@ -149,16 +149,30 @@ test('closeDetail has the escape key, the preview scope, and a ui intent', () =>
   expect(close?.disabledReason(snapshot)).toBeUndefined();
 });
 
-test('done is disabled on a group row and enabled on a thread row', () => {
+test('markDone marks one thread on a thread row and every shown thread on a node row', () => {
   const command = catalog.find((candidate) => candidate.id === 'markDone');
-  const onNode = { ...loadedSnapshot, selectedRowKey: 'node:review' };
-  const onThread = { ...loadedSnapshot, selectedRowKey: 'thread:1' };
+  const nodeRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'node');
+  const threadRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'thread');
+
+  expect(nodeRow?.kind).toBe('node');
+  expect(threadRow).toBeDefined();
+
+  const onNode = { ...loadedSnapshot, selectedRowKey: nodeRow?.key ?? null };
+  const onThread = { ...loadedSnapshot, selectedRowKey: threadRow?.key ?? null };
+  const nodeThreadIds = nodeRow?.kind === 'node' ? nodeRow.threads.map((thread) => thread.id) : [];
 
   expect(command?.keys).toEqual(['d']);
   expect(command?.scope).toBe('list');
-  expect(command?.disabledReason(onNode)).toBeDefined();
+  expect(nodeThreadIds.length).toBeGreaterThan(0);
+  expect(command?.disabledReason(onNode)).toBeUndefined();
   expect(command?.disabledReason(onThread)).toBeUndefined();
+  expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null })).toBeDefined();
   expect(command?.intent(onThread)).toEqual({ kind: 'application', intent: { kind: 'markDone' } });
+
+  expect(command?.intent(onNode)).toEqual({
+    kind: 'application',
+    intent: { kind: 'markThreadsDone', threadIds: nodeThreadIds },
+  });
 });
 
 test('undo is bound to u and returns the undoDone intent', () => {
@@ -167,44 +181,4 @@ test('undo is bound to u and returns the undoDone intent', () => {
   expect(command?.keys).toEqual(['u']);
   expect(command?.scope).toBe('list');
   expect(command?.intent(snapshot)).toEqual({ kind: 'application', intent: { kind: 'undoDone' } });
-});
-
-test('markNodeDone is disabled on a thread row and enabled on a node row', () => {
-  const command = catalog.find((candidate) => candidate.id === 'markNodeDone');
-  const nodeRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'node');
-  const threadRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'thread');
-
-  expect(nodeRow).toBeDefined();
-  expect(threadRow).toBeDefined();
-
-  const onNode = { ...loadedSnapshot, selectedRowKey: nodeRow?.key ?? null };
-  const onThread = { ...loadedSnapshot, selectedRowKey: threadRow?.key ?? null };
-
-  expect(command?.keys).toEqual(['shift+d']);
-  expect(command?.scope).toBe('list');
-  expect(command?.disabledReason(onThread)).toBeDefined();
-  expect(command?.disabledReason(onNode)).toBeUndefined();
-});
-
-test('confirm and cancel are disabled while no confirmation is open', () => {
-  const confirm = catalog.find((candidate) => candidate.id === 'confirm');
-  const cancel = catalog.find((candidate) => candidate.id === 'cancel');
-  const open = { ...loadedSnapshot, confirmation: { threadIds: [loadedThread.id] } };
-
-  expect(confirm?.keys).toEqual(['y']);
-  expect(cancel?.keys).toEqual(['escape']);
-  expect(confirm?.disabledReason(loadedSnapshot)).toBeDefined();
-  expect(cancel?.disabledReason(loadedSnapshot)).toBeDefined();
-  expect(confirm?.disabledReason(open)).toBeUndefined();
-  expect(cancel?.disabledReason(open)).toBeUndefined();
-
-  expect(confirm?.intent(open)).toEqual({
-    kind: 'application',
-    intent: { kind: 'markThreadsDone', threadIds: [loadedThread.id] },
-  });
-
-  expect(cancel?.intent(open)).toEqual({
-    kind: 'application',
-    intent: { kind: 'closeConfirmation' },
-  });
 });
