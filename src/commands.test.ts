@@ -7,8 +7,10 @@ import { toThreadId, toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
   savedSnapshot: null,
-  savedGrouping: null,
-  saveGrouping: () => undefined,
+  host: 'github.com',
+  savedState: null,
+  saveState: () => undefined,
+  markThreadDone: () => Promise.resolve({ ok: true as const, value: null }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
@@ -145,4 +147,24 @@ test('closeDetail has the escape key, the preview scope, and a ui intent', () =>
   expect(close?.scope).toBe('preview');
   expect(close?.intent(snapshot)).toEqual({ kind: 'ui', action: 'closeDetail' });
   expect(close?.disabledReason(snapshot)).toBeUndefined();
+});
+
+test('done is disabled on a group row and enabled on a thread row', () => {
+  const command = catalog.find((candidate) => candidate.id === 'markDone');
+  const onNode = { ...loadedSnapshot, selectedRowKey: 'node:review' };
+  const onThread = { ...loadedSnapshot, selectedRowKey: 'thread:1' };
+
+  expect(command?.keys).toEqual(['d']);
+  expect(command?.scope).toBe('list');
+  expect(command?.disabledReason(onNode)).toBeDefined();
+  expect(command?.disabledReason(onThread)).toBeUndefined();
+  expect(command?.intent(onThread)).toEqual({ kind: 'application', intent: { kind: 'markDone' } });
+});
+
+test('undo is bound to u and returns the undoDone intent', () => {
+  const command = catalog.find((candidate) => candidate.id === 'undoDone');
+
+  expect(command?.keys).toEqual(['u']);
+  expect(command?.scope).toBe('list');
+  expect(command?.intent(snapshot)).toEqual({ kind: 'application', intent: { kind: 'undoDone' } });
 });

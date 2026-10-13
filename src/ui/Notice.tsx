@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
+import { visibleRows } from '../session/session.ts';
 import type { Palette } from './palette.ts';
 
 const noticeText = {
@@ -8,13 +9,15 @@ const noticeText = {
   notSignedIn: 'Run gh auth login, then press r',
 };
 
+export const hasNoRows = (snapshot: Snapshot): boolean => visibleRows(snapshot).length === 0;
+
 export const readNoticeText = (snapshot: Snapshot): string | null =>
   snapshot.notice === null ? null : noticeText[snapshot.notice];
 
 const readMessage = (snapshot: Snapshot): { text: string; dim: boolean } | null => {
   const notice = readNoticeText(snapshot);
 
-  if (notice !== null && snapshot.threads.length === 0) {
+  if (notice !== null && hasNoRows(snapshot)) {
     return { text: notice, dim: false };
   }
 
@@ -22,7 +25,7 @@ const readMessage = (snapshot: Snapshot): { text: string; dim: boolean } | null 
     return { text: 'Loading notifications...', dim: true };
   }
 
-  if (snapshot.threads.length === 0 && snapshot.errorMessage === null) {
+  if (hasNoRows(snapshot) && snapshot.errorMessage === null) {
     return { text: 'No open notifications', dim: false };
   }
 

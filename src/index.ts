@@ -2,6 +2,7 @@ import { catalog } from './commands.ts';
 import {
   createGhRunner,
   lookUpSubjects,
+  markThreadDone,
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
@@ -16,12 +17,12 @@ import {
   loadState,
   saveSnapshot,
   stateDirectory,
+  stateVersion,
 } from './localState.ts';
 import type { StateWriter } from './localState.ts';
 import { createSession } from './session/session.ts';
-import type { SavedSnapshot, Session } from './session/session.ts';
+import type { SavedSnapshot, SavedState, Session } from './session/session.ts';
 import { refuseStart, startTerminal } from './terminal.tsx';
-import type { Grouping } from './work/work.ts';
 
 const now = () => new Date();
 const githubEffects = { runGh: createGhRunner(), now };
@@ -80,7 +81,7 @@ const stateHome = stateDirectory(Bun.env);
 const loadedState = stateHome === null ? null : loadState(stateHome);
 let writer: StateWriter | undefined;
 let session: Session | undefined;
-let savedGrouping: Grouping | null = null;
+let savedState: SavedState | null = null;
 let stateWarning: string | null = null;
 let newerVersion: string | null = null;
 
@@ -97,7 +98,7 @@ if (stateHome !== null && loadedState?.kind !== 'invalid' && loadedState?.kind !
 }
 
 if (loadedState?.kind === 'loaded') {
-  savedGrouping = loadedState.state.grouping;
+  savedState = loadedState.state;
 }
 
 if (loadedState?.kind === 'invalid') {
@@ -105,7 +106,7 @@ if (loadedState?.kind === 'invalid') {
 }
 
 if (loadedState?.kind === 'newer') {
-  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Zeta reads version 1.`;
+  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Zeta reads version ${stateVersion}.`;
 }
 
 if (newerVersion !== null) {
@@ -113,8 +114,10 @@ if (newerVersion !== null) {
 } else {
   session = createSession({
     savedSnapshot: readSavedSnapshot(),
-    savedGrouping,
-    saveGrouping: (grouping) => writer?.save({ grouping }),
+    host,
+    savedState,
+    saveState: (state) => writer?.save(state),
+    markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),
     stateWarning,
     readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
     saveSnapshot: (viewer, feed, savedAt) => {

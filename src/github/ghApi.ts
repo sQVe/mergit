@@ -242,6 +242,13 @@ export const requestGh = (
   return runApi(effects, ['api', '--include', ...conditional, endpoint], signal);
 };
 
+export const requestGhDelete = (
+  effects: GitHubEffects,
+  endpoint: string,
+  signal: AbortSignal,
+): Promise<GitHubResult<GhResponse>> =>
+  runApi(effects, ['api', '--include', '--method', 'DELETE', endpoint], signal);
+
 export const requestGraphql = (
   effects: GitHubEffects,
   query: string,

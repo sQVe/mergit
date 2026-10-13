@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import type { NotificationThread, ViewerLogin } from '../work/work.ts';
+import type { NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toViewerLogin } from '../work/work.ts';
 import type { GhResponse, GitHubEffects, GitHubFailure, GitHubResult } from './ghApi.ts';
-import { requestGh } from './ghApi.ts';
+import { requestGh, requestGhDelete } from './ghApi.ts';
 import type { NotificationFeed, NotificationPage } from './notifications.ts';
 import { findNextPage, notificationPageSchema, readPollInterval } from './notifications.ts';
 
@@ -94,6 +94,20 @@ export const readViewer = async (
       etag: response.value.headers.get('etag') ?? null,
     },
   };
+};
+
+export const markThreadDone = async (
+  effects: GitHubEffects,
+  threadId: ThreadId,
+  signal: AbortSignal,
+): Promise<GitHubResult<null>> => {
+  const response = await requestGhDelete(effects, `/notifications/threads/${threadId}`, signal);
+
+  if (!response.ok) {
+    return response;
+  }
+
+  return { ok: true, value: null };
 };
 
 const fetchPage = async (

@@ -11,10 +11,10 @@ import type {
   SubjectLookup,
   Viewer,
 } from '../github/github.ts';
-import type { NotificationThread, ViewerLogin } from '../work/work.ts';
+import type { NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
 import { createSession, visibleRows } from './session.ts';
-import type { SavedSnapshot, SessionEffects } from './session.ts';
+import type { SavedSnapshot, SavedState, SessionEffects } from './session.ts';
 
 type Call =
   | {
@@ -47,6 +47,12 @@ interface LookupCall {
   resolve: (lookups: SubjectLookup[]) => void;
   reject: (error: Error) => void;
   signal: AbortSignal;
+}
+
+interface SendCall {
+  threadId: ThreadId;
+  signal: AbortSignal;
+  resolve: (result: GitHubResult<null>) => void;
 }
 
 interface FakeTimer {
@@ -134,6 +140,8 @@ const makeHarness = (
   const history: Call[] = [];
   const lookups: LookupCall[] = [];
   const timers: FakeTimer[] = [];
+  const sends: SendCall[] = [];
+  const saves: SavedState[] = [];
   const clock = { time: new Date('2026-02-01T12:00:00Z').getTime() };
 
   const record = (call: Call) => {
@@ -143,8 +151,26 @@ const makeHarness = (
 
   const session = createSession({
     savedSnapshot: null,
-    savedGrouping: null,
-    saveGrouping: () => undefined,
+    host: 'github.com',
+    savedState: null,
+    saveState: (state) => {
+      saves.push(state);
+    },
+    markThreadDone: (threadId, signal) =>
+      new Promise((resolve) => {
+        sends.push({ threadId, signal, resolve });
+
+        signal.addEventListener('abort', () => {
+          resolve({
+            ok: false,
+            failure: {
+              kind: 'requestFailed',
+              status: null,
+              message: 'aborted',
+            },
+          });
+        });
+      }),
     stateWarning: null,
     readViewer: (previous, signal) =>
       new Promise((resolve) => {
@@ -269,6 +295,8 @@ const makeHarness = (
     pending,
     history,
     lookups,
+    sends,
+    saves,
     now,
     advance,
     take,
@@ -387,7 +415,7 @@ test('a result after stop is dropped, the running refresh is aborted, and no tim
   const signal = pending[0]?.signal;
   const callsBeforeStop = calls;
 
-  session.stop();
+  await session.stop(new AbortController().signal);
 
   expect(signal?.aborted).toBe(true);
 
@@ -403,7 +431,7 @@ test('stop cancels the scheduled poll', async () => {
   const { session, load, activeTimers } = makeHarness();
 
   await load(makeThread('1'));
-  session.stop();
+  await session.stop(new AbortController().signal);
 
   expect(activeTimers()).toHaveLength(0);
 });
@@ -412,7 +440,7 @@ test('send after stop starts no refresh and changes nothing', async () => {
   const { session, pending } = makeHarness();
   const before = session.getSnapshot();
 
-  session.stop();
+  await session.stop(new AbortController().signal);
   session.send({ kind: 'refresh' });
   await settle();
 
@@ -1204,7 +1232,10 @@ test('a saved snapshot sends its viewer etag on the first read', async () => {
 
   await send();
 
-  expect(take('viewer').previous).toEqual({ login: octocat, etag: '"saved-viewer"' });
+  expect(take('viewer').previous).toEqual({
+    login: octocat,
+    etag: '"saved-viewer"',
+  });
 });
 
 test('the next full refresh sends the etag of the previous viewer read', async () => {
@@ -1239,7 +1270,10 @@ test('a changed login saves the new viewer etag', async () => {
 
 const reviewThread = makeThread('1');
 
-const mentionThread = makeThread('2', { reason: 'mention', repository: 'acme/lib' });
+const mentionThread = makeThread('2', {
+  reason: 'mention',
+  repository: 'acme/lib',
+});
 
 const threadKeys = (session: ReturnType<typeof makeHarness>['session']): string[] =>
   visibleRows(session.getSnapshot()).map((row) => row.key);
@@ -1345,7 +1379,11 @@ test('toggleAllFolds unfolds all top-level nodes when only one is folded', async
 
 test('cycleGrouping goes reason, type, none, reason and keeps the cursor on the same thread', async () => {
   const { session, load, selected, selectThread } = makeHarness();
-  const issue = makeThread('3', { subjectType: 'Issue', repository: 'acme/lib' });
+
+  const issue = makeThread('3', {
+    subjectType: 'Issue',
+    repository: 'acme/lib',
+  });
 
   await load(reviewThread, mentionThread, issue);
   selectThread(mentionThread);
@@ -1548,28 +1586,73 @@ test('a refresh in none keeps the selected thread, or falls back to the row inde
   expect(selected()).toBe('thread:3');
 });
 
-test('savedGrouping sets the starting grouping', () => {
-  const { session } = makeHarness({ savedGrouping: 'type' });
+const doneOf = (...threads: NotificationThread[]) =>
+  new Map(threads.map((thread) => [thread.id, thread.updatedAt]));
+
+const accountKeyOf = (login: ViewerLogin) => `github.com/${login}`;
+
+const doneFor = (login: ViewerLogin, ...threads: NotificationThread[]) =>
+  new Map([[accountKeyOf(login), doneOf(...threads)]]);
+
+test('savedState sets the starting grouping', () => {
+  const { session } = makeHarness({
+    savedState: { grouping: 'type', done: new Map() },
+  });
 
   expect(session.getSnapshot().grouping).toBe('type');
 });
 
-test('savedGrouping sets the starting grouping next to a saved snapshot', () => {
+test('savedState sets the starting grouping next to a saved snapshot', () => {
   const { session } = makeHarness({
-    savedGrouping: 'none',
+    savedState: { grouping: 'type', done: new Map() },
     savedSnapshot: savedSnapshotOf(octocat),
   });
 
-  expect(session.getSnapshot().grouping).toBe('none');
+  expect(session.getSnapshot().grouping).toBe('type');
   expect(session.getSnapshot().threads.length).toBeGreaterThan(0);
 });
 
-test('each cycleGrouping intent saves the new grouping once, and nothing else saves it', async () => {
-  const saved: string[] = [];
+test('a saved done record hides its thread in the saved list and after a refresh with the same updated_at', async () => {
+  const [first, second] = savedThreads;
+
+  const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
+  });
+
+  expect(session.getSnapshot().threads).toEqual([second!]);
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(readOf('fresh', [first!, second!]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().threads).toEqual([second!]);
+});
+
+test('a thread with a done record shows again after a refresh with a newer updated_at', async () => {
+  const [first, second] = savedThreads;
+  const newer = { ...first!, updatedAt: '2026-01-09T10:00:00Z' };
+
+  const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
+  });
+
+  await send();
+  await answerViewer(viewerOf(octocat));
+  await answerRead(readOf('fresh', [newer, second!]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().threads).toEqual([newer, second!]);
+});
+
+test('each cycleGrouping intent saves the full state with the done records unchanged, and nothing else saves it', async () => {
+  const saved: SavedState[] = [];
+  const done = doneFor(octocat, makeThread('9'));
 
   const { session } = makeHarness({
-    saveGrouping: (grouping) => {
-      saved.push(grouping);
+    savedState: { grouping: 'reason', done },
+    saveState: (state) => {
+      saved.push(state);
     },
   });
 
@@ -1581,16 +1664,17 @@ test('each cycleGrouping intent saves the new grouping once, and nothing else sa
 
   session.send({ kind: 'cycleGrouping' });
 
-  expect(saved).toEqual(['type']);
+  expect(saved).toEqual([{ grouping: 'type', done }]);
 
   session.send({ kind: 'cycleGrouping' });
 
-  expect(saved).toEqual(['type', 'none']);
+  expect(saved.map((state) => state.grouping)).toEqual(['type', 'none']);
+  expect(saved.every((state) => state.done.get(accountKeyOf(octocat))?.size === 1)).toBe(true);
 });
 
-test('a saveGrouping that throws leaves the session running with the new grouping', () => {
+test('a saveState that throws leaves the session running with the new grouping', () => {
   const { session } = makeHarness({
-    saveGrouping: () => {
+    saveState: () => {
       throw new Error('disk full');
     },
   });
@@ -1740,7 +1824,7 @@ test('stop aborts a running lookup and drops its result', async () => {
   const thread = makeThread('1');
 
   await load(thread);
-  session.stop();
+  await session.stop(new AbortController().signal);
 
   expect(lookups[0]?.signal.aborted).toBe(true);
 
@@ -1754,7 +1838,12 @@ test('a failed state write after a grouping change shows an error toast naming t
   const { session } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'disk full',
+    path: '~/state.json',
+  });
 
   const { toast } = session.getSnapshot();
 
@@ -1767,7 +1856,13 @@ test('a successful write after a failure shows no new toast', () => {
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'disk full',
+    path: '~/state.json',
+  });
+
   timers.at(-1)?.callback();
   session.reportStateWrite({ ok: true });
 
@@ -1778,11 +1873,20 @@ test('the toast clears after four seconds, and a newer toast replaces it and res
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'first', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'first',
+    path: '~/state.json',
+  });
 
   const firstTimer = timers.at(-1);
 
-  session.reportStateWrite({ ok: false, reason: 'second', path: '~/state.json' });
+  session.reportStateWrite({
+    ok: false,
+    reason: 'second',
+    path: '~/state.json',
+  });
 
   const secondTimer = timers.at(-1);
 
@@ -1801,10 +1905,516 @@ test("a toast's duration equals the delay of its expiry timer", () => {
   const { session, timers } = makeHarness();
 
   session.send({ kind: 'cycleGrouping' });
-  session.reportStateWrite({ ok: false, reason: 'disk full', path: '~/state.json' });
+
+  session.reportStateWrite({
+    ok: false,
+    reason: 'disk full',
+    path: '~/state.json',
+  });
 
   const toastTimer = timers.at(-1);
 
   expect(toastTimer?.delay).toBeDefined();
   expect(session.getSnapshot().toast?.durationMilliseconds).toBe(toastTimer?.delay);
+});
+
+const doneWindow = 5000;
+const sentOk: GitHubResult<null> = { ok: true, value: null };
+
+const rowKeysOf = (session: ReturnType<typeof makeHarness>['session']) =>
+  visibleRows(session.getSnapshot()).map((row) => row.key);
+
+const fireDoneTimerAt = async (harness: ReturnType<typeof makeHarness>, index: number) => {
+  const timer = harness.timers[index];
+
+  if (timer?.active !== true) {
+    return;
+  }
+
+  timer.active = false;
+  timer.callback();
+  await settle();
+};
+
+const markSelectedDone = (harness: ReturnType<typeof makeHarness>) => {
+  const before = harness.timers.length;
+
+  harness.session.send({ kind: 'markDone' });
+
+  return before;
+};
+
+test('done hides the selected thread and the next thread takes its row', async () => {
+  const harness = makeHarness();
+  const [one, two, three] = [makeThread('1'), makeThread('2'), makeThread('3')];
+
+  await harness.load(one, two, three);
+  harness.selectThread(two);
+  harness.session.send({ kind: 'markDone' });
+
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${two.id}`);
+  expect(harness.selected()).toBe(`thread:${three.id}`);
+});
+
+test('done on the last thread of a group selects the row now at its index', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2', { reason: 'mention' })];
+
+  await harness.load(one, two);
+  harness.selectThread(two);
+
+  const index = rowKeysOf(harness.session).indexOf(`thread:${two.id}`);
+
+  harness.session.send({ kind: 'markDone' });
+
+  const rows = rowKeysOf(harness.session);
+
+  expect(rows).not.toContain(`thread:${two.id}`);
+  expect(harness.selected()).toBe(rows[Math.min(index, rows.length - 1)] ?? null);
+  expect(harness.selected()).toBe(`thread:${one.id}`);
+});
+
+test('done on a thread that ends its group selects the next group row', async () => {
+  const harness = makeHarness();
+
+  const [one, two, three] = [
+    makeThread('1'),
+    makeThread('2'),
+    makeThread('3', { reason: 'mention' }),
+  ];
+
+  await harness.load(one, two, three);
+  harness.selectThread(two);
+
+  const rowsBefore = rowKeysOf(harness.session);
+  const index = rowsBefore.indexOf(`thread:${two.id}`);
+
+  harness.session.send({ kind: 'markDone' });
+
+  expect(harness.selected()).toBe(rowKeysOf(harness.session)[index] ?? null);
+  expect(harness.selected()).not.toBe(`thread:${two.id}`);
+  expect(harness.selected()).not.toBeNull();
+});
+
+test('done shows an info toast with the thread title for the undo window', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one);
+  harness.selectThread(one);
+  harness.session.send({ kind: 'markDone' });
+
+  const toast = harness.session.getSnapshot().toast;
+
+  expect(toast?.tone).toBe('info');
+  expect(toast?.title).toContain('Thread 1');
+  expect(toast?.durationMilliseconds).toBe(doneWindow);
+});
+
+test('done on a group row changes nothing', async () => {
+  const harness = makeHarness();
+
+  await harness.load(makeThread('1'));
+  harness.session.send({ kind: 'selectFirst' });
+
+  const before = harness.session.getSnapshot();
+
+  harness.session.send({ kind: 'markDone' });
+
+  expect(harness.session.getSnapshot()).toBe(before);
+});
+
+test('undo within the window brings the thread back and sends nothing', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(rowKeysOf(harness.session)).toContain(`thread:${one.id}`);
+  expect(harness.session.getSnapshot().toast?.tone).toBe('info');
+
+  await fireDoneTimerAt(harness, before);
+
+  expect(harness.sends).toHaveLength(0);
+  expect(harness.saves).toHaveLength(0);
+});
+
+test('the request goes out only when the timer fires, and dones send one at a time', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  const firstBefore = markSelectedDone(harness);
+
+  harness.selectThread(two);
+
+  const secondBefore = markSelectedDone(harness);
+
+  expect(harness.timers[firstBefore]?.delay).toBe(doneWindow);
+  expect(harness.timers[secondBefore]?.delay).toBe(doneWindow);
+  expect(harness.sends).toHaveLength(0);
+
+  await fireDoneTimerAt(harness, firstBefore);
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
+
+  await fireDoneTimerAt(harness, secondBefore);
+
+  expect(harness.sends).toHaveLength(1);
+
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id, two.id]);
+});
+
+test('undo after the send leaves the thread hidden and says it cannot be undone', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+  harness.session.send({ kind: 'undoDone' });
+
+  const toast = harness.session.getSnapshot().toast;
+
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
+  expect(toast?.tone).toBe('info');
+  expect(toast?.title).toContain('cannot be undone');
+});
+
+test('undo with no done does nothing', async () => {
+  const harness = makeHarness();
+
+  await harness.load(makeThread('1'));
+
+  const before = harness.session.getSnapshot();
+
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(harness.session.getSnapshot()).toBe(before);
+});
+
+test('a successful send saves the done record and starts a full refresh', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1', { updatedAt: '2026-01-05T08:00:00Z' });
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+  const readsBefore = harness.countOf('read');
+
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+  await settle();
+
+  expect(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.get(one.id)).toBe(
+    '2026-01-05T08:00:00Z',
+  );
+
+  expect(harness.countOf('read')).toBe(readsBefore + 1);
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
+});
+
+test('stop sends a waiting done at once and saves its record', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1', { updatedAt: '2026-01-05T08:00:00Z' });
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+  const readsBefore = harness.countOf('read');
+  const stopped = harness.session.stop(new AbortController().signal);
+
+  expect(harness.timers[before]?.active).toBe(false);
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
+  expect(harness.saves).toHaveLength(0);
+
+  harness.sends[0]?.resolve(sentOk);
+  await stopped;
+
+  expect(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.get(one.id)).toBe(
+    '2026-01-05T08:00:00Z',
+  );
+
+  expect(harness.countOf('read')).toBe(readsBefore);
+});
+
+test('stop sends waiting dones one at a time and saves each record', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two, makeThread('3'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+  harness.selectThread(two);
+  markSelectedDone(harness);
+
+  const stopped = harness.session.stop(new AbortController().signal);
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
+
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id, two.id]);
+
+  harness.sends[1]?.resolve(sentOk);
+  await stopped;
+
+  expect([...(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.keys() ?? [])]).toEqual([
+    one.id,
+    two.id,
+  ]);
+});
+
+test('stop waits for a send already in flight and saves its record', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+
+  const stopped = harness.session.stop(new AbortController().signal);
+
+  expect(harness.sends).toHaveLength(1);
+
+  harness.sends[0]?.resolve(sentOk);
+  await stopped;
+
+  expect(harness.saves.at(-1)?.done.get(accountKeyOf(octocat))?.has(one.id)).toBe(true);
+});
+
+test('a failed send at stop saves nothing', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+
+  const stopped = harness.session.stop(new AbortController().signal);
+
+  harness.sends[0]?.resolve(failure('boom'));
+  await stopped;
+
+  expect(harness.saves).toHaveLength(0);
+});
+
+test('a failed send brings the thread back, shows an error toast, and saves nothing', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(failure('Boom'));
+  await settle();
+
+  const toast = harness.session.getSnapshot().toast;
+
+  expect(rowKeysOf(harness.session)).toContain(`thread:${one.id}`);
+  expect(toast?.tone).toBe('error');
+  expect(toast?.lines).toContain('Boom');
+  expect(harness.saves).toHaveLength(0);
+});
+
+test('a complete refresh deletes done records of threads no longer in the feed', async () => {
+  const savedState: SavedState = {
+    grouping: 'reason',
+    done: new Map([
+      [
+        accountKeyOf(octocat),
+        new Map([
+          [toThreadId('1'), '2026-01-02T10:00:00Z'],
+          [toThreadId('2'), '2026-01-02T10:00:00Z'],
+        ]),
+      ],
+    ]),
+  };
+
+  const harness = makeHarness({ savedState });
+
+  await harness.load(makeThread('2'), makeThread('3'));
+
+  const lastSave = harness.saves.at(-1);
+
+  expect([...(lastSave?.done.get(accountKeyOf(octocat))?.keys() ?? [])]).toEqual([toThreadId('2')]);
+});
+
+test('a complete refresh that drops no done record saves nothing', async () => {
+  const savedState: SavedState = {
+    grouping: 'reason',
+    done: doneFor(octocat, {
+      ...makeThread('2'),
+      updatedAt: '2026-01-02T10:00:00Z',
+    }),
+  };
+
+  const harness = makeHarness({ savedState });
+
+  await harness.load(makeThread('2'), makeThread('3'));
+
+  expect(harness.saves).toHaveLength(0);
+});
+
+test('aborting the stop deadline aborts the send in flight and saves nothing', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+  const deadline = new AbortController();
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+
+  const stopped = harness.session.stop(deadline.signal);
+
+  expect(harness.sends[0]?.signal.aborted).toBe(false);
+
+  deadline.abort();
+  await stopped;
+
+  expect(harness.sends[0]?.signal.aborted).toBe(true);
+  expect(harness.saves).toHaveLength(0);
+});
+
+const foldedGroupHarness = async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  return { harness };
+};
+
+const expectFoldedHolder = (harness: ReturnType<typeof makeHarness>) => {
+  const snapshot = harness.session.getSnapshot();
+  const keys = visibleRows(snapshot).map((row) => row.key);
+
+  expect(snapshot.foldedNodes.reason.has('review/acme/app')).toBe(true);
+  expect(keys).toContain(snapshot.selectedRowKey ?? '');
+  expect(snapshot.selectedRowKey).toBe('node:review/acme/app');
+};
+
+test('undo of a done thread whose group was folded selects the group row and keeps the fold', async () => {
+  const { harness } = await foldedGroupHarness();
+
+  markSelectedDone(harness);
+  harness.selectThread(makeThread('2'));
+  harness.session.send({ kind: 'toggleFold' });
+  harness.session.send({ kind: 'undoDone' });
+
+  expectFoldedHolder(harness);
+});
+
+test('a failed send of a thread whose group was folded selects the group row', async () => {
+  const { harness } = await foldedGroupHarness();
+  const before = markSelectedDone(harness);
+
+  harness.selectThread(makeThread('2'));
+  harness.session.send({ kind: 'toggleFold' });
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(failure('Boom'));
+  await settle();
+
+  expectFoldedHolder(harness);
+});
+
+test('after an account switch a complete refresh keeps the other account done records and saves them', async () => {
+  const hubot = toViewerLogin('hubot');
+  const [first, second] = savedThreads;
+  const hubotThread = makeThread('7');
+
+  const { send, answerViewer, answerRead, answerVerify, saves } = makeSavedHarness(octocat, {
+    savedState: {
+      grouping: 'reason',
+      done: new Map([...doneFor(octocat, first!), ...doneFor(hubot, hubotThread)]),
+    },
+  });
+
+  await send();
+  await answerViewer(viewerOf(hubot));
+  await answerRead(readOf('fresh', [second!]));
+  await answerVerify(stable);
+
+  const lastSave = saves.at(-1);
+
+  expect(lastSave?.done.get(accountKeyOf(octocat))).toEqual(doneOf(first!));
+  expect(lastSave?.done.get(accountKeyOf(hubot))?.size ?? 0).toBe(0);
+});
+
+test('a done record of one account does not hide the same thread of another account', async () => {
+  const hubot = toViewerLogin('hubot');
+  const [first, second] = savedThreads;
+
+  const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
+  });
+
+  expect(session.getSnapshot().threads).toEqual([second!]);
+
+  await send();
+  await answerViewer(viewerOf(hubot));
+  await answerRead(readOf('fresh', [first!, second!]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().threads).toEqual([first!, second!]);
+});
+
+test('a done sent as one account that succeeds after a switch is saved under that account', async () => {
+  const hubot = toViewerLogin('hubot');
+  const other = makeThread('7');
+  let login = octocat;
+
+  const harness = makeHarness({
+    savedState: { grouping: 'reason', done: doneFor(hubot, other) },
+    readViewer: () => Promise.resolve(viewerOf(login)),
+  });
+
+  const one = makeThread('1', { updatedAt: '2026-01-05T08:00:00Z' });
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+
+  login = hubot;
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerRead(readOf('fresh', [one, makeThread('2'), other]));
+  await harness.answerVerify(stable);
+
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+
+  const lastSave = harness.saves.at(-1);
+
+  expect(lastSave?.done.get(accountKeyOf(octocat))).toEqual(doneOf({ ...one }));
+  expect(lastSave?.done.get(accountKeyOf(hubot))).toEqual(doneOf(other));
 });

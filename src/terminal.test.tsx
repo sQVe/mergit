@@ -18,8 +18,10 @@ type ThemeListener = (mode: ThemeMode) => void;
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
-  savedGrouping: null,
-  saveGrouping: () => undefined,
+  host: 'github.com',
+  savedState: null,
+  saveState: () => undefined,
+  markThreadDone: () => Promise.resolve({ ok: true, value: null }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({
@@ -376,6 +378,64 @@ test('a flushState that never settles still lets Zeta exit 0 after the bounded w
   expect(harness.exitCodes).toEqual([0]);
 });
 
+test('shutdown waits for the stop promise before it calls flushState', async () => {
+  const harness = createHarness('dark');
+  const { promise: gate, resolve: release } = Promise.withResolvers<undefined>();
+  const order: string[] = [];
+
+  harness.session.stop = async () => {
+    order.push('stop');
+    await gate;
+    order.push('stopped');
+  };
+
+  await startTerminal(
+    {
+      session: harness.session,
+      catalog,
+      flushState: () => {
+        order.push('flush');
+
+        return Promise.resolve();
+      },
+    },
+    harness.effects,
+  );
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(order).toEqual(['stop']);
+  expect(harness.exitCodes).toEqual([]);
+
+  release(undefined);
+  await settle();
+
+  expect(order).toEqual(['stop', 'stopped', 'flush']);
+  expect(harness.exitCodes).toEqual([0]);
+});
+
+test('a stop that never settles still lets Zeta exit 0 after the bounded wait', async () => {
+  const harness = createHarness('dark');
+
+  harness.session.stop = () => Promise.withResolvers<undefined>().promise;
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(harness.exitCodes).toEqual([]);
+
+  await Bun.sleep(1100);
+
+  expect(harness.calls).toEqual({ destroy: 1, unmount: 1 });
+  expect(harness.exitCodes).toEqual([0]);
+});
+
 test('a rejected flushState does not change the exit code', async () => {
   const harness = createHarness('dark');
 
@@ -389,4 +449,70 @@ test('a rejected flushState does not change the exit code', async () => {
 
   expect(harness.exitCodes).toEqual([0]);
   expect(harness.printed).toEqual([]);
+});
+
+test('the stop deadline signal aborts before the 1000 ms bound and flushState still finishes', async () => {
+  const harness = createHarness('dark');
+  let deadline: AbortSignal | undefined;
+  let flushed = false;
+
+  harness.session.stop = (signal) => {
+    deadline = signal;
+
+    return new Promise<undefined>((resolve) => {
+      signal.addEventListener('abort', () => {
+        resolve(undefined);
+      });
+    });
+  };
+
+  const flushState = async () => {
+    await Bun.sleep(100);
+    flushed = true;
+  };
+
+  await startTerminal({ session: harness.session, catalog, flushState }, harness.effects);
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(deadline?.aborted).toBe(false);
+
+  await Bun.sleep(850);
+
+  expect(deadline?.aborted).toBe(true);
+
+  await Bun.sleep(100);
+
+  expect(flushed).toBe(true);
+  expect(harness.exitCodes).toEqual([0]);
+});
+
+test('shutdown never waits past 1000 ms in total when stop ignores the deadline and flushState hangs', async () => {
+  const harness = createHarness('dark');
+
+  harness.session.stop = () => Bun.sleep(800).then(() => undefined);
+
+  await startTerminal(
+    {
+      session: harness.session,
+      catalog,
+      flushState: () => Promise.withResolvers<undefined>().promise,
+    },
+    harness.effects,
+  );
+
+  const startedAt = performance.now();
+
+  harness.handlers.get('SIGINT')?.();
+
+  while (harness.exitCodes.length === 0) {
+    await Bun.sleep(10);
+  }
+
+  const elapsed = performance.now() - startedAt;
+
+  expect(harness.exitCodes).toEqual([0]);
+  expect(elapsed).toBeGreaterThanOrEqual(950);
+  expect(elapsed).toBeLessThan(1100);
 });

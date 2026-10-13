@@ -19,10 +19,11 @@ export interface Toast {
   durationMilliseconds: number;
 }
 
-export type UnsavedChange = 'grouping';
+export type UnsavedChange = 'grouping' | 'done';
 
 export interface Snapshot {
   threads: NotificationThread[];
+  hiddenThreadIds: ReadonlySet<ThreadId>;
   subjectFacts: ReadonlyMap<ThreadId, SubjectFacts>;
   selectedRowKey: string | null;
   grouping: Grouping;
@@ -41,6 +42,7 @@ export interface Snapshot {
 
 export const initialSnapshot: Snapshot = {
   threads: [],
+  hiddenThreadIds: new Set(),
   subjectFacts: new Map(),
   selectedRowKey: null,
   grouping: 'reason',
@@ -61,8 +63,11 @@ export const initialSnapshot: Snapshot = {
   toast: null,
 };
 
-export const visibleRows = (snapshot: Snapshot): TreeRow[] =>
-  treeRows(snapshot.threads, snapshot.grouping, snapshot.foldedNodes[snapshot.grouping]);
+export const visibleRows = (snapshot: Snapshot): TreeRow[] => {
+  const shown = snapshot.threads.filter((thread) => !snapshot.hiddenThreadIds.has(thread.id));
+
+  return treeRows(shown, snapshot.grouping, snapshot.foldedNodes[snapshot.grouping]);
+};
 
 const topLevelRowOf = (rows: TreeRow[], index: number): NodeRow | undefined => {
   for (let candidate = index; candidate >= 0; candidate -= 1) {
@@ -126,9 +131,10 @@ export const startRefresh = (snapshot: Snapshot): Snapshot => ({
 export const applyThreads = (
   snapshot: Snapshot,
   fetched: NotificationThread[],
+  doneRecords: ReadonlyMap<ThreadId, string>,
   now: Date,
 ): Snapshot => {
-  const threads = selectOpenThreads(fetched);
+  const threads = selectOpenThreads(fetched, doneRecords);
 
   const previousUpdatedAt = new Map(
     snapshot.threads.map((thread) => [thread.id, thread.updatedAt]),
@@ -167,9 +173,10 @@ export const applyThreads = (
 export const showSavedThreads = (
   start: Snapshot,
   saved: NotificationThread[],
+  doneRecords: ReadonlyMap<ThreadId, string>,
   savedAt: Date,
 ): Snapshot => {
-  const threads = selectOpenThreads(saved);
+  const threads = selectOpenThreads(saved, doneRecords);
 
   const loaded = { ...start, threads };
 
@@ -211,7 +218,7 @@ export const markFeedBusy = (snapshot: Snapshot): Snapshot => ({
   feedBusy: true,
 });
 
-const failureMessage = (failure: GitHubFailure): string => {
+export const failureMessage = (failure: GitHubFailure): string => {
   if (failure.kind === 'rateLimited') {
     const resetTime = /T(\d{2}:\d{2}:\d{2})/.exec(failure.resetAt.toISOString())?.[1] ?? '';
 
@@ -370,4 +377,44 @@ export const cycleGrouping = (snapshot: Snapshot): Snapshot => {
     threadRow ?? (anchor === undefined ? nextRows[0] : deepestNodeHolding(nextRows, anchor));
 
   return { ...regrouped, selectedRowKey: target?.key ?? null };
+};
+
+export const selectedThreadOf = (snapshot: Snapshot): NotificationThread | undefined => {
+  const row = visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
+
+  return row?.kind === 'thread' ? row.thread : undefined;
+};
+
+export const hideThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => {
+  const rows = visibleRows(snapshot);
+  const index = rows.findIndex((row) => row.kind === 'thread' && row.thread.id === threadId);
+
+  const hidden = { ...snapshot, hiddenThreadIds: new Set([...snapshot.hiddenThreadIds, threadId]) };
+  const nextRows = visibleRows(hidden);
+  const next = nextRows[Math.min(index, nextRows.length - 1)];
+
+  return { ...hidden, selectedRowKey: next?.key ?? null };
+};
+
+export const showThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => {
+  const hiddenThreadIds = new Set(snapshot.hiddenThreadIds);
+
+  hiddenThreadIds.delete(threadId);
+
+  const shown = { ...snapshot, hiddenThreadIds };
+  const rows = visibleRows(shown);
+  const threadRow = rows.find((row) => row.kind === 'thread' && row.thread.id === threadId);
+  const thread = shown.threads.find((candidate) => candidate.id === threadId);
+
+  const target = threadRow ?? (thread === undefined ? undefined : deepestNodeHolding(rows, thread));
+
+  return { ...shown, selectedRowKey: target?.key ?? snapshot.selectedRowKey };
+};
+
+export const releaseThreads = (snapshot: Snapshot, threadIds: ReadonlySet<ThreadId>): Snapshot => {
+  const hiddenThreadIds = new Set(
+    [...snapshot.hiddenThreadIds].filter((threadId) => !threadIds.has(threadId)),
+  );
+
+  return { ...snapshot, hiddenThreadIds };
 };

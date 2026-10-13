@@ -26,8 +26,10 @@ Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
-  savedGrouping: null,
-  saveGrouping: () => undefined,
+  host: 'github.com',
+  savedState: null,
+  saveState: () => undefined,
+  markThreadDone: () => Promise.resolve({ ok: true, value: null }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
@@ -457,6 +459,17 @@ test('an empty inbox shows its notice, and loading shows before the first refres
   expect(setup.captureCharFrame()).not.toContain('No open notifications');
 
   await press('r');
+
+  expect(setup.captureCharFrame()).toContain('No open notifications');
+});
+
+test('marking the only thread done shows the empty inbox notice', async () => {
+  const { setup, press } = await mount('dark', threadsEffects([makeThread(1, 'Only thread')]));
+
+  await press('r');
+  await press('j');
+  await press('j');
+  await press('d');
 
   expect(setup.captureCharFrame()).toContain('No open notifications');
 });

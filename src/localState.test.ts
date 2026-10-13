@@ -26,7 +26,7 @@ import {
   stateDirectory,
   saveSnapshot,
 } from './localState.ts';
-import { toViewerLogin } from './work/work.ts';
+import { toThreadId, toViewerLogin } from './work/work.ts';
 
 let root = '';
 let directory = '';
@@ -310,10 +310,73 @@ test('a saved grouping loads back after flush', async () => {
     onSaved: () => undefined,
   });
 
-  writer.save({ grouping: 'type' });
+  writer.save({ grouping: 'type', done: new Map() });
   await writer.flush();
 
-  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'type' } });
+  expect(loadState(directory)).toEqual({
+    kind: 'loaded',
+    state: { grouping: 'type', done: new Map() },
+  });
+});
+
+test('done records of two accounts load back and are written in the version 2 shape keyed by host and login', async () => {
+  const writer = createStateWriter(directory, {
+    onFailure: () => undefined,
+    onSaved: () => undefined,
+  });
+
+  const done = new Map([
+    [
+      'github.com/octocat',
+      new Map([
+        [toThreadId('11'), '2026-01-02T10:00:00Z'],
+        [toThreadId('12'), '2026-01-03T11:30:00Z'],
+      ]),
+    ],
+    ['github.com/hubot', new Map([[toThreadId('11'), '2026-01-04T09:00:00Z']])],
+  ]);
+
+  writer.save({ grouping: 'none', done });
+  await writer.flush();
+
+  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'none', done } });
+
+  expect(JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'))).toEqual({
+    version: 2,
+    grouping: 'none',
+    done: {
+      'github.com/octocat': { '11': '2026-01-02T10:00:00Z', '12': '2026-01-03T11:30:00Z' },
+      'github.com/hubot': { '11': '2026-01-04T09:00:00Z' },
+    },
+  });
+});
+
+const writeStateText = (text: string): string => {
+  mkdirSync(directory, { recursive: true });
+  const path = join(directory, 'state.json');
+  writeFileSync(path, text);
+
+  return path;
+};
+
+test('a version 1 file loads with its grouping and no done records, then is written as version 2', async () => {
+  const path = writeStateText('{"version":1,"grouping":"reason"}');
+  const loaded = loadState(directory);
+
+  expect(loaded).toEqual({ kind: 'loaded', state: { grouping: 'reason', done: new Map() } });
+  expect(readFileSync(path, 'utf8')).toBe('{"version":1,"grouping":"reason"}');
+
+  const writer = createStateWriter(directory, {
+    onFailure: () => undefined,
+    onSaved: () => undefined,
+  });
+
+  writer.save(loaded.kind === 'loaded' ? loaded.state : { grouping: 'none', done: new Map() });
+  await writer.flush();
+
+  const body: unknown = JSON.parse(readFileSync(path, 'utf8'));
+
+  expect(body).toEqual({ version: 2, grouping: 'reason', done: {} });
 });
 
 const realEffects = (): StateWriterEffects => ({
@@ -325,26 +388,18 @@ const realEffects = (): StateWriterEffects => ({
   remove: (path) => rm(path, { force: true }),
 });
 
-const writeStateText = (text: string): string => {
-  mkdirSync(directory, { recursive: true });
-  const path = join(directory, 'state.json');
-  writeFileSync(path, text);
-
-  return path;
-};
-
-test('the state file on disk has version 1', async () => {
+test('the state file on disk has version 2', async () => {
   const writer = createStateWriter(directory, {
     onFailure: () => undefined,
     onSaved: () => undefined,
   });
 
-  writer.save({ grouping: 'none' });
+  writer.save({ grouping: 'none', done: new Map() });
   await writer.flush();
 
   const body: unknown = JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'));
 
-  expect(body).toEqual({ version: 1, grouping: 'none' });
+  expect(body).toEqual({ version: 2, grouping: 'none', done: {} });
 });
 
 test('a missing state file loads as missing', () => {
@@ -353,7 +408,9 @@ test('a missing state file loads as missing', () => {
 
 test.each([
   ['bad JSON', '{nope'],
-  ['an unknown grouping', '{"version":1,"grouping":"owner"}'],
+  ['an unknown grouping', '{"version":2,"grouping":"owner","done":{}}'],
+  ['a version 1 file with an unknown grouping', '{"version":1,"grouping":"owner"}'],
+  ['a version 2 file without done records', '{"version":2,"grouping":"type"}'],
   ['a missing version', '{"grouping":"type"}'],
 ])('%s loads as invalid and leaves the file unchanged', (_name, text) => {
   const path = writeStateText(text);
@@ -365,11 +422,12 @@ test.each([
   expect(readFileSync(path, 'utf8')).toBe(text);
 });
 
-test('a newer version loads as newer with the path and version', () => {
-  const path = writeStateText('{"version":2,"grouping":"type"}');
+test('a version 3 file loads as newer with the path and version and stays unchanged', () => {
+  const text = '{"version":3,"grouping":"type","done":{}}';
+  const path = writeStateText(text);
 
-  expect(loadState(directory)).toEqual({ kind: 'newer', path, version: 2 });
-  expect(readFileSync(path, 'utf8')).toBe('{"version":2,"grouping":"type"}');
+  expect(loadState(directory)).toEqual({ kind: 'newer', path, version: 3 });
+  expect(readFileSync(path, 'utf8')).toBe(text);
 });
 
 const failRename = async (error: Error) => {
@@ -381,7 +439,7 @@ const failRename = async (error: Error) => {
     { ...realEffects(), rename: () => Promise.reject(error) },
   );
 
-  writer.save({ grouping: 'type' });
+  writer.save({ grouping: 'type', done: new Map() });
   await writer.flush();
 
   return failures;
@@ -419,14 +477,19 @@ test('a failed rename keeps the last valid file, leaves no temporary file, and r
     onSaved: () => undefined,
   });
 
-  first.save({ grouping: 'reason' });
+  first.save({ grouping: 'reason', done: new Map() });
   await first.flush();
 
-  writer.save({ grouping: 'type' });
+  writer.save({ grouping: 'type', done: new Map() });
   await writer.flush();
 
   expect(failures).toEqual(['rename refused']);
-  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'reason' } });
+
+  expect(loadState(directory)).toEqual({
+    kind: 'loaded',
+    state: { grouping: 'reason', done: new Map() },
+  });
+
   expect(readdirSync(directory)).toEqual(['state.json']);
 });
 
@@ -455,20 +518,23 @@ test('saves during a write collapse to the last one', async () => {
     },
   );
 
-  writer.save({ grouping: 'reason' });
+  writer.save({ grouping: 'reason', done: new Map() });
   await firstRenameStarted.promise;
-  writer.save({ grouping: 'type' });
-  writer.save({ grouping: 'none' });
-  writer.save({ grouping: 'type' });
+  writer.save({ grouping: 'type', done: new Map() });
+  writer.save({ grouping: 'none', done: new Map() });
+  writer.save({ grouping: 'type', done: new Map() });
   gate.resolve(null);
   await writer.flush();
 
   expect(renamed.map((text): unknown => JSON.parse(text))).toEqual([
-    { version: 1, grouping: 'reason' },
-    { version: 1, grouping: 'type' },
+    { version: 2, grouping: 'reason', done: {} },
+    { version: 2, grouping: 'type', done: {} },
   ]);
 
-  expect(loadState(directory)).toEqual({ kind: 'loaded', state: { grouping: 'type' } });
+  expect(loadState(directory)).toEqual({
+    kind: 'loaded',
+    state: { grouping: 'type', done: new Map() },
+  });
 });
 
 test('stateDirectory uses XDG_STATE_HOME, then HOME, then nothing', () => {
@@ -503,16 +569,16 @@ test('onSaved runs after a successful write, and not while a newer state is pend
     },
   );
 
-  writer.save({ grouping: 'reason' });
+  writer.save({ grouping: 'reason', done: new Map() });
   await renameStarted.promise;
-  writer.save({ grouping: 'type' });
+  writer.save({ grouping: 'type', done: new Map() });
   gate.resolve(null);
   await writer.flush();
 
   expect(saved).toBe(1);
   expect(renames).toBe(2);
 
-  writer.save({ grouping: 'none' });
+  writer.save({ grouping: 'none', done: new Map() });
   await writer.flush();
 
   expect(saved).toBe(2);

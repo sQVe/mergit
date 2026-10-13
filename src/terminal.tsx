@@ -44,6 +44,7 @@ export interface TerminalDependencies {
 
 const themeWaitMilliseconds = 500;
 const flushWaitMilliseconds = 1000;
+const stopWaitMilliseconds = 750;
 
 const openOpenTui = async (): Promise<{
   renderer: CliRenderer;
@@ -82,18 +83,32 @@ const listenToProcess = (
   };
 };
 
-const waitForFlush = async (flushState: () => Promise<void>): Promise<void> => {
+const waitForStop = async (
+  stop: (deadline: AbortSignal) => Promise<void>,
+  flushState: () => Promise<void>,
+): Promise<void> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new AbortController();
+
+  const stopTimer = setTimeout(() => {
+    deadline.abort();
+  }, stopWaitMilliseconds);
 
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, flushWaitMilliseconds);
   });
 
   try {
-    await Promise.race([flushState(), timeout]);
+    const saved = async () => {
+      await stop(deadline.signal);
+      await flushState();
+    };
+
+    await Promise.race([saved(), timeout]);
   } catch {
-    // A failed save must not block shutdown or change the exit code.
+    // A failed stop or save must not block shutdown or change the exit code.
   } finally {
+    clearTimeout(stopTimer);
     clearTimeout(timer);
   }
 };
@@ -140,9 +155,7 @@ export const startTerminal = async (
     const opened = await settledOpen();
 
     try {
-      session.stop();
-
-      await waitForFlush(flushState);
+      await waitForStop((deadline) => session.stop(deadline), flushState);
 
       for (const remove of removers.splice(0)) {
         remove();

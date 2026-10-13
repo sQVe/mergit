@@ -14,8 +14,8 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
-import type { Grouping, ViewerLogin } from './work/work.ts';
-import { groupings, toViewerLogin } from './work/work.ts';
+import type { Grouping, ThreadId, ViewerLogin } from './work/work.ts';
+import { groupings, toThreadId, toViewerLogin } from './work/work.ts';
 
 interface LocalPage {
   path: string;
@@ -47,6 +47,7 @@ type Attempt<T> =
 
 interface LocalStateFile {
   grouping: Grouping;
+  done: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>;
 }
 
 export type StateLoad =
@@ -153,10 +154,16 @@ const describeWriteError = (error: unknown): string => {
   return plain ?? describeError(error);
 };
 
-const stateVersion = 1;
+export const stateVersion = 2;
 
 const stateBody = z.object({
   version: z.literal(stateVersion),
+  grouping: z.enum(groupings),
+  done: z.record(z.string().min(1), z.record(z.string().min(1), z.string())),
+});
+
+const versionOneBody = z.object({
+  version: z.literal(1),
   grouping: z.enum(groupings),
 });
 
@@ -218,13 +225,28 @@ export const loadState = (directory: string): StateLoad => {
     return { kind: 'newer', path, version: probe.data.version };
   }
 
+  const migrated = versionOneBody.safeParse(json);
+
+  if (migrated.success) {
+    return { kind: 'loaded', state: { grouping: migrated.data.grouping, done: new Map() } };
+  }
+
   const body = stateBody.safeParse(json);
 
   if (!body.success) {
     return { kind: 'invalid', path, reason: body.error.message };
   }
 
-  return { kind: 'loaded', state: { grouping: body.data.grouping } };
+  const done = new Map(
+    Object.entries(body.data.done).map(([account, records]) => [
+      account,
+      new Map(
+        Object.entries(records).map(([threadId, updatedAt]) => [toThreadId(threadId), updatedAt]),
+      ),
+    ]),
+  );
+
+  return { kind: 'loaded', state: { grouping: body.data.grouping, done } };
 };
 
 const writeStateFile = async (
@@ -233,7 +255,12 @@ const writeStateFile = async (
   state: LocalStateFile,
 ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
   const temporaryPath = join(directory, `${stateFileName}.${crypto.randomUUID()}.tmp`);
-  const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping })}\n`;
+
+  const done = Object.fromEntries(
+    [...state.done].map(([account, records]) => [account, Object.fromEntries(records)]),
+  );
+
+  const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping, done })}\n`;
 
   try {
     await effects.makeDirectory(directory, ownerDirectoryMode);
