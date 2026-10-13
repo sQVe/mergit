@@ -48,6 +48,7 @@ type Attempt<T> =
 interface LocalStateFile {
   grouping: Grouping;
   done: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>;
+  seen: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>;
 }
 
 export type StateLoad =
@@ -154,12 +155,21 @@ const describeWriteError = (error: unknown): string => {
   return plain ?? describeError(error);
 };
 
-export const stateVersion = 2;
+export const stateVersion = 3;
+
+const accountRecordsBody = z.record(z.string().min(1), z.record(z.string().min(1), z.string()));
 
 const stateBody = z.object({
   version: z.literal(stateVersion),
   grouping: z.enum(groupings),
-  done: z.record(z.string().min(1), z.record(z.string().min(1), z.string())),
+  done: accountRecordsBody,
+  seen: accountRecordsBody,
+});
+
+const versionTwoBody = z.object({
+  version: z.literal(2),
+  grouping: z.enum(groupings),
+  done: accountRecordsBody,
 });
 
 const versionOneBody = z.object({
@@ -197,6 +207,25 @@ export const stateDirectory = (environment: Record<string, string | undefined>):
   return null;
 };
 
+const toAccountMaps = (
+  accounts: Record<string, Record<string, string>>,
+): Map<string, Map<ThreadId, string>> =>
+  new Map(
+    Object.entries(accounts).map(([account, records]) => [
+      account,
+      new Map(
+        Object.entries(records).map(([threadId, updatedAt]) => [toThreadId(threadId), updatedAt]),
+      ),
+    ]),
+  );
+
+const toAccountRecords = (
+  accounts: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>,
+): Record<string, Record<string, string>> =>
+  Object.fromEntries(
+    [...accounts].map(([account, records]) => [account, Object.fromEntries(records)]),
+  );
+
 export const loadState = (directory: string): StateLoad => {
   const path = join(directory, stateFileName);
   let text: string;
@@ -228,7 +257,23 @@ export const loadState = (directory: string): StateLoad => {
   const migrated = versionOneBody.safeParse(json);
 
   if (migrated.success) {
-    return { kind: 'loaded', state: { grouping: migrated.data.grouping, done: new Map() } };
+    return {
+      kind: 'loaded',
+      state: { grouping: migrated.data.grouping, done: new Map(), seen: new Map() },
+    };
+  }
+
+  const versionTwo = versionTwoBody.safeParse(json);
+
+  if (versionTwo.success) {
+    return {
+      kind: 'loaded',
+      state: {
+        grouping: versionTwo.data.grouping,
+        done: toAccountMaps(versionTwo.data.done),
+        seen: new Map(),
+      },
+    };
   }
 
   const body = stateBody.safeParse(json);
@@ -237,16 +282,14 @@ export const loadState = (directory: string): StateLoad => {
     return { kind: 'invalid', path, reason: body.error.message };
   }
 
-  const done = new Map(
-    Object.entries(body.data.done).map(([account, records]) => [
-      account,
-      new Map(
-        Object.entries(records).map(([threadId, updatedAt]) => [toThreadId(threadId), updatedAt]),
-      ),
-    ]),
-  );
-
-  return { kind: 'loaded', state: { grouping: body.data.grouping, done } };
+  return {
+    kind: 'loaded',
+    state: {
+      grouping: body.data.grouping,
+      done: toAccountMaps(body.data.done),
+      seen: toAccountMaps(body.data.seen),
+    },
+  };
 };
 
 const writeStateFile = async (
@@ -256,11 +299,10 @@ const writeStateFile = async (
 ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
   const temporaryPath = join(directory, `${stateFileName}.${crypto.randomUUID()}.tmp`);
 
-  const done = Object.fromEntries(
-    [...state.done].map(([account, records]) => [account, Object.fromEntries(records)]),
-  );
+  const done = toAccountRecords(state.done);
+  const seen = toAccountRecords(state.seen);
 
-  const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping, done })}\n`;
+  const body = `${JSON.stringify({ version: stateVersion, grouping: state.grouping, done, seen })}\n`;
 
   try {
     await effects.makeDirectory(directory, ownerDirectoryMode);

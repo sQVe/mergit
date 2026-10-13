@@ -1596,7 +1596,7 @@ const doneFor = (login: ViewerLogin, ...threads: NotificationThread[]) =>
 
 test('savedState sets the starting grouping', () => {
   const { session } = makeHarness({
-    savedState: { grouping: 'type', done: new Map() },
+    savedState: { grouping: 'type', done: new Map(), seen: new Map() },
   });
 
   expect(session.getSnapshot().grouping).toBe('type');
@@ -1604,7 +1604,7 @@ test('savedState sets the starting grouping', () => {
 
 test('savedState sets the starting grouping next to a saved snapshot', () => {
   const { session } = makeHarness({
-    savedState: { grouping: 'type', done: new Map() },
+    savedState: { grouping: 'type', done: new Map(), seen: new Map() },
     savedSnapshot: savedSnapshotOf(octocat),
   });
 
@@ -1616,7 +1616,7 @@ test('a saved done record hides its thread in the saved list and after a refresh
   const [first, second] = savedThreads;
 
   const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
-    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!), seen: new Map() },
   });
 
   expect(session.getSnapshot().threads).toEqual([second!]);
@@ -1634,7 +1634,7 @@ test('a thread with a done record shows again after a refresh with a newer updat
   const newer = { ...first!, updatedAt: '2026-01-09T10:00:00Z' };
 
   const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
-    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!), seen: new Map() },
   });
 
   await send();
@@ -1649,8 +1649,12 @@ test('each cycleGrouping intent saves the full state with the done records uncha
   const saved: SavedState[] = [];
   const done = doneFor(octocat, makeThread('9'));
 
+  const seen = new Map([
+    [accountKeyOf(octocat), new Map([[toThreadId('4'), '2026-01-02T10:00:00Z']])],
+  ]);
+
   const { session } = makeHarness({
-    savedState: { grouping: 'reason', done },
+    savedState: { grouping: 'reason', done, seen },
     saveState: (state) => {
       saved.push(state);
     },
@@ -1664,12 +1668,19 @@ test('each cycleGrouping intent saves the full state with the done records uncha
 
   session.send({ kind: 'cycleGrouping' });
 
-  expect(saved).toEqual([{ grouping: 'type', done }]);
+  expect(saved).toEqual([{ grouping: 'type', done, seen }]);
 
   session.send({ kind: 'cycleGrouping' });
 
   expect(saved.map((state) => state.grouping)).toEqual(['type', 'none']);
   expect(saved.every((state) => state.done.get(accountKeyOf(octocat))?.size === 1)).toBe(true);
+
+  expect(
+    saved.every(
+      (state) =>
+        state.seen.get(accountKeyOf(octocat))?.get(toThreadId('4')) === '2026-01-02T10:00:00Z',
+    ),
+  ).toBe(true);
 });
 
 test('a saveState that throws leaves the session running with the new grouping', () => {
@@ -2254,6 +2265,7 @@ test('a complete refresh deletes done records of threads no longer in the feed',
         ]),
       ],
     ]),
+    seen: new Map(),
   };
 
   const harness = makeHarness({ savedState });
@@ -2272,6 +2284,7 @@ test('a complete refresh that drops no done record saves nothing', async () => {
       ...makeThread('2'),
       updatedAt: '2026-01-02T10:00:00Z',
     }),
+    seen: new Map(),
   };
 
   const harness = makeHarness({ savedState });
@@ -2353,6 +2366,7 @@ test('after an account switch a complete refresh keeps the other account done re
     savedState: {
       grouping: 'reason',
       done: new Map([...doneFor(octocat, first!), ...doneFor(hubot, hubotThread)]),
+      seen: new Map(),
     },
   });
 
@@ -2372,7 +2386,7 @@ test('a done record of one account does not hide the same thread of another acco
   const [first, second] = savedThreads;
 
   const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat, {
-    savedState: { grouping: 'reason', done: doneFor(octocat, first!) },
+    savedState: { grouping: 'reason', done: doneFor(octocat, first!), seen: new Map() },
   });
 
   expect(session.getSnapshot().threads).toEqual([second!]);
@@ -2391,7 +2405,7 @@ test('a done sent as one account that succeeds after a switch is saved under tha
   let login = octocat;
 
   const harness = makeHarness({
-    savedState: { grouping: 'reason', done: doneFor(hubot, other) },
+    savedState: { grouping: 'reason', done: doneFor(hubot, other), seen: new Map() },
     readViewer: () => Promise.resolve(viewerOf(login)),
   });
 

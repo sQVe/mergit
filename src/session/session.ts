@@ -55,6 +55,7 @@ export type ApplicationIntent =
 export interface SavedState {
   grouping: Grouping;
   done: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>;
+  seen: ReadonlyMap<string, ReadonlyMap<ThreadId, string>>;
 }
 
 export interface SavedSnapshot {
@@ -154,13 +155,17 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   cycleGrouping,
 };
 
+const copyAccountRecords = (
+  accounts: ReadonlyMap<string, ReadonlyMap<ThreadId, string>> = new Map(),
+): Map<string, Map<ThreadId, string>> =>
+  new Map([...accounts].map(([account, records]) => [account, new Map(records)]));
+
 export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
 
-  const accountRecords = new Map<string, Map<ThreadId, string>>(
-    [...(effects.savedState?.done ?? [])].map(([account, records]) => [account, new Map(records)]),
-  );
+  const accountRecords = copyAccountRecords(effects.savedState?.done);
+  const seenRecords = copyAccountRecords(effects.savedState?.seen);
 
   let currentLogin: ViewerLogin | null = savedSnapshot?.viewer.login ?? null;
   const noRecords: ReadonlyMap<ThreadId, string> = new Map();
@@ -418,7 +423,7 @@ export const createSession = (effects: SessionEffects): Session => {
     unsavedChanges.add(change);
 
     try {
-      effects.saveState({ grouping: snapshot.grouping, done: accountRecords });
+      effects.saveState({ grouping: snapshot.grouping, done: accountRecords, seen: seenRecords });
     } catch {
       // A failed save must not stop the session.
     }
