@@ -2220,6 +2220,48 @@ test('a bulk done saves each record as soon as its own send succeeds', async () 
   expect(recordsOf()?.get(threads[1]?.id as ThreadId)).toBe('2026-01-05T08:00:02Z');
 });
 
+test('a notSignedIn failure stops the bulk done and restores the unsent threads', async () => {
+  const harness = makeHarness();
+  const threads = await startBulkDone(harness);
+
+  await resolveSend(harness, 0, sentOk);
+  await resolveSend(harness, 1, { ok: false, failure: { kind: 'notSignedIn' } });
+  await settle();
+
+  const toast = harness.session.getSnapshot().toast;
+  const keys = rowKeysOf(harness.session);
+
+  expect(harness.sends).toHaveLength(2);
+  expect(keys).not.toContain(`thread:${threads[0]?.id}`);
+
+  for (const thread of threads.slice(1)) {
+    expect(keys).toContain(`thread:${thread.id}`);
+  }
+
+  expect(
+    harness.saves
+      .at(-1)
+      ?.done.get(accountKeyOf(octocat))
+      ?.has(threads[0]?.id as ThreadId),
+  ).toBe(true);
+
+  expect(toast?.tone).toBe('error');
+  expect(toast?.title).toContain('4 of 5');
+});
+
+test('a requestFailed failure in a bulk done still sends the remaining threads', async () => {
+  const harness = makeHarness();
+
+  await startBulkDone(harness);
+  await resolveSend(harness, 0, sentOk);
+  await resolveSend(harness, 1, failure('boom'));
+  await resolveSend(harness, 2, sentOk);
+  await resolveSend(harness, 3, sentOk);
+  await resolveSend(harness, 4, sentOk);
+
+  expect(harness.sends).toHaveLength(5);
+});
+
 test('stop sends a waiting done at once and saves its record', async () => {
   const harness = makeHarness();
   const one = makeThread('1', { updatedAt: '2026-01-05T08:00:00Z' });

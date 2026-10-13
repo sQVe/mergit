@@ -34,6 +34,9 @@ interface Entry {
 
 export const undoWindowMilliseconds = 5000;
 
+const failsEveryRequest = (failure: GitHubFailure) =>
+  failure.kind === 'ghMissing' || failure.kind === 'notSignedIn' || failure.kind === 'rateLimited';
+
 const sendSafely = async (
   effects: DoneQueueEffects,
   threadId: ThreadId,
@@ -69,7 +72,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
       const failed: FailedThread[] = [];
       let sentCount = 0;
 
-      for (const thread of entry.threads) {
+      for (const [index, thread] of entry.threads.entries()) {
         if (isAborted()) {
           break;
         }
@@ -80,8 +83,18 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
         if (result.ok) {
           sentCount += 1;
           effects.onSent(thread, entry.account);
-        } else {
-          failed.push({ thread, failure: result.failure });
+
+          continue;
+        }
+
+        failed.push({ thread, failure: result.failure });
+
+        if (failsEveryRequest(result.failure)) {
+          const unsent = entry.threads.slice(index + 1);
+
+          failed.push(...unsent.map((rest) => ({ thread: rest, failure: result.failure })));
+
+          break;
         }
       }
 
