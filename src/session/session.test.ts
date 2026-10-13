@@ -2208,15 +2208,16 @@ test('a bulk done saves each record as soon as its own send succeeds', async () 
   const harness = makeHarness();
   const threads = await startBulkDone(harness);
   const recordsOf = () => harness.saves.at(-1)?.done.get(accountKeyOf(octocat));
+  const savesBefore = harness.saves.length;
 
   await resolveSend(harness, 0, sentOk);
 
-  expect(harness.saves).toHaveLength(1);
+  expect(harness.saves).toHaveLength(savesBefore + 1);
   expect(recordsOf()?.get(threads[0]?.id as ThreadId)).toBe('2026-01-05T08:00:01Z');
 
   await resolveSend(harness, 1, sentOk);
 
-  expect(harness.saves).toHaveLength(2);
+  expect(harness.saves).toHaveLength(savesBefore + 2);
   expect(recordsOf()?.get(threads[1]?.id as ThreadId)).toBe('2026-01-05T08:00:02Z');
 });
 
