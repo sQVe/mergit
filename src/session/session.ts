@@ -21,10 +21,12 @@ import {
   failureMessage,
   hideThread,
   initialSnapshot,
+  isViewerActor,
   markFeedBusy,
   cycleGrouping,
   jumpTopLevel,
   moveSelection,
+  newThreadIdsOf,
   releaseThreads,
   selectEdge,
   selectedThreadOf,
@@ -126,6 +128,7 @@ const toastMilliseconds = 4000;
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',
   done: 'Done thread',
+  seen: 'Seen thread',
 };
 
 const guard = async <Value>(
@@ -136,7 +139,10 @@ const guard = async <Value>(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
-    return { ok: false, failure: { kind: 'requestFailed', status: null, message } };
+    return {
+      ok: false,
+      failure: { kind: 'requestFailed', status: null, message },
+    };
   }
 };
 
@@ -206,6 +212,7 @@ export const createSession = (effects: SessionEffects): Session => {
   let lookupController: AbortController | null = null;
   const lookedUp = new Map<ThreadId, string>();
   const sentThreadIds = new Set<ThreadId>();
+  const pendingLookups = new Map<ThreadId, string>();
 
   const getSnapshot = () => snapshot;
 
@@ -221,7 +228,75 @@ export const createSession = (effects: SessionEffects): Session => {
     };
   };
 
-  const update = (next: Snapshot) => {
+  const saveStateQuietly = (change: UnsavedChange, grouping = snapshot.grouping) => {
+    unsavedChanges.add(change);
+
+    try {
+      effects.saveState({ grouping, done: accountRecords, seen: seenRecords });
+    } catch {
+      // A failed save must not stop the session.
+    }
+  };
+
+  const currentSeen = (): Map<ThreadId, string> | undefined =>
+    currentLogin === null ? undefined : seenRecords.get(`${effects.host}/${currentLogin}`);
+
+  const recordSeen = (candidate: Snapshot): boolean => {
+    const seen = currentSeen();
+    const login = currentLogin;
+
+    if (seen === undefined || login === null) {
+      return false;
+    }
+
+    const selected = selectedThreadOf(candidate);
+
+    const seenNow = candidate.threads.filter(
+      (thread) =>
+        thread.id === selected?.id || isViewerActor(candidate.subjectFacts.get(thread.id), login),
+    );
+
+    let changed = false;
+
+    for (const thread of seenNow) {
+      if (seen.get(thread.id) !== thread.updatedAt) {
+        seen.set(thread.id, thread.updatedAt);
+        changed = true;
+      }
+    }
+
+    return changed;
+  };
+
+  const withMarkers = (candidate: Snapshot): Snapshot => {
+    if (recordSeen(candidate)) {
+      saveStateQuietly('seen', candidate.grouping);
+    }
+
+    const pendingThreadIds = new Set(
+      candidate.threads
+        .filter((thread) => pendingLookups.get(thread.id) === thread.updatedAt)
+        .map((thread) => thread.id),
+    );
+
+    const newThreadIds = newThreadIdsOf({
+      threads: candidate.threads,
+      seen: currentSeen(),
+      subjectFacts: candidate.subjectFacts,
+      viewerLogin: currentLogin ?? '',
+      pendingThreadIds,
+    });
+
+    const unchanged =
+      newThreadIds.size === candidate.newThreadIds.size &&
+      [...newThreadIds].every((threadId) => candidate.newThreadIds.has(threadId));
+
+    return unchanged ? candidate : { ...candidate, newThreadIds };
+  };
+
+  const update = (candidate: Snapshot) => {
+    const next = withMarkers(candidate);
+
     if (next === snapshot) {
       return;
     }
@@ -279,6 +354,7 @@ export const createSession = (effects: SessionEffects): Session => {
   // The feed from a saved snapshot only serves an account that matches the saved login.
   const acceptViewer = (viewer: Viewer, request: NotificationFeedRequest) => {
     const firstRead = viewerLogin === null;
+
     const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
 
     viewerLogin = viewer.login;
@@ -290,6 +366,7 @@ export const createSession = (effects: SessionEffects): Session => {
       lookupController?.abort();
       lookupController = null;
       lookedUp.clear();
+      pendingLookups.clear();
       update(clearAccount(snapshot));
 
       return { ...request, previous: null };
@@ -419,18 +496,8 @@ export const createSession = (effects: SessionEffects): Session => {
     });
   };
 
-  const saveStateQuietly = (change: UnsavedChange) => {
-    unsavedChanges.add(change);
-
-    try {
-      effects.saveState({ grouping: snapshot.grouping, done: accountRecords, seen: seenRecords });
-    } catch {
-      // A failed save must not stop the session.
-    }
-  };
-
-  const pruneLookedUp = () => {
-    const currentIds = new Set(snapshot.threads.map((thread) => thread.id));
+  const pruneLookedUp = (threads: NotificationThread[]) => {
+    const currentIds = new Set(threads.map((thread) => thread.id));
 
     for (const threadId of lookedUp.keys()) {
       if (!currentIds.has(threadId)) {
@@ -439,7 +506,17 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const acceptLookups = (lookups: SubjectLookup[]) => {
+  const forgetPending = (sent: NotificationThread[]) => {
+    for (const thread of sent) {
+      if (pendingLookups.get(thread.id) === thread.updatedAt) {
+        pendingLookups.delete(thread.id);
+      }
+    }
+  };
+
+  const acceptLookups = (sent: NotificationThread[], lookups: SubjectLookup[]) => {
+    forgetPending(sent);
+
     const current = new Map(snapshot.threads.map((thread) => [thread.id, thread.updatedAt]));
 
     const fresh = lookups.filter((lookup) => current.get(lookup.threadId) === lookup.updatedAt);
@@ -451,10 +528,11 @@ export const createSession = (effects: SessionEffects): Session => {
     update(applySubjectLookups(snapshot, fresh));
   };
 
-  const startLookup = () => {
-    pruneLookedUp();
+  const startLookup = (threads: NotificationThread[]) => {
+    pruneLookedUp(threads);
+    pendingLookups.clear();
 
-    const unknown = snapshot.threads.filter(
+    const unknown = threads.filter(
       (thread) => isSubject(thread) && lookedUp.get(thread.id) !== thread.updatedAt,
     );
 
@@ -469,15 +547,25 @@ export const createSession = (effects: SessionEffects): Session => {
 
     lookupController = own;
 
-    // A lookup that fails changes nothing, so the next loaded refresh sends its threads again.
+    for (const thread of unknown) {
+      pendingLookups.set(thread.id, thread.updatedAt);
+    }
+
+    // A lookup that fails leaves its threads new by updated_at alone, and the next loaded refresh
+    // sends them again.
     Promise.resolve()
       .then(() => effects.lookUpSubjects(unknown, own.signal))
       .then((lookups) => {
         if (!own.signal.aborted && !stopped) {
-          acceptLookups(lookups);
+          acceptLookups(unknown, lookups);
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!own.signal.aborted && !stopped) {
+          forgetPending(unknown);
+          update(snapshot);
+        }
+      });
   };
 
   const pruneDoneRecords = (fetched: NotificationThread[]) => {
@@ -501,6 +589,37 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
+  const pruneSeenRecords = (fetched: NotificationThread[]) => {
+    if (currentLogin === null) {
+      return;
+    }
+
+    const account = `${effects.host}/${currentLogin}`;
+    const seen = seenRecords.get(account);
+
+    if (seen === undefined) {
+      seenRecords.set(account, new Map(fetched.map((thread) => [thread.id, thread.updatedAt])));
+
+      saveStateQuietly('seen');
+
+      return;
+    }
+
+    const fetchedIds = new Set(fetched.map((thread) => thread.id));
+    let changed = false;
+
+    for (const threadId of seen.keys()) {
+      if (!fetchedIds.has(threadId)) {
+        seen.delete(threadId);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      saveStateQuietly('seen');
+    }
+  };
+
   const releaseSentThreads = () => {
     update(releaseThreads(snapshot, sentThreadIds));
     sentThreadIds.clear();
@@ -518,10 +637,14 @@ export const createSession = (effects: SessionEffects): Session => {
     if (outcome.kind === 'loaded') {
       feed = outcome.read.feed;
       pruneDoneRecords(outcome.read.threads);
-      update(applyThreads(snapshot, outcome.read.threads, currentRecords(), now));
+      pruneSeenRecords(outcome.read.threads);
+
+      const next = applyThreads(snapshot, outcome.read.threads, currentRecords(), now);
+
+      startLookup(next.threads);
+      update(next);
       releaseSentThreads();
       saveQuietly(outcome.viewer, now);
-      startLookup();
     } else if (outcome.kind === 'busy') {
       update(markFeedBusy(snapshot));
     } else {
@@ -572,7 +695,10 @@ export const createSession = (effects: SessionEffects): Session => {
       return;
     }
 
-    runFullRefresh(own, signal, { previous: stored, firstPage: result.value.page });
+    runFullRefresh(own, signal, {
+      previous: stored,
+      firstPage: result.value.page,
+    });
   };
 
   const startPoll = (stored: NotificationFeed) => {
@@ -608,6 +734,7 @@ export const createSession = (effects: SessionEffects): Session => {
 
     const stored = feed;
     const viewerUnknown = viewerLogin === null;
+
     const needsFullRefresh = snapshot.pausedUntil !== null || viewerUnknown || fullRefreshIsDue();
 
     if (stored === null || needsFullRefresh) {
@@ -674,7 +801,11 @@ export const createSession = (effects: SessionEffects): Session => {
     update(hideThread(snapshot, thread.id));
 
     showToast(
-      { title: `Marked ${thread.title} done`, lines: ['You can undo for 5 seconds'], tone: 'info' },
+      {
+        title: `Marked ${thread.title} done`,
+        lines: ['You can undo for 5 seconds'],
+        tone: 'info',
+      },
       undoWindowMilliseconds,
     );
   };
@@ -684,11 +815,22 @@ export const createSession = (effects: SessionEffects): Session => {
 
     if (outcome.kind === 'undone') {
       update(showThread(snapshot, outcome.thread.id));
-      showToast({ title: `Undid marking ${outcome.thread.title} done`, lines: [], tone: 'info' });
+
+      showToast({
+        title: `Undid marking ${outcome.thread.title} done`,
+        lines: [],
+        tone: 'info',
+      });
     } else if (outcome.kind === 'tooLate') {
-      showToast({ title: 'The last done cannot be undone', lines: [], tone: 'info' });
+      showToast({
+        title: 'The last done cannot be undone',
+        lines: [],
+        tone: 'info',
+      });
     }
   };
+
+  snapshot = withMarkers(snapshot);
 
   const send = (intent: ApplicationIntent) => {
     if (stopped) {
