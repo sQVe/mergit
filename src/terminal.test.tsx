@@ -18,6 +18,7 @@ type ThemeListener = (mode: ThemeMode) => void;
 
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
+  host: 'github.com',
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true, value: null }),
@@ -450,28 +451,68 @@ test('a rejected flushState does not change the exit code', async () => {
   expect(harness.printed).toEqual([]);
 });
 
-test('the bounded wait aborts the deadline signal it gave to stop', async () => {
+test('the stop deadline signal aborts before the 1000 ms bound and flushState still finishes', async () => {
   const harness = createHarness('dark');
   let deadline: AbortSignal | undefined;
+  let flushed = false;
 
   harness.session.stop = (signal) => {
     deadline = signal;
 
-    return Promise.withResolvers<undefined>().promise;
+    return new Promise<undefined>((resolve) => {
+      signal.addEventListener('abort', () => {
+        resolve(undefined);
+      });
+    });
   };
 
-  await startTerminal(
-    { session: harness.session, catalog, flushState: () => Promise.resolve() },
-    harness.effects,
-  );
+  const flushState = async () => {
+    await Bun.sleep(100);
+    flushed = true;
+  };
+
+  await startTerminal({ session: harness.session, catalog, flushState }, harness.effects);
 
   harness.handlers.get('SIGINT')?.();
   await settle();
 
   expect(deadline?.aborted).toBe(false);
 
-  await Bun.sleep(1100);
+  await Bun.sleep(850);
 
   expect(deadline?.aborted).toBe(true);
+
+  await Bun.sleep(100);
+
+  expect(flushed).toBe(true);
   expect(harness.exitCodes).toEqual([0]);
+});
+
+test('shutdown never waits past 1000 ms in total when stop ignores the deadline and flushState hangs', async () => {
+  const harness = createHarness('dark');
+
+  harness.session.stop = () => Bun.sleep(800).then(() => undefined);
+
+  await startTerminal(
+    {
+      session: harness.session,
+      catalog,
+      flushState: () => Promise.withResolvers<undefined>().promise,
+    },
+    harness.effects,
+  );
+
+  const startedAt = performance.now();
+
+  harness.handlers.get('SIGINT')?.();
+
+  while (harness.exitCodes.length === 0) {
+    await Bun.sleep(10);
+  }
+
+  const elapsed = performance.now() - startedAt;
+
+  expect(harness.exitCodes).toEqual([0]);
+  expect(elapsed).toBeGreaterThanOrEqual(950);
+  expect(elapsed).toBeLessThan(1100);
 });

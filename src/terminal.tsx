@@ -44,6 +44,7 @@ export interface TerminalDependencies {
 
 const themeWaitMilliseconds = 500;
 const flushWaitMilliseconds = 1000;
+const stopWaitMilliseconds = 750;
 
 const openOpenTui = async (): Promise<{
   renderer: CliRenderer;
@@ -89,11 +90,12 @@ const waitForStop = async (
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new AbortController();
 
+  const stopTimer = setTimeout(() => {
+    deadline.abort();
+  }, stopWaitMilliseconds);
+
   const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(() => {
-      deadline.abort();
-      resolve();
-    }, flushWaitMilliseconds);
+    timer = setTimeout(resolve, flushWaitMilliseconds);
   });
 
   try {
@@ -106,6 +108,7 @@ const waitForStop = async (
   } catch {
     // A failed stop or save must not block shutdown or change the exit code.
   } finally {
+    clearTimeout(stopTimer);
     clearTimeout(timer);
   }
 };
