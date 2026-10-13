@@ -4,6 +4,7 @@ import type {
   NodeRow,
   NotificationThread,
   SubjectFacts,
+  ThreadId,
   ThreadRow,
   TreeRow,
 } from '../work/work.ts';
@@ -71,7 +72,12 @@ const SubjectFactLines = (props: PaneProps & { facts: SubjectFacts | undefined }
 };
 
 const ThreadDetail = (
-  props: PaneProps & { row: ThreadRow; now: Date; facts: SubjectFacts | undefined },
+  props: PaneProps & {
+    row: ThreadRow;
+    now: Date;
+    facts: SubjectFacts | undefined;
+    isNew: boolean;
+  },
 ): ReactNode => {
   const { thread } = props.row;
   const { palette } = props;
@@ -90,13 +96,17 @@ const ThreadDetail = (
         value={`${formatAge(thread.updatedAt, props.now)} ago`}
       />
       <Fact palette={palette} label="Unread" value={thread.unread ? 'yes' : 'no'} />
+      {props.isNew ? <Fact palette={palette} label="New" value="yes" /> : null}
       <SubjectFactLines palette={palette} facts={props.facts} />
     </>
   );
 };
 
-const NodeDetail = (props: PaneProps & { row: NodeRow }): ReactNode => {
+const NodeDetail = (
+  props: PaneProps & { row: NodeRow; newThreadIds: ReadonlySet<ThreadId> },
+): ReactNode => {
   const { row, palette } = props;
+  const newCount = row.threads.filter((thread) => props.newThreadIds.has(thread.id)).length;
   const byType = countBy(row.threads, (thread) => thread.subjectType);
   const byReason = countBy(row.threads, (thread) => thread.reason);
 
@@ -104,6 +114,7 @@ const NodeDetail = (props: PaneProps & { row: NodeRow }): ReactNode => {
     <>
       <text fg={palette.text}>{row.title}</text>
       <Fact palette={palette} label="Threads" value={String(row.threads.length)} />
+      {newCount === 0 ? null : <Fact palette={palette} label="New" value={String(newCount)} />}
       <text> </text>
       <text fg={palette.dim}>By type</text>
       {byType.map(([subjectType, count]) => (
@@ -124,14 +135,25 @@ const NodeDetail = (props: PaneProps & { row: NodeRow }): ReactNode => {
 };
 
 const RowDetail = (
-  props: PaneProps & { row: TreeRow; now: Date; facts: SubjectFacts | undefined },
+  props: PaneProps & {
+    row: TreeRow;
+    now: Date;
+    facts: SubjectFacts | undefined;
+    newThreadIds: ReadonlySet<ThreadId>;
+  },
 ): ReactNode => {
   if (props.row.kind === 'node') {
-    return <NodeDetail palette={props.palette} row={props.row} />;
+    return <NodeDetail palette={props.palette} row={props.row} newThreadIds={props.newThreadIds} />;
   }
 
   return (
-    <ThreadDetail palette={props.palette} row={props.row} now={props.now} facts={props.facts} />
+    <ThreadDetail
+      palette={props.palette}
+      row={props.row}
+      now={props.now}
+      facts={props.facts}
+      isNew={props.newThreadIds.has(props.row.thread.id)}
+    />
   );
 };
 
@@ -139,6 +161,7 @@ export const DetailPane = (
   props: PaneProps & {
     row: TreeRow | undefined;
     facts: SubjectFacts | undefined;
+    newThreadIds: ReadonlySet<ThreadId>;
     now: Date;
     width: number;
   },
@@ -155,7 +178,13 @@ export const DetailPane = (
       borderColor={props.palette.dim}
     >
       {row === undefined ? null : (
-        <RowDetail palette={props.palette} row={row} now={props.now} facts={props.facts} />
+        <RowDetail
+          palette={props.palette}
+          row={row}
+          now={props.now}
+          facts={props.facts}
+          newThreadIds={props.newThreadIds}
+        />
       )}
     </box>
   );

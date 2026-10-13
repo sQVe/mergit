@@ -14,6 +14,7 @@ import { createSession } from '../session/session.ts';
 import type { SessionEffects } from '../session/session.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
 import type { NotificationThread } from '../work/work.ts';
+import { DetailPane } from './DetailPane.tsx';
 import { pickPalette } from './palette.ts';
 import { App } from './ui.tsx';
 import type { AppProps } from './ui.tsx';
@@ -639,15 +640,15 @@ test('the list shows threads under their group and repo in reason order, release
 
   expect(lines[0]).toMatch(/^▾ Review requested 2$/);
   expect(lines[1]).toMatch(/^│ ▾ example\/alpha 2$/);
-  expect(lines[2]).toMatch(/^│ │ ├─PR\s+#1\s+Fix parser\s+2h$/);
-  expect(lines[3]).toMatch(/^│ │ └─PR\s+#2\s+Add cache\s+2h$/);
+  expect(lines[2]).toMatch(/^│ │ ├─\s*PR\s+#1\s+Fix parser\s+2h$/);
+  expect(lines[3]).toMatch(/^│ │ └─\s*PR\s+#2\s+Add cache\s+2h$/);
   expect(lines[4]).toMatch(/^▾ Mention 2$/);
   expect(lines[5]).toMatch(/^│ ▾ example\/beta 2$/);
-  expect(lines[6]).toMatch(/^│ │ ├─ISS\s+#3\s+Crash on start\s+2h$/);
-  expect(lines[7]).toMatch(/^│ │ └─ISS\s+#5\s+Stale crash\s+2h$/);
+  expect(lines[6]).toMatch(/^│ │ ├─\s*ISS\s+#3\s+Crash on start\s+2h$/);
+  expect(lines[7]).toMatch(/^│ │ └─\s*ISS\s+#5\s+Stale crash\s+2h$/);
   expect(lines[8]).toMatch(/^▾ Release 1$/);
   expect(lines[9]).toMatch(/^│ ▾ example\/beta 1$/);
-  expect(lines[10]).toMatch(/^│ │ └─REL\s+Release v1\s+2h$/);
+  expect(lines[10]).toMatch(/^│ │ └─\s*REL\s+Release v1\s+2h$/);
 });
 
 const selectedLine = (setup: Setup): string | undefined => selectedRowText(setup)?.trim();
@@ -697,7 +698,10 @@ test('s regroups by type, then none, then reason, and keeps the selection on the
 
   const ungrouped = frameLines(setup);
 
-  expect(ungrouped.filter((line) => /^(PR|ISS|REL)\s/.test(line))).toHaveLength(treeThreads.length);
+  expect(ungrouped.filter((line) => /^\s*(PR|ISS|REL)\s/.test(line))).toHaveLength(
+    treeThreads.length,
+  );
+
   expect(ungrouped.some((line) => /[│├└▾▸]/.test(line))).toBe(false);
   expect(ungrouped.some((line) => line.includes('Pull requests'))).toBe(false);
   expect(selectedLine(setup)).toContain('Fix parser');
@@ -715,11 +719,11 @@ test('the flat list shows each thread with its repository and no guide or branch
 
   const lines = frameLines(setup).slice(0, 5);
 
-  expect(lines[0]).toMatch(/^PR\s+#1\s+example\/alpha\s+Fix parser\s+2h$/);
-  expect(lines[1]).toMatch(/^PR\s+#2\s+example\/alpha\s+Add cache\s+2h$/);
-  expect(lines[2]).toMatch(/^ISS\s+#3\s+example\/beta\s+Crash on start\s+2h$/);
-  expect(lines[3]).toMatch(/^REL\s+example\/beta\s+Release v1\s+2h$/);
-  expect(lines[4]).toMatch(/^ISS\s+#5\s+example\/beta\s+Stale crash\s+2h$/);
+  expect(lines[0]).toMatch(/^\s*PR\s+#1\s+example\/alpha\s+Fix parser\s+2h$/);
+  expect(lines[1]).toMatch(/^\s*PR\s+#2\s+example\/alpha\s+Add cache\s+2h$/);
+  expect(lines[2]).toMatch(/^\s*ISS\s+#3\s+example\/beta\s+Crash on start\s+2h$/);
+  expect(lines[3]).toMatch(/^\s*REL\s+example\/beta\s+Release v1\s+2h$/);
+  expect(lines[4]).toMatch(/^\s*ISS\s+#5\s+example\/beta\s+Stale crash\s+2h$/);
 
   for (const line of lines) {
     expect(line).not.toMatch(/[│├└▾▸]/);
@@ -750,7 +754,7 @@ test('the flat list truncates a long repository name so the title keeps its spac
 
   await pressAll(press, ['r', 's', 's']);
 
-  expect(frameLines(setup)[0]).toMatch(/^PR\s+#1\s+example\/a-valid.*…\s+Fix parser\s+\d+h$/);
+  expect(frameLines(setup)[0]).toMatch(/^\s*PR\s+#1\s+example\/a-valid.*…\s+Fix parser\s+\d+h$/);
 });
 
 test('j and k move the selection one row, and g and G jump to the first and last row', async () => {
@@ -1523,4 +1527,92 @@ test('a new toast during an exit appears at once and slides in', async () => {
   expect(markColumn(start)).toBeGreaterThan(resting);
   expect(markColumn(settled)).toBe(resting);
   expect(settled).toContain('second failure');
+});
+
+const newMarkerThreads = [
+  { ...makeThread(1, 'Seen thread'), repository: 'acme/alpha' },
+  { ...makeThread(2, 'Fresh thread'), repository: 'acme/alpha' },
+];
+
+const newMarkerEffects = (threads: NotificationThread[], seenIds: string[]): SessionEffects => ({
+  ...threadsEffects(threads),
+  savedState: {
+    grouping: 'reason',
+    done: new Map(),
+    seen: new Map([
+      [
+        'github.com/octocat',
+        new Map(
+          threads
+            .filter((thread) => seenIds.includes(thread.id))
+            .map((thread) => [thread.id, thread.updatedAt]),
+        ),
+      ],
+    ]),
+  },
+});
+
+test('a new thread row shows the marker and its repo and group rows count it', async () => {
+  const { setup, press } = await mount('dark', newMarkerEffects(newMarkerThreads, ['1']), 100);
+
+  await press('r');
+
+  const lines = frameLines(setup);
+  const rowOf = (text: string) => lines.find((line) => line.includes(text)) ?? '';
+
+  expect(rowOf('Fresh thread')).toContain('●');
+  expect(rowOf('Seen thread')).not.toContain('●');
+  expect(rowOf('acme/alpha')).toMatch(/ 2 ●1/);
+  expect(rowOf('Subscribed or manual')).toMatch(/ 2 ●1/);
+});
+
+test('a node with no new threads shows no marker count', async () => {
+  const { setup, press } = await mount('dark', newMarkerEffects(newMarkerThreads, ['1', '2']), 100);
+
+  await press('r');
+
+  expect(setup.captureCharFrame()).not.toContain('●');
+});
+
+const renderThreadPane = async (isNew: boolean): Promise<string> => {
+  const thread = makeThread(1, 'Fresh thread');
+  const row = { kind: 'thread' as const, key: 't', thread, depth: 0, nodeRowKey: null, last: true };
+  const newThreadIds = new Set(isNew ? [thread.id] : []);
+
+  const setup = await act(() =>
+    testRender(
+      <DetailPane
+        row={row}
+        facts={undefined}
+        newThreadIds={newThreadIds}
+        palette={pickPalette('dark')}
+        now={new Date(3 * 3_600_000)}
+        width={40}
+      />,
+      { width: 40, height: 12 },
+    ),
+  );
+
+  setups.push(setup);
+  await act(() => setup.renderOnce());
+
+  return setup.captureCharFrame();
+};
+
+test('the side pane of a new thread has a New line, and not for a thread that is not new', async () => {
+  expect(await renderThreadPane(true)).toMatch(/New\s+yes/);
+  expect(await renderThreadPane(false)).not.toMatch(/New\s/);
+});
+
+test('the side pane of a node with new threads shows their count on a New line', async () => {
+  const withNew = await mount('dark', newMarkerEffects(newMarkerThreads, ['1']), 100);
+
+  await withNew.press('r');
+
+  const without = await mount('dark', newMarkerEffects(newMarkerThreads, ['1', '2']), 100);
+
+  await without.press('r');
+
+  expect(paneText(withNew.setup, 100)).toMatch(/New\s+1/);
+  expect(paneText(without.setup, 100)).not.toMatch(/New\s/);
 });
