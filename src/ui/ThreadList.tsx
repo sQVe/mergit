@@ -37,9 +37,9 @@ const NodeLine = (
   const { row, palette, selected } = props;
   const prefix = `${guideFor(row.depth)}${row.folded ? '▸ ' : '▾ '}`;
   const newCount = row.threads.filter((thread) => props.newThreadIds.has(thread.id)).length;
-  const newSuffix = newCount === 0 ? '' : ` ●${newCount}`;
-  const suffix = ` ${row.threads.length}`;
-  const titleWidth = Math.max(1, props.width - prefix.length - suffix.length - newSuffix.length);
+  const newPart = newCount === 0 ? '' : ` ${newCount}`;
+  const totalPart = newCount === 0 ? ` ${row.threads.length}` : `/${row.threads.length}`;
+  const titleWidth = Math.max(1, props.width - prefix.length - newPart.length - totalPart.length);
 
   return (
     <box
@@ -51,14 +51,14 @@ const NodeLine = (
         {prefix}
       </text>
       <text fg={palette.text}>{truncate(row.title, titleWidth)}</text>
-      <text fg={palette.dim} width={suffix.length}>
-        {suffix}
-      </text>
-      {newSuffix === '' ? null : (
-        <text fg={palette.newMarker} width={newSuffix.length}>
-          {newSuffix}
+      {newPart === '' ? null : (
+        <text fg={palette.newMarker} width={newPart.length}>
+          {newPart}
         </text>
       )}
+      <text fg={palette.dim} width={totalPart.length}>
+        {totalPart}
+      </text>
     </box>
   );
 };

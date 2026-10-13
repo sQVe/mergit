@@ -1562,16 +1562,21 @@ test('a new thread row shows the marker and its repo and group rows count it', a
 
   expect(rowOf('Fresh thread')).toContain('●');
   expect(rowOf('Seen thread')).not.toContain('●');
-  expect(rowOf('acme/alpha')).toMatch(/ 2 ●1/);
-  expect(rowOf('Subscribed or manual')).toMatch(/ 2 ●1/);
+  expect(rowOf('acme/alpha')).toMatch(/acme\/alpha 1\/2 /);
+  expect(rowOf('Subscribed or manual')).toMatch(/Subscribed or manual 1\/2 /);
 });
 
-test('a node with no new threads shows no marker count', async () => {
+test('a node with no new threads shows only its thread count', async () => {
   const { setup, press } = await mount('dark', newMarkerEffects(newMarkerThreads, ['1', '2']), 100);
 
   await press('r');
 
+  const lines = frameLines(setup);
+  const rowOf = (text: string) => lines.find((line) => line.includes(text)) ?? '';
+
   expect(setup.captureCharFrame()).not.toContain('●');
+  expect(rowOf('acme/alpha')).toMatch(/acme\/alpha 2 /);
+  expect(rowOf('Subscribed or manual')).toMatch(/Subscribed or manual 2 /);
 });
 
 const renderThreadPane = async (isNew: boolean): Promise<string> => {
