@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { Command } from './commands.ts';
 import { catalog } from './commands.ts';
-import { createSession } from './session/session.ts';
+import { createSession, visibleRows } from './session/session.ts';
 import { toThreadId, toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
@@ -149,16 +149,30 @@ test('closeDetail has the escape key, the preview scope, and a ui intent', () =>
   expect(close?.disabledReason(snapshot)).toBeUndefined();
 });
 
-test('done is disabled on a group row and enabled on a thread row', () => {
+test('markDone marks one thread on a thread row and every shown thread on a node row', () => {
   const command = catalog.find((candidate) => candidate.id === 'markDone');
-  const onNode = { ...loadedSnapshot, selectedRowKey: 'node:review' };
-  const onThread = { ...loadedSnapshot, selectedRowKey: 'thread:1' };
+  const nodeRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'node');
+  const threadRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'thread');
+
+  expect(nodeRow?.kind).toBe('node');
+  expect(threadRow).toBeDefined();
+
+  const onNode = { ...loadedSnapshot, selectedRowKey: nodeRow?.key ?? null };
+  const onThread = { ...loadedSnapshot, selectedRowKey: threadRow?.key ?? null };
+  const nodeThreadIds = nodeRow?.kind === 'node' ? nodeRow.threads.map((thread) => thread.id) : [];
 
   expect(command?.keys).toEqual(['d']);
   expect(command?.scope).toBe('list');
-  expect(command?.disabledReason(onNode)).toBeDefined();
+  expect(nodeThreadIds.length).toBeGreaterThan(0);
+  expect(command?.disabledReason(onNode)).toBeUndefined();
   expect(command?.disabledReason(onThread)).toBeUndefined();
+  expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null })).toBeDefined();
   expect(command?.intent(onThread)).toEqual({ kind: 'application', intent: { kind: 'markDone' } });
+
+  expect(command?.intent(onNode)).toEqual({
+    kind: 'application',
+    intent: { kind: 'markThreadsDone', threadIds: nodeThreadIds },
+  });
 });
 
 test('undo is bound to u and returns the undoDone intent', () => {

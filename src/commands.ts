@@ -131,12 +131,22 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'markDone',
-    label: 'Mark thread done',
+    label: 'Mark done',
     scope: 'list',
     keys: ['d'],
     disabledReason: (snapshot) =>
-      selectedRowOf(snapshot)?.kind === 'thread' ? undefined : 'Select a thread to mark it done',
-    intent: () => ({ kind: 'application', intent: { kind: 'markDone' } }),
+      selectedRowOf(snapshot) === undefined ? 'Select a row to mark it done' : undefined,
+    intent: (snapshot) => {
+      const row = selectedRowOf(snapshot);
+
+      if (row?.kind === 'node') {
+        const threadIds = row.threads.map((thread) => thread.id);
+
+        return { kind: 'application', intent: { kind: 'markThreadsDone', threadIds } };
+      }
+
+      return { kind: 'application', intent: { kind: 'markDone' } };
+    },
   },
   {
     id: 'undoDone',

@@ -1621,3 +1621,51 @@ test('the side pane of a node with new threads shows their count on a New line',
   expect(paneText(withNew.setup, 100)).toMatch(/New\s+1/);
   expect(paneText(without.setup, 100)).not.toMatch(/New\s/);
 });
+
+const fiveThreads = Array.from({ length: 5 }, (_, index) =>
+  makeThread(index + 1, `Batch thread ${index + 1}`),
+);
+
+test('d on a repo node with 5 threads hides all 5 at once', async () => {
+  const { setup, press, sent } = await mount('dark', threadsEffects(fiveThreads));
+
+  await pressAll(press, ['r', 'g', 'j']);
+
+  expect(selectedLine(setup)).toContain('example/repo');
+
+  await press('d');
+
+  const frame = setup.captureCharFrame();
+
+  for (const thread of fiveThreads) {
+    expect(frame).not.toContain(thread.title);
+  }
+
+  expect(sent.filter((intent) => (intent as { kind: string }).kind === 'markThreadsDone')).toEqual([
+    { kind: 'markThreadsDone', threadIds: fiveThreads.map((thread) => thread.id) },
+  ]);
+});
+
+test('d on a folded group hides every thread under it, and one u brings them all back', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+
+  await pressAll(press, ['r', 'g', 'z']);
+
+  const before = setup.captureCharFrame();
+
+  expect(selectedLine(setup)).toContain('Review requested');
+
+  await press('d');
+
+  const hidden = setup.captureCharFrame();
+
+  expect(hidden).not.toContain('Review requested');
+  expect(hidden).toContain('Crash on start');
+
+  await press('u');
+
+  const restored = setup.captureCharFrame();
+
+  expect(restored).toContain('Review requested');
+  expect(restored.split('\n').slice(0, 8)).toEqual(before.split('\n').slice(0, 8));
+});
