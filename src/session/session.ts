@@ -149,6 +149,12 @@ const guard = async <Value>(
 const isSubject = (thread: NotificationThread) =>
   thread.subjectType === 'PullRequest' || thread.subjectType === 'Issue';
 
+const subjectVersionsOf = (saved: SavedSnapshot | null | undefined) => {
+  const threads = saved?.threads.filter(isSubject) ?? [];
+
+  return new Map(threads.map((thread) => [thread.id, thread.updatedAt]));
+};
+
 const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot> = {
   selectNext: (snapshot) => moveSelection(snapshot, 1),
   selectPrevious: (snapshot) => moveSelection(snapshot, -1),
@@ -212,7 +218,8 @@ export const createSession = (effects: SessionEffects): Session => {
   let lookupController: AbortController | null = null;
   const lookedUp = new Map<ThreadId, string>();
   const sentThreadIds = new Set<ThreadId>();
-  const pendingLookups = new Map<ThreadId, string>();
+  const pendingLookups = subjectVersionsOf(savedSnapshot);
+  let startupLookupsPending = pendingLookups.size > 0;
 
   const getSnapshot = () => snapshot;
 
@@ -541,6 +548,7 @@ export const createSession = (effects: SessionEffects): Session => {
   const startLookup = (threads: NotificationThread[]) => {
     pruneLookedUp(threads);
     pendingLookups.clear();
+    startupLookupsPending = false;
 
     const unknown = threads.filter(
       (thread) => isSubject(thread) && lookedUp.get(thread.id) !== thread.updatedAt,
@@ -635,6 +643,13 @@ export const createSession = (effects: SessionEffects): Session => {
     sentThreadIds.clear();
   };
 
+  const releaseStartupLookups = () => {
+    if (startupLookupsPending) {
+      pendingLookups.clear();
+      startupLookupsPending = false;
+    }
+  };
+
   const finishFullRefresh = (outcome: FullRefreshOutcome) => {
     if (outcome.kind === 'aborted') {
       return;
@@ -656,8 +671,10 @@ export const createSession = (effects: SessionEffects): Session => {
       releaseSentThreads();
       saveQuietly(outcome.viewer, now);
     } else if (outcome.kind === 'busy') {
+      releaseStartupLookups();
       update(markFeedBusy(snapshot));
     } else {
+      releaseStartupLookups();
       update(applyFailure(snapshot, outcome.failure, now));
     }
 

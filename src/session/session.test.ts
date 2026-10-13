@@ -2693,3 +2693,65 @@ test('an account change records the selected thread as seen for the account the 
   expect(seenOf(lastSave, b)).toBe(b.updatedAt);
   expect(lastSave?.seen.get(accountKeyOf(hubot))?.has(b.id)).toBe(false);
 });
+
+const savedMarkerHarness = (thread: NotificationThread) =>
+  makeHarness(
+    {
+      savedSnapshot: {
+        viewer: { login: octocat, etag: null },
+        savedAt,
+        feed: makeFeed('saved', [thread]),
+        threads: [thread],
+      },
+      savedState: stateWithSeen(seenFor(octocat, [thread, '2026-01-01T10:00:00Z'])),
+    },
+    { holdViewer: true },
+  );
+
+test('a saved snapshot shows no marker on a changed pull request thread before its lookup answers', async () => {
+  const thread = makeThread('2');
+  const harness = savedMarkerHarness(thread);
+
+  expect(harness.session.getSnapshot().newThreadIds.size).toBe(0);
+
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerViewer(viewerOf(octocat));
+  harness.take('read').resolve(readOf('feed', [thread]));
+  await settle();
+  await harness.answerVerify(stable);
+
+  expect(harness.session.getSnapshot().newThreadIds.size).toBe(0);
+
+  harness.lookups[0]?.resolve([
+    {
+      threadId: thread.id,
+      updatedAt: thread.updatedAt,
+      facts: { state: 'open', author: 'hubot', latestActor: 'OctoCat' },
+    },
+  ]);
+
+  await settle();
+
+  expect(harness.session.getSnapshot().newThreadIds.size).toBe(0);
+});
+
+test('a saved pull request thread becomes new when the first full refresh fails', async () => {
+  const thread = makeThread('2');
+  const harness = savedMarkerHarness(thread);
+
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerViewer(viewerOf(octocat));
+  harness.take('read').resolve(failure('network down'));
+  await settle();
+
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([thread.id]);
+});
+
+test('a saved Release thread that changed since it was seen is new at start', () => {
+  const thread = releaseOf('2');
+  const harness = savedMarkerHarness(thread);
+
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([thread.id]);
+});
