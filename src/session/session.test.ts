@@ -2755,3 +2755,117 @@ test('a saved Release thread that changed since it was seen is new at start', ()
 
   expect([...harness.session.getSnapshot().newThreadIds]).toEqual([thread.id]);
 });
+
+const loadFive = async (harness: ReturnType<typeof makeHarness>) => {
+  const threads = ['1', '2', '3', '4', '5'].map((id) => makeThread(id));
+
+  await harness.load(...threads);
+
+  return threads;
+};
+
+test('markThreadsDone hides all listed threads at once and one undo brings them all back', async () => {
+  const harness = makeHarness();
+  const threads = await loadFive(harness);
+  const threadIds = threads.map((thread) => thread.id);
+  const timersBefore = harness.timers.length;
+
+  harness.session.send({ kind: 'markThreadsDone', threadIds });
+
+  const hiddenKeys = rowKeysOf(harness.session);
+
+  for (const thread of threads) {
+    expect(hiddenKeys).not.toContain(`thread:${thread.id}`);
+  }
+
+  expect(harness.timers[timersBefore]?.delay).toBe(doneWindow);
+
+  harness.session.send({ kind: 'undoDone' });
+
+  const shownKeys = rowKeysOf(harness.session);
+
+  for (const thread of threads) {
+    expect(shownKeys).toContain(`thread:${thread.id}`);
+  }
+
+  await fireDoneTimerAt(harness, timersBefore);
+
+  expect(harness.sends).toHaveLength(0);
+});
+
+test('a five-thread action sends its requests one at a time after the timer fires', async () => {
+  const harness = makeHarness();
+  const threads = await loadFive(harness);
+  const timersBefore = harness.timers.length;
+
+  harness.session.send({ kind: 'markThreadsDone', threadIds: threads.map((thread) => thread.id) });
+
+  expect(harness.sends).toHaveLength(0);
+
+  await fireDoneTimerAt(harness, timersBefore);
+
+  for (const [index, thread] of threads.entries()) {
+    expect(harness.sends.map((call) => call.threadId)).toEqual(
+      threads.slice(0, index + 1).map((sent) => sent.id),
+    );
+
+    expect(harness.sends.at(-1)?.threadId).toBe(thread.id);
+
+    harness.sends[index]?.resolve(sentOk);
+    await settle();
+  }
+
+  expect(harness.sends).toHaveLength(5);
+});
+
+test('when 2 of 5 requests fail only those threads return, with one error toast', async () => {
+  const harness = makeHarness();
+  const threads = await loadFive(harness);
+  const timersBefore = harness.timers.length;
+
+  harness.session.send({ kind: 'markThreadsDone', threadIds: threads.map((thread) => thread.id) });
+  await fireDoneTimerAt(harness, timersBefore);
+
+  const failing = new Set([threads[1]?.id, threads[3]?.id]);
+
+  for (const index of threads.keys()) {
+    const sent = harness.sends[index];
+
+    sent?.resolve(failing.has(sent.threadId) ? failure('Boom') : sentOk);
+    await settle();
+  }
+
+  await settle();
+
+  const keys = rowKeysOf(harness.session);
+  const toast = harness.session.getSnapshot().toast;
+  const records = harness.saves.at(-1)?.done.get(accountKeyOf(octocat));
+
+  for (const thread of threads) {
+    expect(keys.includes(`thread:${thread.id}`)).toBe(failing.has(thread.id));
+    expect(records?.has(thread.id)).toBe(!failing.has(thread.id));
+  }
+
+  expect(toast?.tone).toBe('error');
+  expect(toast?.title).toContain('2 of 5');
+  expect(toast?.lines).toEqual(['Boom']);
+});
+
+test('markThreadsDone with hidden or unknown ids changes nothing and sends nothing', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+  harness.session.send({ kind: 'markDone' });
+
+  const before = harness.session.getSnapshot();
+  const timersBefore = harness.timers.length;
+
+  harness.session.send({ kind: 'markThreadsDone', threadIds: [one.id, toThreadId('missing')] });
+  harness.session.send({ kind: 'markThreadsDone', threadIds: [] });
+
+  expect(harness.session.getSnapshot()).toBe(before);
+  expect(harness.timers.length).toBe(timersBefore);
+  expect(harness.sends).toHaveLength(0);
+});

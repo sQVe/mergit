@@ -9,6 +9,7 @@ import type {
   SubjectLookup,
   Viewer,
 } from '../github/github.ts';
+import { invariant } from '../invariant.ts';
 import type { Grouping, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { createDoneQueue, undoWindowMilliseconds } from './done.ts';
 import type { Snapshot, Toast, UnsavedChange } from './sessionState.ts';
@@ -19,7 +20,7 @@ import {
   clearAccount,
   clearFailure,
   failureMessage,
-  hideThread,
+  hideThreads,
   initialSnapshot,
   isViewerActor,
   markFeedBusy,
@@ -30,7 +31,7 @@ import {
   releaseThreads,
   selectEdge,
   selectedThreadOf,
-  showThread,
+  showThreads,
   toggleAllFolds,
   toggleFold,
   showSavedThreads,
@@ -52,6 +53,7 @@ export type ApplicationIntent =
   | { kind: 'toggleAllFolds' }
   | { kind: 'cycleGrouping' }
   | { kind: 'markDone' }
+  | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' };
 
 export interface SavedState {
@@ -111,7 +113,10 @@ export interface Session {
 
 type StateIntent = Exclude<
   ApplicationIntent,
-  { kind: 'refresh' } | { kind: 'markDone' } | { kind: 'undoDone' }
+  | { kind: 'refresh' }
+  | { kind: 'markDone' }
+  | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
+  | { kind: 'undoDone' }
 >;
 
 const minimumPollSeconds = 60;
@@ -806,48 +811,83 @@ export const createSession = (effects: SessionEffects): Session => {
         requestRefresh();
       }
     },
-    onFailed: (thread, failure) => {
-      update(showThread(snapshot, thread.id));
+    onFailed: (failed, total) => {
+      const [first] = failed;
 
-      showToast({
-        title: `Could not mark ${thread.title} done`,
-        lines: [failureMessage(failure)],
-        tone: 'error',
-      });
+      invariant(first !== undefined, 'a failed action has a failed thread');
+
+      update(
+        showThreads(
+          snapshot,
+          failed.map((entry) => entry.thread.id),
+        ),
+      );
+
+      const title =
+        total === 1
+          ? `Could not mark ${first.thread.title} done`
+          : `Could not mark ${failed.length} of ${total} threads done`;
+
+      showToast({ title, lines: [failureMessage(first.failure)], tone: 'error' });
     },
   });
+
+  const markThreads = (threads: readonly NotificationThread[]) => {
+    const [first] = threads;
+
+    if (first === undefined || currentLogin === null) {
+      return;
+    }
+
+    doneQueue.add(threads, `${effects.host}/${currentLogin}`);
+    update(hideThreads(snapshot, new Set(threads.map((thread) => thread.id))));
+
+    const title =
+      threads.length === 1 ? `Marked ${first.title} done` : `Marked ${threads.length} threads done`;
+
+    showToast(
+      { title, lines: ['You can undo for 5 seconds'], tone: 'info' },
+      undoWindowMilliseconds,
+    );
+  };
 
   const markDone = () => {
     const thread = selectedThreadOf(snapshot);
 
-    if (thread === undefined || currentLogin === null) {
-      return;
+    if (thread !== undefined) {
+      markThreads([thread]);
     }
+  };
 
-    doneQueue.add(thread, `${effects.host}/${currentLogin}`);
-    update(hideThread(snapshot, thread.id));
+  const markThreadsDone = (threadIds: readonly ThreadId[]) => {
+    const requested = new Set(threadIds);
 
-    showToast(
-      {
-        title: `Marked ${thread.title} done`,
-        lines: ['You can undo for 5 seconds'],
-        tone: 'info',
-      },
-      undoWindowMilliseconds,
+    const threads = snapshot.threads.filter(
+      (thread) => requested.has(thread.id) && !snapshot.hiddenThreadIds.has(thread.id),
     );
+
+    markThreads(threads);
   };
 
   const undoDone = () => {
     const outcome = doneQueue.undoLatest();
 
     if (outcome.kind === 'undone') {
-      update(showThread(snapshot, outcome.thread.id));
+      const [first] = outcome.threads;
 
-      showToast({
-        title: `Undid marking ${outcome.thread.title} done`,
-        lines: [],
-        tone: 'info',
-      });
+      const title =
+        outcome.threads.length === 1 && first !== undefined
+          ? `Undid marking ${first.title} done`
+          : `Undid marking ${outcome.threads.length} threads done`;
+
+      update(
+        showThreads(
+          snapshot,
+          outcome.threads.map((thread) => thread.id),
+        ),
+      );
+
+      showToast({ title, lines: [], tone: 'info' });
     } else if (outcome.kind === 'tooLate') {
       showToast({
         title: 'The last done cannot be undone',
@@ -868,6 +908,8 @@ export const createSession = (effects: SessionEffects): Session => {
       requestRefresh();
     } else if (intent.kind === 'markDone') {
       markDone();
+    } else if (intent.kind === 'markThreadsDone') {
+      markThreadsDone(intent.threadIds);
     } else if (intent.kind === 'undoDone') {
       undoDone();
     } else {

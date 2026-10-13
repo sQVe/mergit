@@ -2,7 +2,7 @@ import type { GitHubFailure, GitHubResult } from '../github/github.ts';
 import type { NotificationThread, ThreadId } from '../work/work.ts';
 
 type UndoOutcome =
-  | { kind: 'undone'; thread: NotificationThread }
+  | { kind: 'undone'; threads: readonly NotificationThread[] }
   | { kind: 'tooLate' }
   | { kind: 'nothing' };
 
@@ -10,17 +10,22 @@ export interface DoneQueueEffects {
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
   onSent: (thread: NotificationThread, account: string) => void;
-  onFailed: (thread: NotificationThread, failure: GitHubFailure) => void;
+  onFailed: (failed: readonly FailedThread[], total: number) => void;
+}
+
+interface FailedThread {
+  thread: NotificationThread;
+  failure: GitHubFailure;
 }
 
 export interface DoneQueue {
-  add: (thread: NotificationThread, account: string) => void;
+  add: (threads: readonly NotificationThread[], account: string) => void;
   undoLatest: () => UndoOutcome;
   stop: (deadline: AbortSignal) => Promise<void>;
 }
 
 interface Entry {
-  thread: NotificationThread;
+  threads: readonly NotificationThread[];
   account: string;
   state: 'waiting' | 'due' | 'sending' | 'sent';
   cancelTimer: () => void;
@@ -48,28 +53,43 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
   let stopping = false;
   const sends = new AbortController();
 
+  const isAborted = () => sends.signal.aborted;
+
   const sendDueEntries = async () => {
     for (;;) {
       const entry = entries.find((candidate) => candidate.state === 'due');
 
-      if (entry === undefined || sends.signal.aborted) {
+      if (entry === undefined || isAborted()) {
         return;
       }
 
       entry.state = 'sending';
 
-      // oxlint-disable-next-line eslint/no-await-in-loop -- dones go out one at a time
-      const result = await sendSafely(effects, entry.thread.id, sends.signal);
+      const failed: FailedThread[] = [];
 
-      if (result.ok) {
-        entry.state = 'sent';
-        effects.onSent(entry.thread, entry.account);
-      } else {
-        entries = entries.filter((candidate) => candidate !== entry);
-
-        if (!stopping) {
-          effects.onFailed(entry.thread, result.failure);
+      for (const thread of entry.threads) {
+        if (isAborted()) {
+          break;
         }
+
+        // oxlint-disable-next-line eslint/no-await-in-loop -- dones go out one at a time
+        const result = await sendSafely(effects, thread.id, sends.signal);
+
+        if (result.ok) {
+          effects.onSent(thread, entry.account);
+        } else {
+          failed.push({ thread, failure: result.failure });
+        }
+      }
+
+      entry.state = 'sent';
+
+      if (failed.length === entry.threads.length) {
+        entries = entries.filter((candidate) => candidate !== entry);
+      }
+
+      if (failed.length > 0 && !stopping) {
+        effects.onFailed(failed, entry.threads.length);
       }
     }
   };
@@ -82,8 +102,8 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
     return running;
   };
 
-  const add = (thread: NotificationThread, account: string) => {
-    const entry: Entry = { thread, account, state: 'waiting', cancelTimer: () => undefined };
+  const add = (threads: readonly NotificationThread[], account: string) => {
+    const entry: Entry = { threads, account, state: 'waiting', cancelTimer: () => undefined };
 
     entry.cancelTimer = effects.setTimer(undoWindowMilliseconds, () => {
       entry.state = 'due';
@@ -100,7 +120,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
       waiting.cancelTimer();
       entries = entries.filter((entry) => entry !== waiting);
 
-      return { kind: 'undone', thread: waiting.thread };
+      return { kind: 'undone', threads: waiting.threads };
     }
 
     return entries.length > 0 ? { kind: 'tooLate' } : { kind: 'nothing' };

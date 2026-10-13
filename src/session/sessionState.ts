@@ -428,14 +428,13 @@ export const selectedThreadOf = (snapshot: Snapshot): NotificationThread | undef
   return row?.kind === 'thread' ? row.thread : undefined;
 };
 
-export const hideThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => {
+export const hideThreads = (snapshot: Snapshot, threadIds: ReadonlySet<ThreadId>): Snapshot => {
   const rows = visibleRows(snapshot);
-
-  const index = rows.findIndex((row) => row.kind === 'thread' && row.thread.id === threadId);
+  const index = rows.findIndex((row) => row.kind === 'thread' && threadIds.has(row.thread.id));
 
   const hidden = {
     ...snapshot,
-    hiddenThreadIds: new Set([...snapshot.hiddenThreadIds, threadId]),
+    hiddenThreadIds: new Set([...snapshot.hiddenThreadIds, ...threadIds]),
   };
 
   const nextRows = visibleRows(hidden);
@@ -444,17 +443,18 @@ export const hideThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => 
   return { ...hidden, selectedRowKey: next?.key ?? null };
 };
 
-export const showThread = (snapshot: Snapshot, threadId: ThreadId): Snapshot => {
+export const showThreads = (snapshot: Snapshot, threadIds: readonly ThreadId[]): Snapshot => {
   const hiddenThreadIds = new Set(snapshot.hiddenThreadIds);
 
-  hiddenThreadIds.delete(threadId);
+  for (const threadId of threadIds) {
+    hiddenThreadIds.delete(threadId);
+  }
 
   const shown = { ...snapshot, hiddenThreadIds };
   const rows = visibleRows(shown);
-
-  const threadRow = rows.find((row) => row.kind === 'thread' && row.thread.id === threadId);
-
-  const thread = shown.threads.find((candidate) => candidate.id === threadId);
+  const firstId = threadIds[0];
+  const threadRow = rows.find((row) => row.kind === 'thread' && row.thread.id === firstId);
+  const thread = shown.threads.find((candidate) => candidate.id === firstId);
 
   const target = threadRow ?? (thread === undefined ? undefined : deepestNodeHolding(rows, thread));
 
