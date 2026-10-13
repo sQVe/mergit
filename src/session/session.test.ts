@@ -2926,3 +2926,57 @@ test('a refresh keeps the confirmation, and confirming marks only the captured t
   expect(after.confirmation).toBeNull();
   expect(rowKeysOf(harness.session).some((key) => key.startsWith('thread:'))).toBe(false);
 });
+
+const confirmNodeAt = async (steps: number, fold: boolean) => {
+  const harness = makeHarness();
+
+  await harness.load(
+    makeThread('1', { repository: 'acme/app' }),
+    makeThread('2', { repository: 'acme/app' }),
+    makeThread('3', { repository: 'acme/lib' }),
+    makeThread('4', { reason: 'mention', repository: 'acme/other' }),
+  );
+
+  harness.session.send({ kind: 'selectFirst' });
+
+  for (let step = 0; step < steps; step += 1) {
+    harness.session.send({ kind: 'selectNext' });
+  }
+
+  if (fold) {
+    harness.session.send({ kind: 'toggleFold' });
+  }
+
+  harness.session.send({ kind: 'openConfirmation' });
+
+  const threadIds = harness.session.getSnapshot().confirmation?.threadIds ?? [];
+
+  harness.session.send({ kind: 'markThreadsDone', threadIds });
+
+  return harness.session.getSnapshot();
+};
+
+const selectionIsShown = (
+  snapshot: ReturnType<typeof createSession>['getSnapshot'] extends () => infer S ? S : never,
+) => visibleRows(snapshot).some((row) => row.key === snapshot.selectedRowKey);
+
+test('confirming done on a folded repo node selects a remaining row', async () => {
+  const snapshot = await confirmNodeAt(1, true);
+
+  expect(snapshot.selectedRowKey).not.toBeNull();
+  expect(selectionIsShown(snapshot)).toBe(true);
+});
+
+test('confirming done on a folded group node selects a remaining row', async () => {
+  const snapshot = await confirmNodeAt(0, true);
+
+  expect(snapshot.selectedRowKey).not.toBeNull();
+  expect(selectionIsShown(snapshot)).toBe(true);
+});
+
+test('confirming done on an unfolded node selects a remaining row', async () => {
+  const snapshot = await confirmNodeAt(1, false);
+
+  expect(snapshot.selectedRowKey).not.toBeNull();
+  expect(selectionIsShown(snapshot)).toBe(true);
+});

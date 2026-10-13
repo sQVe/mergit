@@ -436,7 +436,6 @@ export const selectedThreadOf = (snapshot: Snapshot): NotificationThread | undef
 
 export const hideThreads = (snapshot: Snapshot, threadIds: ReadonlySet<ThreadId>): Snapshot => {
   const rows = visibleRows(snapshot);
-  const index = rows.findIndex((row) => row.kind === 'thread' && threadIds.has(row.thread.id));
 
   const hidden = {
     ...snapshot,
@@ -444,6 +443,8 @@ export const hideThreads = (snapshot: Snapshot, threadIds: ReadonlySet<ThreadId>
   };
 
   const nextRows = visibleRows(hidden);
+  const remainingKeys = new Set(nextRows.map((row) => row.key));
+  const index = rows.findIndex((row) => !remainingKeys.has(row.key));
   const next = nextRows[Math.min(index, nextRows.length - 1)];
 
   return { ...hidden, selectedRowKey: next?.key ?? null };
