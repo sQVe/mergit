@@ -806,7 +806,8 @@ export const createSession = (effects: SessionEffects): Session => {
       recordDone(thread, account);
       sentThreadIds.add(thread.id);
       saveStateQuietly('done');
-
+    },
+    onEntrySent: () => {
       if (!stopped) {
         requestRefresh();
       }

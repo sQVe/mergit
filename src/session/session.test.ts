@@ -2160,6 +2160,66 @@ test('a successful send saves the done record and starts a full refresh', async 
   expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
 });
 
+const startBulkDone = async (harness: ReturnType<typeof makeHarness>) => {
+  const threads = ['1', '2', '3', '4', '5'].map((id) =>
+    makeThread(id, { updatedAt: `2026-01-05T08:00:0${id}Z` }),
+  );
+
+  await harness.load(...threads);
+
+  const before = harness.timers.length;
+
+  harness.session.send({ kind: 'markThreadsDone', threadIds: threads.map((thread) => thread.id) });
+  await fireDoneTimerAt(harness, before);
+
+  return threads;
+};
+
+const resolveSend = async (
+  harness: ReturnType<typeof makeHarness>,
+  index: number,
+  result: GitHubResult<null>,
+) => {
+  harness.sends[index]?.resolve(result);
+  await settle();
+};
+
+test('a bulk done starts one full refresh after its last send resolves', async () => {
+  const harness = makeHarness();
+
+  await startBulkDone(harness);
+
+  const readsBefore = harness.countOf('read');
+
+  for (let index = 0; index < 4; index += 1) {
+    await resolveSend(harness, index, sentOk);
+  }
+
+  await settle();
+  expect(harness.countOf('read')).toBe(readsBefore);
+
+  await resolveSend(harness, 4, sentOk);
+  await settle();
+
+  expect(harness.countOf('read')).toBe(readsBefore + 1);
+});
+
+test('a bulk done saves each record as soon as its own send succeeds', async () => {
+  const harness = makeHarness();
+  const threads = await startBulkDone(harness);
+  const recordsOf = () => harness.saves.at(-1)?.done.get(accountKeyOf(octocat));
+
+  await resolveSend(harness, 0, sentOk);
+
+  expect(harness.saves).toHaveLength(1);
+  expect(recordsOf()?.get(threads[0]?.id as ThreadId)).toBe('2026-01-05T08:00:01Z');
+
+  await resolveSend(harness, 1, sentOk);
+
+  expect(harness.saves).toHaveLength(2);
+  expect(recordsOf()?.get(threads[1]?.id as ThreadId)).toBe('2026-01-05T08:00:02Z');
+});
+
 test('stop sends a waiting done at once and saves its record', async () => {
   const harness = makeHarness();
   const one = makeThread('1', { updatedAt: '2026-01-05T08:00:00Z' });

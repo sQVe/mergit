@@ -10,6 +10,7 @@ export interface DoneQueueEffects {
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
   onSent: (thread: NotificationThread, account: string) => void;
+  onEntrySent: () => void;
   onFailed: (failed: readonly FailedThread[], total: number) => void;
 }
 
@@ -66,6 +67,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
       entry.state = 'sending';
 
       const failed: FailedThread[] = [];
+      let sentCount = 0;
 
       for (const thread of entry.threads) {
         if (isAborted()) {
@@ -76,6 +78,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
         const result = await sendSafely(effects, thread.id, sends.signal);
 
         if (result.ok) {
+          sentCount += 1;
           effects.onSent(thread, entry.account);
         } else {
           failed.push({ thread, failure: result.failure });
@@ -83,6 +86,10 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
       }
 
       entry.state = 'sent';
+
+      if (sentCount > 0) {
+        effects.onEntrySent();
+      }
 
       if (failed.length === entry.threads.length) {
         entries = entries.filter((candidate) => candidate !== entry);
