@@ -241,7 +241,7 @@ export const createSession = (effects: SessionEffects): Session => {
   const currentSeen = (): Map<ThreadId, string> | undefined =>
     currentLogin === null ? undefined : seenRecords.get(`${effects.host}/${currentLogin}`);
 
-  const recordSeen = (candidate: Snapshot): boolean => {
+  const recordSeen = (candidate: Snapshot, left: NotificationThread | undefined): boolean => {
     const seen = currentSeen();
     const login = currentLogin;
 
@@ -249,12 +249,13 @@ export const createSession = (effects: SessionEffects): Session => {
       return false;
     }
 
-    const selected = selectedThreadOf(candidate);
-
-    const seenNow = candidate.threads.filter(
-      (thread) =>
-        thread.id === selected?.id || isViewerActor(candidate.subjectFacts.get(thread.id), login),
+    const seenNow = candidate.threads.filter((thread) =>
+      isViewerActor(candidate.subjectFacts.get(thread.id), login),
     );
+
+    if (left !== undefined) {
+      seenNow.push(candidate.threads.find((thread) => thread.id === left.id) ?? left);
+    }
 
     let changed = false;
 
@@ -268,8 +269,14 @@ export const createSession = (effects: SessionEffects): Session => {
     return changed;
   };
 
-  const withMarkers = (candidate: Snapshot): Snapshot => {
-    if (recordSeen(candidate)) {
+  const threadLeftBy = (candidate: Snapshot): NotificationThread | undefined => {
+    const previous = selectedThreadOf(snapshot);
+
+    return previous?.id === selectedThreadOf(candidate)?.id ? undefined : previous;
+  };
+
+  const withMarkers = (candidate: Snapshot, left?: NotificationThread): Snapshot => {
+    if (recordSeen(candidate, left)) {
       saveStateQuietly('seen', candidate.grouping);
     }
 
@@ -295,7 +302,7 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const update = (candidate: Snapshot) => {
-    const next = withMarkers(candidate);
+    const next = withMarkers(candidate, threadLeftBy(candidate));
 
     if (next === snapshot) {
       return;
@@ -853,6 +860,10 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const stop = (deadline: AbortSignal): Promise<void> => {
+    if (recordSeen(snapshot, selectedThreadOf(snapshot))) {
+      saveStateQuietly('seen');
+    }
+
     stopped = true;
     controller?.abort();
     controller = null;

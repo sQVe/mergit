@@ -2485,32 +2485,73 @@ const stateWithSeen = (seen: SavedState['seen']): SavedState => ({
 const releaseOf = (id: string, updatedAt = '2026-01-02T10:00:00Z') =>
   makeThread(id, { subjectType: 'Release', subjectUrl: null, updatedAt });
 
-test('selecting a new thread clears its marker and saves its seen updated_at', async () => {
+const newThreadsFixture = () => {
   const [a, b] = [releaseOf('1'), releaseOf('2', '2026-01-03T10:00:00Z')];
 
-  const harness = makeHarness({
+  return {
+    a,
+    b,
     savedState: stateWithSeen(seenFor(octocat, [a, a.updatedAt], [b, '2026-01-01T10:00:00Z'])),
-  });
+  };
+};
+
+const seenOf = (state: SavedState | undefined, thread: NotificationThread) =>
+  state?.seen.get(accountKeyOf(octocat))?.get(thread.id);
+
+test('a selected new thread stays new until the cursor leaves it', async () => {
+  const { a, b, savedState } = newThreadsFixture();
+  const harness = makeHarness({ savedState });
 
   await harness.load(a, b);
   harness.selectThread(a);
-
-  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([b.id]);
-
   harness.session.send({ kind: 'selectNext' });
 
   expect(harness.selected()).toBe(`thread:${b.id}`);
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([b.id]);
+  expect(harness.saves.some((state) => seenOf(state, b) === b.updatedAt)).toBe(false);
+
+  harness.session.send({ kind: 'selectPrevious' });
+
+  expect(harness.selected()).toBe(`thread:${a.id}`);
   expect(harness.session.getSnapshot().newThreadIds.size).toBe(0);
+  expect(seenOf(harness.saves.at(-1), b)).toBe(b.updatedAt);
+});
+
+test('stopping with a new thread selected saves it as seen and a restart shows no marker', async () => {
+  const { a, b, savedState } = newThreadsFixture();
+  const harness = makeHarness({ savedState });
+
+  await harness.load(a, b);
+  harness.selectThread(b);
+
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([b.id]);
+
+  await harness.session.stop(new AbortController().signal);
 
   const lastSave = harness.saves.at(-1);
 
-  expect(lastSave?.seen.get(accountKeyOf(octocat))?.get(b.id)).toBe(b.updatedAt);
+  expect(seenOf(lastSave, b)).toBe(b.updatedAt);
 
   const restarted = makeHarness({ savedState: lastSave ?? null });
 
   await restarted.load(a, b);
+  restarted.selectThread(b);
 
   expect(restarted.session.getSnapshot().newThreadIds.size).toBe(0);
+});
+
+test('marking the selected new thread done records it as seen', async () => {
+  const { a, b, savedState } = newThreadsFixture();
+  const harness = makeHarness({ savedState });
+
+  await harness.load(a, b);
+  harness.selectThread(b);
+
+  expect(seenOf(harness.saves.at(-1), b)).toBeUndefined();
+
+  harness.session.send({ kind: 'markDone' });
+
+  expect(seenOf(harness.saves.at(-1), b)).toBe(b.updatedAt);
 });
 
 test('the first loaded refresh without a seen entry marks nothing new, saves every thread as seen, and a later change is new', async () => {
