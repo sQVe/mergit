@@ -15,7 +15,7 @@ export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 export interface Command {
   id: string;
   label: string;
-  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm';
+  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm' | 'input';
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   intent: (snapshot: Snapshot) => Intent;
@@ -179,6 +179,47 @@ export const catalog: readonly Command[] = [
     keys: ['u'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'application', intent: { kind: 'undoDone' } }),
+  },
+  {
+    id: 'openQuery',
+    label: 'Filter the list',
+    scope: 'list',
+    keys: ['/'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'openQuery' } }),
+  },
+  {
+    id: 'clearQuery',
+    label: 'Clear the filter',
+    scope: 'list',
+    keys: ['escape'],
+    disabledReason: (snapshot) =>
+      snapshot.appliedQuery === null ? 'No filter is active.' : undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'clearQuery' } }),
+  },
+  {
+    id: 'submitInput',
+    label: 'Keep the filter',
+    scope: 'input',
+    keys: ['return'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'keepQuery' } }),
+  },
+  {
+    id: 'cancelInput',
+    label: 'Restore the previous filter',
+    scope: 'input',
+    keys: ['escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'restoreQuery' } }),
+  },
+  {
+    id: 'clearInput',
+    label: 'Clear the line',
+    scope: 'input',
+    keys: ['ctrl+u'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'editQuery', text: '' } }),
   },
   {
     id: 'closeDetail',

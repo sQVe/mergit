@@ -237,8 +237,11 @@ test('? opens the overlay with every command label and ? closes it', async () =>
   await press('?');
 
   const open = setup.captureCharFrame();
+  const listed = catalog.filter(
+    (command) => command.scope !== 'input' && command.scope !== 'confirm',
+  );
 
-  for (const command of catalog.filter((candidate) => candidate.scope !== 'confirm')) {
+  for (const command of listed) {
     expect(open).toContain(command.label);
   }
 
@@ -248,7 +251,7 @@ test('? opens the overlay with every command label and ? closes it', async () =>
 
   const closed = setup.captureCharFrame();
 
-  for (const command of catalog) {
+  for (const command of listed) {
     expect(closed).not.toContain(command.label);
   }
 });
@@ -1794,4 +1797,149 @@ test('confirm opens the repos captured when the dialog opened, not the refreshed
   await settle();
 
   expect(opens).toEqual(openedPages);
+});
+
+const queryThreads = [
+  treeThread(1, 'Zeta pull request', { repository: 'sqve/zeta' }),
+  treeThread(2, 'App pull request', { repository: 'acme/app' }),
+  treeThread(3, 'Web pull request', { repository: 'acme/web' }),
+  treeThread(4, 'App issue', {
+    repository: 'acme/app',
+    subjectType: 'Issue',
+    subjectUrl: 'https://api.github.com/repos/acme/app/issues/4',
+  }),
+];
+
+const typeText = async (setup: Setup, settle: () => Promise<void>, text: string) => {
+  await act(async () => {
+    await setup.mockInput.typeText(text);
+  });
+
+  await settle();
+};
+
+const pressCtrlU = async (setup: Setup, settle: () => Promise<void>) => {
+  await act(async () => {
+    setup.mockInput.pressKey('u', { ctrl: true });
+  });
+
+  await settle();
+};
+
+test('typing is:pr -repo:sqve/zeta after / shows only pull requests outside that repo', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'is:pr -repo:sqve/zeta');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('App pull request');
+  expect(frame).toContain('Web pull request');
+  expect(frame).not.toContain('Zeta pull request');
+  expect(frame).not.toContain('App issue');
+  expect(frame).toContain('/is:pr -repo:sqve/zeta');
+  expect(frame).toContain('2 matches');
+});
+
+test('repo: after a valid query keeps the last result and marks the error position', async () => {
+  // Every title holds "repo", so the partial words typed on the way keep matching.
+  const titled = queryThreads.map((thread) => ({ ...thread, title: `${thread.title} repo` }));
+  const { setup, press, settle } = await mount('dark', threadsEffects(titled));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'is:pr repo:');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const frame = lines.join('\n');
+
+  expect(frame).toContain('Zeta pull request repo');
+  expect(frame).toContain('Web pull request repo');
+  expect(frame).not.toContain('App issue');
+  expect(frame).toContain('3 matches');
+  expect(frame).toContain('Missing value for repo:.');
+
+  const queryLine = lines.findIndex((line) => line.startsWith('/is:pr repo:'));
+  const marker = lines[queryLine + 1] ?? '';
+
+  expect(queryLine).toBeGreaterThanOrEqual(0);
+  expect(marker.indexOf('^')).toBe((lines[queryLine]?.indexOf('repo:') ?? -2) + 5);
+});
+
+test('Enter keeps the query, Esc while editing restores the old one, Ctrl-U clears the line, and Esc in the list clears', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'is:issue');
+  await press('return');
+
+  const kept = setup.captureCharFrame();
+
+  expect(kept).toContain('App issue');
+  expect(kept).not.toContain('Zeta pull request');
+  expect(kept).toContain('1 match');
+
+  await press('/');
+  await typeText(setup, settle, ' acme');
+  await press('escape');
+
+  const restored = setup.captureCharFrame();
+
+  expect(restored).toContain('/is:issue');
+  expect(restored).not.toContain('/is:issue acme');
+  expect(restored).toContain('App issue');
+
+  await press('/');
+  await pressCtrlU(setup, settle);
+
+  const cleared = setup.captureCharFrame();
+
+  expect(cleared).toContain('Zeta pull request');
+  expect(cleared).not.toContain('/is:issue');
+
+  await press('return');
+  await press('/');
+  await typeText(setup, settle, 'is:issue');
+  await press('return');
+  await press('escape');
+
+  const listCleared = setup.captureCharFrame();
+
+  expect(listCleared).toContain('Zeta pull request');
+  expect(listCleared).not.toContain('/is:issue');
+});
+
+test('q typed in the open query line goes into the text and does not quit', async () => {
+  const { setup, press, settle, terminalIntents } = await mount(
+    'dark',
+    threadsEffects(queryThreads),
+  );
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'q');
+
+  expect(terminalIntents).toEqual([]);
+  expect(setup.captureCharFrame()).toContain('/q');
+});
+
+test('d on a group node under a query marks only its matching threads done', async () => {
+  const { setup, press, settle, sent } = await mount('dark', threadsEffects(queryThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'repo:acme/app');
+  await press('return');
+  await press('g');
+
+  await press('d');
+
+  const marks = sent.filter((intent) => (intent as { kind: string }).kind === 'markThreadsDone');
+
+  expect(marks).toEqual([
+    { kind: 'markThreadsDone', threadIds: [toThreadId('2'), toThreadId('4')] },
+  ]);
 });

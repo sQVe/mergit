@@ -101,8 +101,11 @@ const loadedThread = {
 
 const loadedSnapshot = { ...snapshot, threads: [loadedThread] };
 
+const globalOverlaps = (global: Command['scope'], other: Command['scope']): boolean =>
+  global === 'global' && other !== 'input';
+
 const scopesOverlap = (first: Command['scope'], second: Command['scope']): boolean =>
-  first === second || first === 'global' || second === 'global';
+  first === second || globalOverlaps(first, second) || globalOverlaps(second, first);
 
 const overlappingKeys = (commands: readonly Command[]): string[] => {
   const clashes: string[] = [];
@@ -256,4 +259,31 @@ test('o on a group node over 3 repos opens at once, and over 4 repos opens the d
   const four = groupOf(4);
 
   expect(four?.kind === 'ui' && four.action === 'askOpen' ? four.pages : []).toHaveLength(4);
+});
+
+test('the input commands act on the query line and clearQuery is disabled without a query', () => {
+  const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
+
+  expect(byId['openQuery']?.keys).toEqual(['/']);
+
+  expect(byId['submitInput']?.intent(snapshot)).toEqual({
+    kind: 'application',
+    intent: { kind: 'keepQuery' },
+  });
+
+  expect(byId['cancelInput']?.intent(snapshot)).toEqual({
+    kind: 'application',
+    intent: { kind: 'restoreQuery' },
+  });
+
+  expect(byId['clearInput']?.intent(snapshot)).toEqual({
+    kind: 'application',
+    intent: { kind: 'editQuery', text: '' },
+  });
+
+  expect(byId['clearQuery']?.disabledReason(snapshot)).toBeDefined();
+
+  expect(
+    byId['clearQuery']?.disabledReason({ ...snapshot, appliedQuery: { type: 'text', value: 'a' } }),
+  ).toBeUndefined();
 });

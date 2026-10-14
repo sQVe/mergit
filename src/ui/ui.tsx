@@ -6,11 +6,12 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
 import type { Session, Snapshot } from '../session/session.ts';
-import { visibleRows } from '../session/session.ts';
+import { matchCountOf, visibleRows } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
+import { InputLine } from './InputLine.tsx';
 import { hasNotice, Notice } from './Notice.tsx';
 import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
@@ -47,6 +48,7 @@ interface KeysProps extends AppProps {
   detailOpen: boolean;
   setDetailOpen: (open: boolean) => void;
   sideLayout: boolean;
+  queryOpen: boolean;
 }
 
 const sidePaneMinimumWidth = 90;
@@ -55,22 +57,31 @@ const sidePaneShare = 0.36;
 
 const isActive = (
   command: Command,
-  modals: { helpOpen: boolean; confirmOpen: boolean },
-  detailOpen: boolean,
+  state: { helpOpen: boolean; confirmOpen: boolean; detailOpen: boolean; queryOpen: boolean },
 ): boolean => {
+  const { helpOpen, confirmOpen, detailOpen, queryOpen } = state;
+
+  if (queryOpen) {
+    return command.scope === 'input';
+  }
+
+  if (command.scope === 'input') {
+    return false;
+  }
+
   if (command.scope === 'help') {
-    return modals.helpOpen;
+    return helpOpen;
   }
 
   if (command.scope === 'confirm') {
-    return modals.confirmOpen;
+    return confirmOpen;
   }
 
   if (command.scope === 'global') {
     return true;
   }
 
-  if (modals.helpOpen || modals.confirmOpen) {
+  if (helpOpen || confirmOpen) {
     return false;
   }
 
@@ -81,8 +92,8 @@ const Keys = (props: KeysProps): null => {
   const { session, onTerminalIntent, setHelpOpen, setDetailOpen } = props;
 
   const { openRequest, setOpenRequest } = props;
-  const modals = { helpOpen: props.helpOpen, confirmOpen: openRequest !== null };
-  const commands = props.catalog.filter((command) => isActive(command, modals, props.detailOpen));
+  const state = { ...props, confirmOpen: openRequest !== null };
+  const commands = props.catalog.filter((command) => isActive(command, state));
 
   const confirmOpen = () => {
     setOpenRequest(null);
@@ -145,6 +156,7 @@ const Keys = (props: KeysProps): null => {
       setOpenRequest,
       props.detailOpen,
       props.sideLayout,
+      props.queryOpen,
       props.catalog,
       session,
       onTerminalIntent,
@@ -154,6 +166,42 @@ const Keys = (props: KeysProps): null => {
   );
 
   return null;
+};
+
+const QueryLine = (props: {
+  session: Session;
+  snapshot: Snapshot;
+  palette: Palette;
+}): ReactNode => {
+  const { session, snapshot, palette } = props;
+  const { queryError } = snapshot;
+
+  if (!snapshot.queryOpen && snapshot.appliedQuery === null) {
+    return null;
+  }
+
+  const count = matchCountOf(snapshot);
+  const suffix = `${count} ${count === 1 ? 'match' : 'matches'}`;
+
+  return (
+    <box flexDirection="column" flexShrink={0}>
+      <InputLine
+        prompt="/"
+        value={snapshot.queryText}
+        palette={palette}
+        focused={snapshot.queryOpen}
+        suffix={suffix}
+        onInput={(text) => {
+          session.send({ kind: 'editQuery', text });
+        }}
+      />
+      {queryError === null ? null : (
+        <text fg={palette.error}>
+          {' '.repeat(queryError.position + 1)}^ {queryError.message}
+        </text>
+      )}
+    </box>
+  );
 };
 
 const Body = (props: {
@@ -246,6 +294,7 @@ export const App = (props: AppProps): ReactNode => {
         detailOpen={fullDetail}
         setDetailOpen={setDetailOpen}
         sideLayout={sideLayout}
+        queryOpen={snapshot.queryOpen}
       />
       <box flexDirection="column" flexGrow={1}>
         <Body
@@ -255,6 +304,7 @@ export const App = (props: AppProps): ReactNode => {
           paneWidth={paneWidth}
           fullDetail={fullDetail}
         />
+        <QueryLine session={props.session} snapshot={snapshot} palette={palette} />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />
