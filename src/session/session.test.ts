@@ -3375,6 +3375,24 @@ test('restoreQuery closes the line and brings back the earlier text and query', 
   expect(threadKeysOf(session)).toEqual(['thread:1', 'thread:2']);
 });
 
+test('an empty query line leaves no active query after Esc, Enter, or deleting the text', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+  session.send({ kind: 'openQuery' });
+  session.send({ kind: 'restoreQuery' });
+
+  const afterEscape = session.getSnapshot().appliedQuery;
+
+  session.send({ kind: 'openQuery' });
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+  session.send({ kind: 'editQuery', text: '  ' });
+  session.send({ kind: 'keepQuery' });
+
+  expect(afterEscape).toBeNull();
+  expect(session.getSnapshot().appliedQuery).toBeNull();
+});
+
 test('clearQuery clears the text, the error, and the applied query', async () => {
   const { session, load } = makeHarness();
 
