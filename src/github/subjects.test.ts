@@ -284,3 +284,23 @@ test('reads the latest actor and gives null for an unread event type', async () 
     null,
   ]);
 });
+
+test('stores a bot author login with the bot suffix', async () => {
+  const { effects, calls } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith({
+          state: 'OPEN',
+          author: { __typename: 'Bot', login: 'dependabot' },
+          timelineItems: { nodes: [] },
+        }),
+      },
+    }),
+  );
+
+  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+  const sentQuery = readQuery(calls[0] ?? []);
+
+  expect(sentQuery).toContain('author { __typename login }');
+  expect(result[0]?.facts?.author).toBe('dependabot[bot]');
+});

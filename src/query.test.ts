@@ -1,7 +1,14 @@
 import { expect, test } from 'bun:test';
 
-import { evaluate, searchQuery } from './query.ts';
-import type { Query } from './query.ts';
+import {
+  evaluate,
+  filterCandidates,
+  filterQuery,
+  formatFilter,
+  parseFilters,
+  searchQuery,
+} from './query.ts';
+import type { Filter, Query } from './query.ts';
 import type { NotificationThread, SubjectFacts } from './work/work.ts';
 import { toThreadId } from './work/work.ts';
 
@@ -162,4 +169,213 @@ test('searchQuery treats field syntax as plain text', () => {
 
   expect(run(query)).toBe(false);
   expect(run(query, { thread: { title: 'Explain repo: syntax' } })).toBe(true);
+});
+
+const filtersOf = (filterText: string): Filter[] => {
+  const parsed = parseFilters(filterText);
+
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+
+  return parsed.filters;
+};
+
+const runFilters = (filterText: string, overrides: Overrides = {}) => {
+  const query = filterQuery(filtersOf(filterText));
+
+  return query === null ? null : run(query, overrides);
+};
+
+test('negated filters of one field exclude each value', () => {
+  const filterText = '-repo:a/x -repo:b/x';
+
+  expect(runFilters(filterText, { thread: { repository: 'a/x' } })).toBe(false);
+  expect(runFilters(filterText, { thread: { repository: 'b/x' } })).toBe(false);
+  expect(runFilters(filterText, { thread: { repository: 'c/x' } })).toBe(true);
+});
+
+test('positive filters of one field match any value and fields must all match', () => {
+  const filterText = 'repo:a/x repo:b/x kind:pr';
+
+  expect(runFilters(filterText, { thread: { repository: 'a/x' } })).toBe(true);
+  expect(runFilters(filterText, { thread: { repository: 'b/x' } })).toBe(true);
+  expect(runFilters(filterText, { thread: { repository: 'c/x' } })).toBe(false);
+  const issue = { repository: 'a/x', subjectType: 'Issue' };
+
+  expect(runFilters(filterText, { thread: issue })).toBe(false);
+});
+
+test('an empty filter list gives no query', () => {
+  expect(filterQuery([])).toBeNull();
+  expect(filtersOf('  ')).toEqual([]);
+});
+
+test('a bot pattern excludes bot authors and keeps unknown authors unknown', () => {
+  const filterText = '-author:*[bot]';
+
+  expect(runFilters(filterText, { facts: facts({ author: 'dependabot[bot]' }) })).toBe(false);
+  expect(runFilters(filterText, { facts: facts({ author: 'octocat' }) })).toBe(true);
+  expect(runFilters(filterText)).toBe('unknown');
+});
+
+test('title keeps titles that contain the value, ignoring case', () => {
+  const thread = { title: 'Chore: bump deps' };
+
+  expect(runFilters('title:chore', { thread })).toBe(true);
+  expect(runFilters('-title:chore', { thread })).toBe(false);
+  expect(runFilters('-title:chore')).toBe(true);
+  expect(runFilters('title:"fix the"')).toBe(true);
+});
+
+test('age compares with now', () => {
+  const thread = { updatedAt: '2026-01-05T12:00:00Z' };
+
+  expect(runFilters('age:>3d', { thread })).toBe(true);
+  expect(runFilters('age:>3d')).toBe(false);
+  expect(runFilters('age:<3d', { thread })).toBe(false);
+});
+
+test('an age without a unit is an error', () => {
+  expect(parseFilters('age:>3').ok).toBe(false);
+});
+
+test('GitHub spellings parse to the same filters as the Zeta form', () => {
+  expect(filtersOf('is:pr reason:review-requested')).toEqual([
+    { field: 'kind', value: 'pr', negated: false },
+    { field: 'reason', value: 'review_requested', negated: false },
+  ]);
+
+  expect(filtersOf('is:merged is:unread is:read author:app/dependabot')).toEqual([
+    { field: 'state', value: 'merged', negated: false },
+    { field: 'unread', value: 'true', negated: false },
+    { field: 'unread', value: 'false', negated: false },
+    { field: 'author', value: 'dependabot[bot]', negated: false },
+  ]);
+});
+
+test('several tokens give several filters', () => {
+  expect(filtersOf('author:@me state:open')).toEqual([
+    { field: 'author', value: '@me', negated: false },
+    { field: 'state', value: 'open', negated: false },
+  ]);
+});
+
+test('one invalid token gives only an error that names it', () => {
+  const parsed = parseFilters('state:open kind:bogus repo:a');
+
+  expect(parsed.ok).toBe(false);
+  expect(parsed.ok ? '' : parsed.error).toContain('kind:bogus');
+});
+
+test('invalid tokens are errors', () => {
+  const invalid = ['nope:1', 'plain', 'repo:a*b*c', 'new:maybe', 'state:gone', 'reason:', 'kind:x'];
+
+  for (const token of invalid) {
+    expect(parseFilters(token).ok).toBe(false);
+  }
+
+  const unknownField = parseFilters('nope:1');
+
+  expect(unknownField.ok ? '' : unknownField.error).toContain('author');
+});
+
+test('state:merged is unknown for a thread with no facts', () => {
+  expect(runFilters('state:merged')).toBe('unknown');
+  expect(runFilters('state:merged', { facts: facts({ state: 'merged' }) })).toBe(true);
+});
+
+test('a pattern with one star matches any run of characters', () => {
+  expect(runFilters('repo:sqve/*')).toBe(true);
+  expect(runFilters('repo:*/other')).toBe(true);
+  expect(runFilters('org:SQ*')).toBe(true);
+  expect(runFilters('repo:sqve/other*other')).toBe(false);
+});
+
+test('formatFilter prints text that parses to the same filter', () => {
+  const filterText =
+    '-repo:a/x kind:pr is:read reason:review-requested author:app/renovate title:"fix the" -title:chore age:>3d author:@me org:sqve';
+
+  const filters = filtersOf(filterText);
+  const printed = filters.map(formatFilter).join(' ');
+
+  expect(filtersOf(printed)).toEqual(filters);
+  expect(formatFilter(filters[1] as Filter)).toBe('kind:pr');
+  expect(formatFilter(filters[2] as Filter)).toBe('unread:false');
+  expect(formatFilter(filters[4] as Filter)).toBe('author:renovate[bot]');
+  expect(formatFilter(filters[5] as Filter)).toBe('title:"fix the"');
+});
+
+test('candidates list fields, then values with whole-list counts', () => {
+  const threads = [
+    makeThread({ id: toThreadId('1'), repository: 'a/x' }),
+    makeThread({ id: toThreadId('2'), repository: 'a/y', subjectType: 'Issue', unread: false }),
+    makeThread({ id: toThreadId('3'), repository: 'a/y' }),
+  ];
+
+  const candidates = filterCandidates(threads, {
+    factsOf: (thread) => (thread.id === toThreadId('3') ? facts({ author: 'mona' }) : undefined),
+    isNew: (thread) => thread.id === toThreadId('1'),
+    viewerLogin: 'mona',
+  });
+
+  const texts = candidates.values.map(
+    (candidate) => `${candidate.field}:${candidate.value}=${candidate.count}`,
+  );
+
+  expect(candidates.fields).toContain('author');
+  expect(texts).toContain('kind:pr=2');
+  expect(texts).toContain('kind:issue=1');
+  expect(texts).toContain('repo:a/y=2');
+  expect(texts).toContain('org:a=3');
+  expect(texts).toContain('author:mona=1');
+  expect(texts).toContain('author:@me=1');
+  expect(texts).toContain('state:open=1');
+  expect(texts).toContain('new:true=1');
+  expect(texts).toContain('unread:false=1');
+  expect(texts).toContain('reason:review_requested=3');
+  expect(texts).not.toContain('kind:release=0');
+  expect(texts).not.toContain('state:merged=0');
+});
+
+test('inherited object keys are not kinds', () => {
+  expect(parseFilters('kind:constructor').ok).toBe(false);
+  expect(parseFilters('is:__proto__').ok).toBe(false);
+  expect(parseFilters('is:constructor').ok).toBe(false);
+});
+
+test('an unterminated quote gives only an error that names the token', () => {
+  const parsed = parseFilters('author:a title:"fix state:open');
+
+  expect(parsed.ok).toBe(false);
+  expect(parsed.ok ? '' : parsed.error).toContain('title:"fix state:open');
+  expect('filters' in parsed).toBe(false);
+});
+
+test('reason matches exactly, ignoring case, and * is a literal character', () => {
+  const reason = { type: 'reason', value: '*' } as const;
+
+  expect(run(reason)).toBe(false);
+
+  expect(
+    run({ type: 'reason', value: 'review_requested' }, { thread: { reason: 'REVIEW_requested' } }),
+  ).toBe(true);
+
+  expect(runFilters('reason:*')).toBe(false);
+  expect(runFilters('reason:review*')).toBe(false);
+  expect(runFilters('reason:*', { thread: { reason: '*' } })).toBe(true);
+});
+
+test('filterQuery refuses filters with invalid values', () => {
+  const invalid: Filter[] = [
+    { field: 'kind', value: 'bogus', negated: false },
+    { field: 'state', value: 'gone', negated: false },
+    { field: 'age', value: '>3', negated: false },
+    { field: 'new', value: 'maybe', negated: false },
+    { field: 'unread', value: 'maybe', negated: false },
+  ];
+
+  for (const filter of invalid) {
+    expect(() => filterQuery([filter])).toThrow();
+  }
 });
