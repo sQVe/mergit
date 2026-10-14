@@ -10,6 +10,17 @@ export type FilterRow =
   | { kind: 'candidate'; filter: Filter; count: number }
   | { kind: 'field'; field: FilterField };
 
+interface Scored {
+  row: FilterRow;
+  score: number;
+  count: number;
+}
+
+interface ScoreRow {
+  scores: Float64Array;
+  runBonuses: Float64Array;
+}
+
 const sameFilter = (left: Filter, right: Filter): boolean =>
   left.field === right.field &&
   left.negated === right.negated &&
@@ -29,7 +40,7 @@ const typedRowsOf = (snapshot: Snapshot): FilterRow[] => {
   const parsed = parseFilters(snapshot.filterDraft);
 
   if (!parsed.ok) {
-    return [{ kind: 'error', message: parsed.error }];
+    return snapshot.filterDraft.includes(':') ? [{ kind: 'error', message: parsed.error }] : [];
   }
 
   const matching = threadsMatching(snapshot, openThreads(snapshot), filterQuery(parsed.filters));
@@ -37,22 +48,126 @@ const typedRowsOf = (snapshot: Snapshot): FilterRow[] => {
   return [{ kind: 'typed', filters: parsed.filters, count: matching.length }];
 };
 
-const matchesDraft = (filter: Filter, text: string): boolean => {
-  const negated = text.startsWith('-');
-  const body = negated ? text.slice(1) : text;
+// Scores follow fzf: a run of consecutive letters keeps the bonus of its first letter, and
+// opening a gap costs more than extending one, so an exact run beats scattered word starts.
+const wordBoundaries = new Set([':', '/', '-', '_', ' ']);
+const matchScore = 16;
+const boundaryBonus = 8;
+const consecutiveBonus = 4;
+const firstLetterMultiplier = 2;
+const gapStartPenalty = 3;
+const gapExtensionPenalty = 1;
 
-  if (filter.negated !== negated) {
-    return false;
-  }
+const boundaryBonusAt = (letters: string[], index: number): number => {
+  const previous = letters[index - 1];
 
-  const value = filter.value.toLowerCase();
-
-  return `${filter.field}:${value}`.startsWith(body) || value.startsWith(body);
+  return previous === undefined || wordBoundaries.has(previous) ? boundaryBonus : 0;
 };
 
-const candidateRowsOf = (snapshot: Snapshot, text: string): FilterRow[] => {
-  const negated = text.startsWith('-');
-  const body = negated ? text.slice(1) : text;
+const isSubsequence = (term: string[], letters: string[]): boolean => {
+  let found = 0;
+
+  for (let index = 0; index < letters.length && found < term.length; index += 1) {
+    if (letters[index] === term[found]) {
+      found += 1;
+    }
+  }
+
+  return found === term.length;
+};
+
+const firstScoreRow = (letters: string[], letter: string): ScoreRow => {
+  const scores = new Float64Array(letters.length).fill(-Infinity);
+  const runBonuses = new Float64Array(letters.length);
+
+  for (let index = 0; index < letters.length; index += 1) {
+    if (letters[index] === letter) {
+      const bonus = boundaryBonusAt(letters, index);
+
+      scores[index] = matchScore + bonus * firstLetterMultiplier;
+      runBonuses[index] = bonus;
+    }
+  }
+
+  return { scores, runBonuses };
+};
+
+const nextScoreRow = (previous: ScoreRow, letters: string[], letter: string): ScoreRow => {
+  const scores = new Float64Array(letters.length).fill(-Infinity);
+  const runBonuses = new Float64Array(letters.length);
+  let afterGap = -Infinity;
+
+  for (let index = 0; index < letters.length; index += 1) {
+    const beforeGap = previous.scores[index - 2] ?? -Infinity;
+
+    afterGap = Math.max(afterGap - gapExtensionPenalty, beforeGap - gapStartPenalty);
+
+    if (letters[index] === letter) {
+      const bonus = boundaryBonusAt(letters, index);
+      const adjacent = previous.scores[index - 1] ?? -Infinity;
+      const runBonus = Math.max(bonus, previous.runBonuses[index - 1] ?? 0, consecutiveBonus);
+      const consecutive = adjacent + matchScore + runBonus;
+      const gapped = afterGap + matchScore + bonus;
+      const keepsRun = consecutive >= gapped;
+
+      scores[index] = keepsRun ? consecutive : gapped;
+      runBonuses[index] = keepsRun ? runBonus : bonus;
+    }
+  }
+
+  return { scores, runBonuses };
+};
+
+const termScore = (term: string[], letters: string[]): number | null => {
+  const [first, ...rest] = term;
+
+  if (first === undefined || !isSubsequence(term, letters)) {
+    return null;
+  }
+
+  let row = firstScoreRow(letters, first);
+
+  for (const letter of rest) {
+    row = nextScoreRow(row, letters, letter);
+  }
+
+  const best = Math.max(...row.scores);
+
+  return Number.isFinite(best) ? best : null;
+};
+
+const draftScore = (terms: string[][], text: string): number | null => {
+  const letters = Array.from(text.toLowerCase());
+  let total = 0;
+
+  for (const term of terms) {
+    const score = termScore(term, letters);
+
+    if (score === null) {
+      return null;
+    }
+
+    total += score;
+  }
+
+  return total;
+};
+
+const termsOf = (draft: string): { negated: boolean; terms: string[][] } => {
+  const negated = draft.startsWith('-');
+  const body = negated ? draft.slice(1) : draft;
+
+  const words = body.split(/\s+/).filter((term) => term !== '');
+
+  return { negated, terms: words.map((word) => Array.from(word)) };
+};
+
+const byScoreThenCount = (left: Scored, right: Scored): number =>
+  right.score - left.score || right.count - left.count;
+
+const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
+  const { negated, terms } = termsOf(draft);
+  const listAll = draft === '';
 
   const candidates = filterCandidates(openThreads(snapshot), {
     factsOf: (thread) => snapshot.subjectFacts.get(thread.id),
@@ -60,53 +175,65 @@ const candidateRowsOf = (snapshot: Snapshot, text: string): FilterRow[] => {
     viewerLogin: snapshot.viewerLogin,
   });
 
-  const fields: FilterRow[] = candidates.fields
-    .filter((field) => field.startsWith(body))
-    .map((field) => ({ kind: 'field', field }));
+  const fields = candidates.fields.flatMap((field): Scored[] => {
+    const score = draftScore(terms, field);
 
-  const matching = candidates.values.filter(
-    ({ field, value }) =>
-      `${field}:${value}`.toLowerCase().startsWith(body) || value.toLowerCase().startsWith(body),
-  );
+    return score === null ? [] : [{ row: { kind: 'field', field }, score, count: 0 }];
+  });
 
-  const values: FilterRow[] = matching
-    .toSorted((left, right) => right.count - left.count)
-    .map(({ field, value, count }) => {
-      const filter = { field, value, negated };
-      const active = snapshot.filters.find((candidate) => sameFilter(candidate, filter));
+  const values = candidates.values.flatMap(({ field, value, count }): Scored[] => {
+    const score = draftScore(terms, `${field}:${value}`);
 
-      if (active !== undefined) {
-        return { kind: 'active', filter: active, count };
-      }
+    if (score === null) {
+      return [];
+    }
 
-      return { kind: 'candidate', filter, count };
-    });
+    const filter = { field, value, negated };
+    const active = snapshot.filters.find((candidate) => sameFilter(candidate, filter));
 
-  const listed = values.flatMap((row) => (row.kind === 'active' ? [row.filter] : []));
+    if (active !== undefined) {
+      return [{ row: { kind: 'active', filter: active, count }, score, count }];
+    }
 
-  const unlisted: FilterRow[] = snapshot.filters
-    .filter((filter) => !includesFilter(listed, filter) && matchesDraft(filter, text))
-    .map((filter) => ({ kind: 'active', filter, count: null }));
+    return [{ row: { kind: 'candidate', filter, count }, score, count }];
+  });
 
-  return [...unlisted, ...values, ...fields];
-};
+  const listed = values.flatMap(({ row }) => (row.kind === 'active' ? [row.filter] : []));
 
-export const filterRowsOf = (snapshot: Snapshot): FilterRow[] => {
-  const text = snapshot.filterDraft.trim().toLowerCase();
+  const unlisted = snapshot.filters.flatMap((filter): Scored[] => {
+    const score = draftScore(terms, `${filter.field}:${filter.value}`);
+    const wanted = listAll || filter.negated === negated;
 
-  if (text === '') {
+    if (includesFilter(listed, filter) || score === null || !wanted) {
+      return [];
+    }
+
+    return [{ row: { kind: 'active', filter, count: null }, score, count: 0 }];
+  });
+
+  const fieldRows = fields.toSorted(byScoreThenCount).map(({ row }) => row);
+
+  if (listAll) {
     const active: FilterRow[] = snapshot.filters.map((filter) => ({
       kind: 'active',
       filter,
       count: null,
     }));
 
-    const fields = candidateRowsOf(snapshot, '').filter((row) => row.kind === 'field');
+    const rest = values.filter(({ row }) => row.kind !== 'active');
 
-    return [...active, ...fields];
+    return [...active, ...rest.toSorted(byScoreThenCount).map(({ row }) => row), ...fieldRows];
   }
 
-  return [...typedRowsOf(snapshot), ...candidateRowsOf(snapshot, text)];
+  const valueRows = [...unlisted, ...values].toSorted(byScoreThenCount).map(({ row }) => row);
+
+  return [...valueRows, ...fieldRows];
+};
+
+export const filterRowsOf = (snapshot: Snapshot): FilterRow[] => {
+  const draft = snapshot.filterDraft.trim().toLowerCase();
+
+  return [...typedRowsOf(snapshot), ...candidateRowsOf(snapshot, draft)];
 };
 
 const clampedCursorOf = (snapshot: Snapshot, rows: FilterRow[]): number =>
@@ -126,9 +253,12 @@ const withFilters = (snapshot: Snapshot, filters: Filter[]): Snapshot =>
 
 const withDraft = (snapshot: Snapshot, filterDraft: string): Snapshot => {
   const drafted = { ...snapshot, filterDraft, filterCursor: 0 };
-  const startsOnError = filterRowsOf(drafted)[0]?.kind === 'error';
+  const rows = filterRowsOf(drafted);
+  const first = rows[0];
+  const emptyTyped = first?.kind === 'typed' && first.count === 0;
+  const skipsFirst = first?.kind === 'error' || emptyTyped;
 
-  return startsOnError ? { ...drafted, filterCursor: 1 } : drafted;
+  return skipsFirst ? { ...drafted, filterCursor: 1 } : drafted;
 };
 
 const finishRow = (snapshot: Snapshot, filters: Filter[]): Snapshot => {

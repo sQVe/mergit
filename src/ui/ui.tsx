@@ -6,13 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
-import {
-  filterCursorOf,
-  filterRowsOf,
-  formatFilter,
-  matchCountOf,
-  visibleRows,
-} from '../session/session.ts';
+import { filterRowsOf, formatFilter, matchCountOf, visibleRows } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 import type { CandidateItem } from './CandidateList.tsx';
 import { CandidateList } from './CandidateList.tsx';
@@ -59,6 +53,12 @@ interface KeysProps extends AppProps {
   sideLayout: boolean;
   searchOpen: boolean;
   filtersOpen: boolean;
+  composerBlind: boolean;
+}
+
+interface ComposerLayout {
+  candidateRows: number;
+  hintRows: number;
 }
 
 const sidePaneMinimumWidth = 90;
@@ -108,6 +108,16 @@ const isActive = (
   return command.scope === 'preview' ? detailOpen : !detailOpen;
 };
 
+const isRowAction = (command: Command, snapshot: Snapshot): boolean => {
+  const intent = command.intent(snapshot);
+
+  if (intent.kind !== 'application') {
+    return false;
+  }
+
+  return intent.intent.kind === 'applyFilterRow' || intent.intent.kind === 'takeFilterRow';
+};
+
 const Keys = (props: KeysProps): null => {
   const { session, onTerminalIntent, setHelpOpen, setDetailOpen } = props;
 
@@ -148,6 +158,10 @@ const Keys = (props: KeysProps): null => {
       return;
     }
 
+    if (props.composerBlind && isRowAction(command, snapshot)) {
+      return;
+    }
+
     const intent = command.intent(snapshot);
 
     if (intent.kind === 'application') {
@@ -179,6 +193,7 @@ const Keys = (props: KeysProps): null => {
       props.sideLayout,
       props.searchOpen,
       props.filtersOpen,
+      props.composerBlind,
       props.catalog,
       session,
       onTerminalIntent,
@@ -280,57 +295,51 @@ const itemOf = (row: FilterRow): CandidateItem => {
 
 const filterBarRows = (snapshot: Snapshot): number => (snapshot.filters.length === 0 ? 0 : 1);
 
-const fixedComposerRows = 2;
+const boxChromeRows = 3;
 const statusRows = 1;
-const minimumListRows = 1;
 
-const candidateRowsOf = (snapshot: Snapshot, height: number): number => {
-  if (!snapshot.filtersOpen) {
-    return 0;
-  }
-
-  const taken =
-    statusRows +
-    fixedComposerRows +
-    minimumListRows +
-    searchLineRows(snapshot) +
-    filterBarRows(snapshot);
-
+const composerLayoutOf = (snapshot: Snapshot, rowCount: number, height: number): ComposerLayout => {
+  const taken = statusRows + boxChromeRows + searchLineRows(snapshot) + filterBarRows(snapshot);
   const room = Math.max(0, height - taken);
+  const wanted = Math.min(composerListRows, rowCount);
+  const hintRows = room > wanted ? 1 : 0;
 
-  return Math.min(composerListRows, room, filterRowsOf(snapshot).length);
+  return { candidateRows: Math.min(wanted, room - hintRows), hintRows };
 };
-
-const composerRows = (snapshot: Snapshot, height: number): number =>
-  snapshot.filtersOpen ? candidateRowsOf(snapshot, height) + fixedComposerRows : 0;
 
 const FilterComposer = (props: {
   session: Session;
   snapshot: Snapshot;
   palette: Palette;
-  height: number;
+  rows: FilterRow[];
+  layout: ComposerLayout;
 }): ReactNode => {
-  const { session, snapshot, palette } = props;
+  const { session, snapshot, palette, rows, layout } = props;
 
   if (!snapshot.filtersOpen) {
     return null;
   }
 
-  const rows = filterRowsOf(snapshot);
+  const cursor = Math.max(0, Math.min(snapshot.filterCursor, rows.length - 1));
 
   return (
-    <box flexDirection="column" flexShrink={0}>
-      <CandidateList
-        items={rows.map((row) => itemOf(row))}
-        cursor={filterCursorOf(snapshot)}
-        height={candidateRowsOf(snapshot, props.height)}
-        palette={palette}
-      />
-      <box height={1} flexShrink={0}>
-        <text fg={palette.dim}>{hintOf(snapshot, rows)}</text>
-      </box>
+    <box
+      position="absolute"
+      top={filterBarRows(snapshot)}
+      left={0}
+      right={0}
+      border
+      borderStyle="rounded"
+      borderColor={palette.key}
+      title=" Filter "
+      backgroundColor={palette.overlayBackground}
+      zIndex={5}
+      flexDirection="column"
+      paddingLeft={1}
+      paddingRight={1}
+    >
       <InputLine
-        prompt="f"
+        prompt={null}
         value={snapshot.filterDraft}
         palette={palette}
         focused
@@ -338,6 +347,17 @@ const FilterComposer = (props: {
         onInput={(text) => {
           session.send({ kind: 'editFilterDraft', text });
         }}
+      />
+      {layout.hintRows === 0 ? null : (
+        <box height={1} flexShrink={0}>
+          <text fg={palette.dim}>{hintOf(snapshot, rows)}</text>
+        </box>
+      )}
+      <CandidateList
+        items={rows.map((row) => itemOf(row))}
+        cursor={cursor}
+        height={layout.candidateRows}
+        palette={palette}
       />
     </box>
   );
@@ -351,8 +371,6 @@ const Body = (props: {
   fullDetail: boolean;
 }): ReactNode => {
   const { snapshot, palette, width, paneWidth } = props;
-  const { height } = useTerminalDimensions();
-
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
 
   const facts =
@@ -385,9 +403,7 @@ const Body = (props: {
         snapshot={snapshot}
         palette={palette}
         width={width - paneWidth}
-        reservedRows={
-          searchLineRows(snapshot) + composerRows(snapshot, height) + filterBarRows(snapshot)
-        }
+        reservedRows={searchLineRows(snapshot) + filterBarRows(snapshot)}
       />
       {paneWidth > 0 ? (
         <DetailPane
@@ -427,6 +443,10 @@ export const App = (props: AppProps): ReactNode => {
     }
   }, [sideLayout]);
 
+  const composerRows = snapshot.filtersOpen ? filterRowsOf(snapshot) : [];
+  const composerLayout = composerLayoutOf(snapshot, composerRows.length, height);
+  const composerBlind = composerRows.length > 0 && composerLayout.candidateRows === 0;
+
   const widestPane = Math.floor(width * sidePaneShare);
   const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
 
@@ -443,11 +463,19 @@ export const App = (props: AppProps): ReactNode => {
         sideLayout={sideLayout}
         searchOpen={snapshot.searchOpen}
         filtersOpen={snapshot.filtersOpen}
+        composerBlind={composerBlind}
       />
       <box flexDirection="column" flexGrow={1}>
         {filterBarRows(snapshot) === 0 ? null : (
           <FilterBar filters={snapshot.filters} palette={palette} width={width} />
         )}
+        <FilterComposer
+          session={props.session}
+          snapshot={snapshot}
+          palette={palette}
+          rows={composerRows}
+          layout={composerLayout}
+        />
         <Body
           snapshot={snapshot}
           palette={palette}
@@ -456,12 +484,6 @@ export const App = (props: AppProps): ReactNode => {
           fullDetail={fullDetail}
         />
         <SearchLine session={props.session} snapshot={snapshot} palette={palette} />
-        <FilterComposer
-          session={props.session}
-          snapshot={snapshot}
-          palette={palette}
-          height={height}
-        />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />

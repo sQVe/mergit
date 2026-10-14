@@ -3654,7 +3654,7 @@ const describeRow = (row: FilterRow): string => {
   return 'error';
 };
 
-test('composer rows list active filters then fields when the draft is empty', async () => {
+test('composer rows list active filters, then values, then fields when the draft is empty', async () => {
   const { session, load } = makeHarness();
 
   await load(...filterThreads());
@@ -3664,8 +3664,9 @@ test('composer rows list active filters then fields when the draft is empty', as
   const rows = filterRowsOf(session.getSnapshot()).map(describeRow);
 
   expect(rows[0]).toBe('active repo:acme/app');
-  expect(rows[1]).toBe('field kind');
-  expect(rows.every((row) => row.startsWith('active') || row.startsWith('field'))).toBe(true);
+  expect(rows[1]).toMatch(/^candidate /);
+  expect(rows).toContain('field kind');
+  expect(rows.at(-1)).toMatch(/^field /);
   expect(filterCursorOf(session.getSnapshot())).toBe(0);
 });
 
@@ -3705,7 +3706,15 @@ test('takeFilterRow on a field puts the field name in the draft and moveFilterCu
 
   expect(filterCursorOf(session.getSnapshot())).toBe(0);
 
-  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+  session.send({ kind: 'editFilterDraft', text: 'rep' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+  const fieldAt = rows.findIndex((row) => row.kind === 'field' && row.field === 'repo');
+
+  for (let step = 0; step < fieldAt; step += 1) {
+    session.send({ kind: 'moveFilterCursor', direction: 'down' });
+  }
+
   session.send({ kind: 'takeFilterRow' });
 
   expect(session.getSnapshot().filterDraft).toBe('repo:');
@@ -3836,4 +3845,185 @@ test('the typed token counts open threads over the whole inbox, ignoring search 
   session.send({ kind: 'editFilterDraft', text: 'repo:hups-co/web' });
 
   expect(rowTexts(session)[0]).toBe('typed repo:hups-co/web 1');
+});
+
+const rowSummaryOf = (row: FilterRow): string => {
+  if (row.kind === 'candidate' || row.kind === 'active') {
+    return `${row.kind} ${formatFilter(row.filter)}`;
+  }
+
+  return row.kind === 'field' ? `field ${row.field}` : row.kind;
+};
+
+test.each(['repplat', 'rep plat'])(
+  '%s lists repo:hups-co/platform first and adds it',
+  async (draft) => {
+    const { session, load } = makeHarness();
+
+    await load(...filterThreads());
+    session.send({ kind: 'openFilters' });
+    session.send({ kind: 'editFilterDraft', text: draft });
+
+    const rows = filterRowsOf(session.getSnapshot());
+
+    expect(rows.map(rowSummaryOf)[0]).toBe('candidate repo:hups-co/platform');
+
+    session.send({ kind: 'applyFilterRow' });
+
+    expect(session.getSnapshot().filters).toEqual([
+      { field: 'repo', value: 'hups-co/platform', negated: false },
+    ]);
+  },
+);
+
+test('-rep plat lists the negated candidate first and adds a negated filter', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: '-rep plat' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+
+  expect(rows.map(rowSummaryOf)[0]).toBe('candidate -repo:hups-co/platform');
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([
+    { field: 'repo', value: 'hups-co/platform', negated: true },
+  ]);
+});
+
+test('loose text shows no error row, a bad token does, and a miss starts on the best candidate', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'rep plat' });
+
+  expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'error')).toBe(false);
+
+  session.send({ kind: 'editFilterDraft', text: 'age:>3' });
+
+  expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+
+  session.send({ kind: 'editFilterDraft', text: 'repo:plat' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+
+  expect(rows[0]).toMatchObject({ kind: 'typed', count: 0 });
+  expect(rowSummaryOf(rows[1] as FilterRow)).toBe('candidate repo:hups-co/platform');
+  expect(filterCursorOf(session.getSnapshot())).toBe(1);
+});
+
+test('an empty draft lists active chips, then values by count, then field names', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1', { repository: 'hups-co/platform' }),
+    makeThread('2', { repository: 'hups-co/web' }),
+    makeThread('3', { repository: 'acme/app' }),
+    makeThread('4', { repository: 'acme/app' }),
+    makeThread('5', { repository: 'acme/app' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'repo:hups-co/web');
+
+  const rows = filterRowsOf(session.getSnapshot());
+  const kinds = rows.map((row) => row.kind);
+  const firstField = kinds.indexOf('field');
+  const counts = rows.flatMap((row) => (row.kind === 'candidate' ? [row.count] : []));
+
+  expect(rowSummaryOf(rows[0] as FilterRow)).toBe('active repo:hups-co/web');
+  expect(rows.slice(1).some((row) => row.kind === 'active')).toBe(false);
+  expect(kinds.slice(1, firstField).every((kind) => kind === 'candidate')).toBe(true);
+  expect(kinds.slice(firstField).every((kind) => kind === 'field')).toBe(true);
+  expect(counts).toEqual(counts.toSorted((left, right) => right - left));
+  expect(rowSummaryOf(rows[1] as FilterRow)).toMatch(/^candidate /);
+  expect(counts[0]).toBeGreaterThanOrEqual(3);
+});
+
+test('a contiguous field match outranks separated initials in a long value', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1', { repository: 'acme/platform' }),
+    makeThread('2', { repository: 'react-event-processing-operator/service' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo' });
+
+  const summaries = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(summaries[0]).toBe('candidate repo:acme/platform');
+
+  expect(summaries.indexOf('candidate repo:acme/platform')).toBeLessThan(
+    summaries.indexOf('candidate org:react-event-processing-operator'),
+  );
+});
+
+test('a contiguous field match outranks initials spread over short words', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1', { repository: 'acme/platform' }),
+    makeThread('2', { repository: 'red-env-prod-ops/service' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo' });
+
+  const summaries = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(summaries.indexOf('candidate repo:acme/platform')).toBeLessThan(
+    summaries.indexOf('candidate org:red-env-prod-ops'),
+  );
+});
+
+test('an emoji in the draft finds an active title chip that holds it', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'title:"🚀 release"');
+  session.send({ kind: 'editFilterDraft', text: '🚀' });
+
+  const summaries = filterRowsOf(session.getSnapshot()).map(describeRow);
+
+  expect(summaries).toContain('active title:"🚀 release"');
+});
+
+const medianRowsTime = async (segments: number): Promise<number> => {
+  const { session, load } = makeHarness();
+  const longName = 'segment-'.repeat(segments);
+
+  const threads = Array.from({ length: 500 }, (_, index) =>
+    makeThread(String(index), {
+      repository: `org-${index % 50}/${longName}${index % 250}`,
+    }),
+  );
+
+  await load(...threads);
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'rep seg tent' });
+  filterRowsOf(session.getSnapshot());
+
+  const times = [0, 1, 2].map(() => {
+    const started = performance.now();
+
+    filterRowsOf(session.getSnapshot());
+
+    return performance.now() - started;
+  });
+
+  return times.toSorted((left, right) => left - right)[1] ?? Infinity;
+};
+
+test('filterRowsOf time grows linearly with the length of candidate values', async () => {
+  const shortTime = await medianRowsTime(50);
+  const longTime = await medianRowsTime(200);
+
+  expect(longTime / shortTime).toBeLessThan(6);
 });

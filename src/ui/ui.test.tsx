@@ -2065,6 +2065,14 @@ const mountFilters = async (width = 60) => {
   return mounted;
 };
 
+const composerInputOf = (frame: string): string | undefined => {
+  const lines = frame.split('\n');
+  const titleAt = lines.findIndex((line) => line.includes('─ Filter ─'));
+  const line = lines[titleAt + 1];
+
+  return titleAt === -1 ? undefined : line?.replace(/^│/, '').replace(/│$/, '').trim();
+};
+
 const addAuthorChip = async (mounted: Awaited<ReturnType<typeof mountFilters>>, text: string) => {
   const { setup, press, settle } = mounted;
 
@@ -2092,6 +2100,7 @@ test('Enter on a candidate adds a chip and narrows the list', async () => {
   await press('f');
   await typeText(setup, settle, 'author:mona');
   await press('return');
+  await press('escape');
 
   const frame = setup.captureCharFrame();
   const chipRow = frame.split('\n')[0] ?? '';
@@ -2102,7 +2111,7 @@ test('Enter on a candidate adds a chip and narrows the list', async () => {
   expect(frame).not.toContain('Beta change');
 });
 
-test('a field name that is an object key keeps the composer and list on screen', async () => {
+test('a field name that is an object key keeps the composer on screen and the list returns after Esc', async () => {
   const { setup, press, settle } = await mountFilters();
 
   await press('f');
@@ -2110,8 +2119,12 @@ test('a field name that is an object key keeps the composer and list on screen',
 
   const protoLines = setup.captureCharFrame().split('\n');
 
-  expect(protoLines.some((line) => line.startsWith('f__proto__:'))).toBe(true);
-  expect(protoLines.some((line) => line.includes('Alpha change'))).toBe(true);
+  expect(composerInputOf(setup.captureCharFrame())).toBe('__proto__:');
+  expect(protoLines.some((line) => line.includes('Alpha change'))).toBe(false);
+
+  await press('escape');
+
+  expect(setup.captureCharFrame()).toContain('Alpha change');
 
   const second = await mountFilters();
 
@@ -2120,7 +2133,7 @@ test('a field name that is an object key keeps the composer and list on screen',
 
   const constructorFrame = second.setup.captureCharFrame();
 
-  expect(constructorFrame).toContain('fconstructor:');
+  expect(composerInputOf(constructorFrame)).toBe('constructor:');
   expect(constructorFrame).not.toContain('function');
 });
 
@@ -2133,6 +2146,7 @@ test('an invalid age shows an error and Enter adds no chip', async () => {
   expect(setup.captureCharFrame()).toContain('age takes');
 
   await press('return');
+  await press('escape');
 
   const frame = setup.captureCharFrame();
 
@@ -2148,11 +2162,12 @@ test('Tab on a chip edits it and Enter replaces it', async () => {
   await addAuthorChip(mounted, 'author:mona');
   await press('tab');
 
-  expect(setup.captureCharFrame()).toContain('fauthor:mona');
+  expect(composerInputOf(setup.captureCharFrame())).toBe('author:mona');
 
   await pressCtrlU(setup, settle);
   await typeText(setup, settle, 'author:octo');
   await press('return');
+  await press('escape');
 
   const frame = setup.captureCharFrame();
   const chipRow = frame.split('\n')[0] ?? '';
@@ -2173,10 +2188,14 @@ test('Esc during an edit keeps the old chip', async () => {
   await typeText(setup, settle, 'author:octo');
   await press('escape');
 
+  expect(composerInputOf(setup.captureCharFrame())).toBe('');
+
+  await press('escape');
+
   const frame = setup.captureCharFrame();
 
   expect(frame.split('\n')[0]).toContain('author:mona');
-  expect(frame).not.toContain('fauthor');
+  expect(frame).toContain('Gamma change');
   expect(frame).not.toContain('Alpha change');
 });
 
@@ -2256,7 +2275,7 @@ test('Backspace on an empty draft during an edit closes the composer and keeps t
 
   await press('j');
 
-  expect(setup.captureCharFrame()).not.toContain('fj');
+  expect(composerInputOf(setup.captureCharFrame())).toBeUndefined();
 });
 
 test('Esc during an edit cancels the edit and leaves the composer open', async () => {
@@ -2268,7 +2287,7 @@ test('Esc during an edit cancels the edit and leaves the composer open', async (
   await press('escape');
   await press('j');
 
-  expect(setup.captureCharFrame()).toContain('fj');
+  expect(composerInputOf(setup.captureCharFrame())).toBe('j');
 });
 
 test('-, f, j, and F typed in the composer go into the draft and run no list command', async () => {
@@ -2280,7 +2299,7 @@ test('-, f, j, and F typed in the composer go into the draft and run no list com
 
   const frame = setup.captureCharFrame();
 
-  expect(frame).toContain('f-fjF');
+  expect(composerInputOf(frame)).toBe('-fjF');
   expect(frame.split('\n')[0]).toContain('author:mona');
   expect(frame).not.toContain('Alpha change');
   await press('escape');
@@ -2295,13 +2314,11 @@ test('Backspace on a non-empty draft deletes a character and keeps the composer 
 
   const frame = setup.captureCharFrame();
 
-  expect(frame).toContain('fa');
-  expect(frame).not.toContain('fab');
-  expect(frame).toContain('f');
+  expect(composerInputOf(frame)).toBe('a');
 
   await typeText(setup, settle, 'u');
 
-  expect(setup.captureCharFrame()).toContain('fau');
+  expect(composerInputOf(setup.captureCharFrame())).toBe('au');
 });
 
 const manyAuthors = Array.from({ length: 12 }, (_, index) =>
@@ -2353,7 +2370,7 @@ test('moving the cursor past the last shown candidate scrolls the list', async (
   expect(firstStillShown).toBe(false);
 });
 
-test('in a short terminal the composer keeps the input and status lines visible', async () => {
+test('in a short terminal the composer keeps the input, a candidate, and the status line visible', async () => {
   const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 9);
   const { setup, press, settle } = mounted;
 
@@ -2364,9 +2381,9 @@ test('in a short terminal the composer keeps the input and status lines visible'
 
   const lines = setup.captureCharFrame().split('\n');
 
-  expect(lines.some((line) => line.startsWith('fauthor:'))).toBe(true);
+  expect(composerInputOf(lines.join('\n'))).toBe('author:');
   expect(lines.at(-2)).toContain('? help');
-  expect(lines.some((line) => line.includes('▾ Subscribed'))).toBe(true);
+  expect(lines.some((line) => /author:user00\s+1/.test(line))).toBe(true);
 });
 
 test('chips of a field are joined by or only when positive; negated chips stand apart', async () => {
@@ -2408,6 +2425,7 @@ test('filters that hide every open thread show a no-match notice, not the empty 
   await press('f');
   await typeText(setup, settle, 'author:nobody');
   await press('return');
+  await press('escape');
 
   const frame = setup.captureCharFrame();
 
@@ -2433,4 +2451,88 @@ test('an inbox with no open threads keeps the empty inbox notice', async () => {
   await press('r');
 
   expect(setup.captureCharFrame()).toContain('No open notifications');
+});
+
+test('the composer box sits on the top row with no chips and has no prompt', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, 'ab');
+
+  const lines = setup.captureCharFrame().split('\n');
+
+  expect(lines[0]).toContain('─ Filter ─');
+  expect(lines[1]?.startsWith('│ ab')).toBe(true);
+});
+
+test('the composer box sits directly under the chip bar', async () => {
+  const mounted = await mountFilters();
+
+  await addAuthorChip(mounted, 'author:mona');
+
+  const lines = mounted.setup.captureCharFrame().split('\n');
+
+  expect(lines[0]).toContain('author:mona');
+  expect(lines[1]).toContain('─ Filter ─');
+});
+
+test('opening the composer leaves the thread rows below the box where they were', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 30);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+
+  const rowOf = (label: string): number =>
+    setup
+      .captureCharFrame()
+      .split('\n')
+      .findIndex((line) => line.includes(label));
+
+  const before = rowOf('Change 12');
+
+  await press('f');
+  await typeText(setup, settle, 'author:user0');
+
+  expect(before).toBeGreaterThan(0);
+  expect(rowOf('Change 12')).toBe(before);
+
+  await press('escape');
+
+  expect(rowOf('Change 12')).toBe(before);
+});
+
+test('in a very short terminal Enter applies the row shown under the cursor or nothing', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 6);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+  await press('f');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const shown = lines.filter((line) => /^│\s+(✓ )?\S.*\d\s*│$/.test(line));
+
+  expect(shown.length).toBeGreaterThanOrEqual(1);
+
+  const label = shown[0]?.replace(/^│\s*/, '').split(/\s+/)[0] ?? '';
+
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow).toContain(label);
+});
+
+test('in a terminal too short for any candidate row Enter adds nothing', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 4);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+  await press('f');
+  await press('return');
+  await press('escape');
+
+  expect(setup.captureCharFrame().split('\n')[0]).not.toContain('kind:');
 });
