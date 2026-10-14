@@ -4514,3 +4514,34 @@ test('a negated row hides what its positive row describes, and an explicit value
     'Pull requests and issues you opened with the account Zeta is signed in to.',
   );
 });
+
+test('a negated row counts the threads it keeps, before and after it is applied', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1'),
+    makeThread('2'),
+    makeThread('3'),
+    makeThread('4', { subjectType: 'Issue' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: '-kind:pr' });
+
+  const before = filterRowsOf(session.getSnapshot()).map(describeRow);
+
+  session.send({ kind: 'applyFilterRow' });
+  session.send({ kind: 'editFilterDraft', text: '-kind:pr' });
+
+  const after = filterRowsOf(session.getSnapshot()).map(describeRow);
+
+  session.send({ kind: 'editFilterDraft', text: '-kind' });
+
+  const candidates = filterRowsOf(session.getSnapshot()).map(describeRow);
+
+  expect(before[0]).toBe('typed -kind:pr 1');
+  expect(before).not.toContain('candidate -kind:pr 3');
+  expect(after).toEqual(['active -kind:pr 1']);
+  expect(candidates).toContain('active -kind:pr 1');
+  expect(candidates).toContain('candidate -kind:issue 3');
+});

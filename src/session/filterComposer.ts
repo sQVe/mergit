@@ -262,19 +262,30 @@ const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
     viewerLogin: snapshot.viewerLogin,
   });
 
+  // Each thread has one known value per field, so the field's known threads are the sum of its
+  // value counts, and a negated value keeps the rest. `@me` repeats the viewer's own login.
+  const knownByField = new Map<FilterField, number>();
+
+  for (const { field, value, count } of candidates.values) {
+    if (value !== '@me') {
+      knownByField.set(field, (knownByField.get(field) ?? 0) + count);
+    }
+  }
+
   const fields = candidates.fields.flatMap((field): Scored[] => {
     const score = draftScore(terms, field);
 
     return score === null ? [] : [{ row: { kind: 'field', field }, field, score, count: 0 }];
   });
 
-  const values = candidates.values.flatMap(({ field, value, count }): Scored[] => {
+  const values = candidates.values.flatMap(({ field, value, count: matched }): Scored[] => {
     const score = draftScore(terms, `${field}:${value}`);
 
     if (score === null) {
       return [];
     }
 
+    const count = negated ? (knownByField.get(field) ?? 0) - matched : matched;
     const filter = { field, value, negated };
     const active = snapshot.filters.find((candidate) => sameFilter(candidate, filter));
 
@@ -352,8 +363,10 @@ export const filterRowsOf = (snapshot: Snapshot): FilterRow[] => {
 
   const activeTwin = candidates.find((row) => row.kind === 'active' && twinOf(row, typed));
 
-  if (activeTwin !== undefined) {
-    return [activeTwin, ...candidates.filter((row) => row !== activeTwin)];
+  if (activeTwin?.kind === 'active' && typed.kind === 'typed') {
+    const counted = { ...activeTwin, count: typed.count };
+
+    return [counted, ...candidates.filter((row) => row !== activeTwin)];
   }
 
   return [typed, ...candidates.filter((row) => !twinOf(row, typed))];
