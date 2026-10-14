@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type { Filter } from '../session/session.ts';
+import type { Filter, Snapshot } from '../session/session.ts';
 import { formatFilter } from '../session/session.ts';
 import { ellipsized } from './CandidateList.tsx';
 import type { Palette } from './palette.ts';
@@ -59,6 +59,9 @@ const shownChips = (chips: Chip[], width: number): Chip[] => {
 
   return chips.slice(0, 1);
 };
+
+export const filterBarRows = (snapshot: Snapshot): number =>
+  snapshot.filters.length === 0 ? 0 : 1;
 
 export const FilterBar = (props: {
   filters: Filter[];
