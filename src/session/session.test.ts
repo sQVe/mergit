@@ -3435,6 +3435,32 @@ test('applyFilterRow on an active filter removes it', async () => {
   expect(sortedThreadKeysOf(session)).toEqual(['thread:1', 'thread:2', 'thread:3']);
 });
 
+test('age:>3d keeps only older threads, and the list does not change while it is typed', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1', { updatedAt: '2026-01-02T10:00:00Z' }),
+    makeThread('2', { updatedAt: '2026-01-31T12:00:00Z' }),
+    makeThread('3', { updatedAt: '2026-01-20T12:00:00Z' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+
+  const before = sortedThreadKeysOf(session);
+  const token = 'age:>3d';
+
+  for (let length = 1; length <= token.length; length += 1) {
+    session.send({ kind: 'editFilterDraft', text: token.slice(0, length) });
+
+    expect(sortedThreadKeysOf(session)).toEqual(before);
+  }
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(before).toEqual(['thread:1', 'thread:2', 'thread:3']);
+  expect(sortedThreadKeysOf(session)).toEqual(['thread:1', 'thread:3']);
+});
+
 test('editing age:>3d to age:>14d replaces the filter', async () => {
   const { session, load } = makeHarness();
 
