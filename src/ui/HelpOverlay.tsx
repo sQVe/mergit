@@ -30,6 +30,7 @@ export const HelpOverlay = (props: {
           <text fg={palette.key}>{command.keys.join(' ')}</text>
           <text fg={palette.text}>{command.label}</text>
           {command.scope === 'input' ? <text fg={palette.dim}>(search line)</text> : null}
+          {command.scope === 'filter' ? <text fg={palette.dim}>(filter composer)</text> : null}
         </box>
       ))}
     </box>

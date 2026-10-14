@@ -5,11 +5,20 @@ import type { ReactNode } from 'react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
-import type { Session, Snapshot } from '../session/session.ts';
-import { matchCountOf, visibleRows } from '../session/session.ts';
+import type { FilterRow, Session, Snapshot } from '../session/session.ts';
+import {
+  filterCursorOf,
+  filterRowsOf,
+  formatFilter,
+  matchCountOf,
+  visibleRows,
+} from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
+import type { CandidateItem } from './CandidateList.tsx';
+import { CandidateList } from './CandidateList.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
+import { FilterBar } from './FilterBar.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
 import { InputLine } from './InputLine.tsx';
 import { hasNotice, Notice } from './Notice.tsx';
@@ -49,6 +58,7 @@ interface KeysProps extends AppProps {
   setDetailOpen: (open: boolean) => void;
   sideLayout: boolean;
   searchOpen: boolean;
+  filtersOpen: boolean;
 }
 
 const sidePaneMinimumWidth = 90;
@@ -57,15 +67,25 @@ const sidePaneShare = 0.36;
 
 const isActive = (
   command: Command,
-  state: { helpOpen: boolean; confirmOpen: boolean; detailOpen: boolean; searchOpen: boolean },
+  state: {
+    helpOpen: boolean;
+    confirmOpen: boolean;
+    detailOpen: boolean;
+    searchOpen: boolean;
+    filtersOpen: boolean;
+  },
 ): boolean => {
-  const { helpOpen, confirmOpen, detailOpen, searchOpen } = state;
+  const { helpOpen, confirmOpen, detailOpen, searchOpen, filtersOpen } = state;
 
   if (searchOpen) {
     return command.scope === 'input';
   }
 
-  if (command.scope === 'input') {
+  if (filtersOpen) {
+    return command.scope === 'filter';
+  }
+
+  if (command.scope === 'input' || command.scope === 'filter') {
     return false;
   }
 
@@ -158,6 +178,7 @@ const Keys = (props: KeysProps): null => {
       props.detailOpen,
       props.sideLayout,
       props.searchOpen,
+      props.filtersOpen,
       props.catalog,
       session,
       onTerminalIntent,
@@ -205,6 +226,123 @@ const SearchLine = (props: {
   );
 };
 
+const composerListRows = 8;
+
+const valueHints: Record<string, string> = {
+  kind: 'pr, issue, release, discussion, commit, or ci',
+  repo: 'owner/name, one * allowed',
+  org: 'owner, one * allowed',
+  author: 'login, one * allowed',
+  reason: 'a reason such as mention',
+  state: 'open, closed, or merged',
+  new: 'true or false',
+  unread: 'true or false',
+  age: '<N or >N with m h d w',
+  title: 'words in the title',
+};
+
+const hintOf = (snapshot: Snapshot, rows: FilterRow[]): string => {
+  const field = snapshot.filterDraft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
+  const hasValue = snapshot.filterDraft.includes(':');
+  const valueHint = hasValue ? valueHints[field] : undefined;
+
+  if (valueHint !== undefined) {
+    return valueHint;
+  }
+
+  const fields = rows.flatMap((row) => (row.kind === 'field' ? [row.field] : []));
+
+  return fields.join(' ');
+};
+
+const itemOf = (row: FilterRow): CandidateItem => {
+  if (row.kind === 'error') {
+    return { label: row.message, count: null, marked: false, failed: true };
+  }
+
+  if (row.kind === 'typed') {
+    const label = row.filters.map((filter) => formatFilter(filter)).join(' ');
+
+    return { label, count: row.count, marked: false, failed: false };
+  }
+
+  if (row.kind === 'field') {
+    return { label: `${row.field}:`, count: null, marked: false, failed: false };
+  }
+
+  return {
+    label: formatFilter(row.filter),
+    count: row.count,
+    marked: row.kind === 'active',
+    failed: false,
+  };
+};
+
+const filterBarRows = (snapshot: Snapshot): number => (snapshot.filters.length === 0 ? 0 : 1);
+
+const fixedComposerRows = 2;
+const statusRows = 1;
+const minimumListRows = 1;
+
+const candidateRowsOf = (snapshot: Snapshot, height: number): number => {
+  if (!snapshot.filtersOpen) {
+    return 0;
+  }
+
+  const taken =
+    statusRows +
+    fixedComposerRows +
+    minimumListRows +
+    searchLineRows(snapshot) +
+    filterBarRows(snapshot);
+
+  const room = Math.max(0, height - taken);
+
+  return Math.min(composerListRows, room, filterRowsOf(snapshot).length);
+};
+
+const composerRows = (snapshot: Snapshot, height: number): number =>
+  snapshot.filtersOpen ? candidateRowsOf(snapshot, height) + fixedComposerRows : 0;
+
+const FilterComposer = (props: {
+  session: Session;
+  snapshot: Snapshot;
+  palette: Palette;
+  height: number;
+}): ReactNode => {
+  const { session, snapshot, palette } = props;
+
+  if (!snapshot.filtersOpen) {
+    return null;
+  }
+
+  const rows = filterRowsOf(snapshot);
+
+  return (
+    <box flexDirection="column" flexShrink={0}>
+      <CandidateList
+        items={rows.map((row) => itemOf(row))}
+        cursor={filterCursorOf(snapshot)}
+        height={candidateRowsOf(snapshot, props.height)}
+        palette={palette}
+      />
+      <box height={1} flexShrink={0}>
+        <text fg={palette.dim}>{hintOf(snapshot, rows)}</text>
+      </box>
+      <InputLine
+        prompt="f"
+        value={snapshot.filterDraft}
+        palette={palette}
+        focused
+        suffix={null}
+        onInput={(text) => {
+          session.send({ kind: 'editFilterDraft', text });
+        }}
+      />
+    </box>
+  );
+};
+
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -213,6 +351,7 @@ const Body = (props: {
   fullDetail: boolean;
 }): ReactNode => {
   const { snapshot, palette, width, paneWidth } = props;
+  const { height } = useTerminalDimensions();
 
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
 
@@ -246,7 +385,9 @@ const Body = (props: {
         snapshot={snapshot}
         palette={palette}
         width={width - paneWidth}
-        reservedRows={searchLineRows(snapshot)}
+        reservedRows={
+          searchLineRows(snapshot) + composerRows(snapshot, height) + filterBarRows(snapshot)
+        }
       />
       {paneWidth > 0 ? (
         <DetailPane
@@ -275,7 +416,7 @@ export const App = (props: AppProps): ReactNode => {
   );
 
   const palette = pickPalette(themeMode);
-  const { width } = useTerminalDimensions();
+  const { width, height } = useTerminalDimensions();
 
   const sideLayout = width >= sidePaneMinimumWidth;
   const fullDetail = detailOpen && !sideLayout;
@@ -301,8 +442,12 @@ export const App = (props: AppProps): ReactNode => {
         setDetailOpen={setDetailOpen}
         sideLayout={sideLayout}
         searchOpen={snapshot.searchOpen}
+        filtersOpen={snapshot.filtersOpen}
       />
       <box flexDirection="column" flexGrow={1}>
+        {filterBarRows(snapshot) === 0 ? null : (
+          <FilterBar filters={snapshot.filters} palette={palette} width={width} />
+        )}
         <Body
           snapshot={snapshot}
           palette={palette}
@@ -311,6 +456,12 @@ export const App = (props: AppProps): ReactNode => {
           fullDetail={fullDetail}
         />
         <SearchLine session={props.session} snapshot={snapshot} palette={palette} />
+        <FilterComposer
+          session={props.session}
+          snapshot={snapshot}
+          palette={palette}
+          height={height}
+        />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />

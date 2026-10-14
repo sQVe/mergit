@@ -3479,6 +3479,24 @@ test('closeFilters during an edit cancels the edit and keeps age:>3d', async () 
   expect(session.getSnapshot().filtersOpen).toBe(false);
 });
 
+test('leaveFilters during an edit closes the composer and keeps the old chip', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'age:>3d');
+  session.send({ kind: 'takeFilterRow' });
+  session.send({ kind: 'editFilterDraft', text: '' });
+  session.send({ kind: 'leaveFilters' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.filters).toEqual([{ field: 'age', value: '>3d', negated: false }]);
+  expect(snapshot.filtersOpen).toBe(false);
+  expect(snapshot.filterEditing).toBeNull();
+  expect(snapshot.filterDraft).toBe('');
+});
+
 test('typing an invalid token changes neither filters nor rows and applyFilterRow adds nothing', async () => {
   const { session, load } = makeHarness();
 

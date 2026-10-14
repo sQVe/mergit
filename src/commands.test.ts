@@ -102,7 +102,7 @@ const loadedThread = {
 const loadedSnapshot = { ...snapshot, threads: [loadedThread] };
 
 const globalOverlaps = (global: Command['scope'], other: Command['scope']): boolean =>
-  global === 'global' && other !== 'input';
+  global === 'global' && other !== 'input' && other !== 'filter';
 
 const scopesOverlap = (first: Command['scope'], second: Command['scope']): boolean =>
   first === second || globalOverlaps(first, second) || globalOverlaps(second, first);

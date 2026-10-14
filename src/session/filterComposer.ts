@@ -215,4 +215,10 @@ export const closeFilters = (snapshot: Snapshot): Snapshot => {
   return { ...withDraft(snapshot, ''), filtersOpen: false };
 };
 
+export const leaveFilters = (snapshot: Snapshot): Snapshot => ({
+  ...withDraft(snapshot, ''),
+  filtersOpen: false,
+  filterEditing: null,
+});
+
 export const clearFilters = (snapshot: Snapshot): Snapshot => withFilters(snapshot, []);

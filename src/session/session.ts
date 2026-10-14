@@ -24,6 +24,7 @@ import {
   clearFilters,
   closeFilters,
   editFilterDraft,
+  leaveFilters,
   moveFilterCursor,
   openFilters,
   takeFilterRow,
@@ -64,7 +65,8 @@ export type { Snapshot } from './sessionState.ts';
 export { filterCursorOf, filterRowsOf } from './filterComposer.ts';
 export type { FilterRow } from './filterComposer.ts';
 export { formatFilter } from '../query.ts';
-export { matchCountOf, visibleRows } from './sessionState.ts';
+export type { Filter } from '../query.ts';
+export { matchCountOf, openThreads, visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
@@ -88,6 +90,7 @@ export type ApplicationIntent =
   | { kind: 'takeFilterRow' }
   | { kind: 'applyFilterRow' }
   | { kind: 'closeFilters' }
+  | { kind: 'leaveFilters' }
   | { kind: 'clearFilters' }
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
@@ -221,6 +224,7 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   takeFilterRow,
   applyFilterRow,
   closeFilters,
+  leaveFilters,
   clearFilters,
 };
 
