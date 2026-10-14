@@ -2490,7 +2490,7 @@ test('the composer box sits directly under the chip bar', async () => {
 });
 
 test('opening the composer leaves the thread rows below the box where they were', async () => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 30);
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 80, false, 30);
   const { setup, press, settle } = mounted;
 
   await press('r');
@@ -2745,6 +2745,8 @@ test('keys sent in the same burst as Enter on the search line leave the search t
   expect(session.getSnapshot().searchText).toBe('Alpha');
 });
 
+const innerOf = (line: string | undefined): string => (line ?? '').replace(/^│|│$/g, '').trim();
+
 const descriptionLineOf = (frame: string): string => {
   const lines = frame.split('\n');
   const bottom = lines.findIndex((line) => line.startsWith('╰'));
@@ -2762,14 +2764,16 @@ test('the last line of the box describes the selected row, or the field being ty
   await press('f');
   await typeText(setup, settle, 'reason:ci');
 
-  expect(descriptionLineOf(setup.captureCharFrame())).toBe('A workflow run you started finished.');
+  expect(descriptionLineOf(setup.captureCharFrame())).toBe(
+    'A GitHub Actions workflow run that you triggered finished.',
+  );
 
   await pressCtrlU(setup, settle);
   await typeText(setup, settle, 'author:sQVe');
 
-  const authorText = 'Who opened the pull request or issue. `@me` is you; bots end in `[bot]`.';
-
-  expect(descriptionLineOf(setup.captureCharFrame())).toBe(authorText);
+  expect(descriptionLineOf(setup.captureCharFrame())).toBe(
+    'Pull requests and issues opened by sQVe: 1 in your inbox.',
+  );
 });
 
 test('a description that does not fit ends with an ellipsis', async () => {
@@ -2779,7 +2783,7 @@ test('a description that does not fit ends with an ellipsis', async () => {
   await press('r');
   await settle();
   await press('f');
-  await typeText(setup, settle, 'repo:');
+  await typeText(setup, settle, 'age:');
 
   expect(descriptionLineOf(setup.captureCharFrame())).toMatch(/…$/);
 });
@@ -2818,4 +2822,113 @@ test('text typed in the same burst after Ctrl-U on the search line replaces the 
   await settle();
 
   expect(session.getSnapshot().searchText).toBe('x');
+});
+
+test('in a short terminal the description line stays and the key hint row goes', async () => {
+  const { setup, press, settle } = await mount(
+    'dark',
+    factsEffects(filterThreads, filterFacts),
+    90,
+    false,
+    7,
+  );
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'repo:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(descriptionLineOf(frame)).not.toBe('');
+  expect(frame).not.toContain('owner/name, one * allowed');
+});
+
+test('the input line uses the full inner width of the box', async () => {
+  const { setup, press, settle } = await mountFilters(100);
+
+  await press('f');
+  await typeText(setup, settle, 'x'.repeat(90));
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('x'.repeat(90));
+});
+
+test('with narrow width the chip bar shows the first chip before +N more', async () => {
+  const { setup, press, settle } = await mountFilters(30);
+
+  await press('f');
+  await typeText(setup, settle, `repo:acme/${'a'.repeat(40)} author:octo author:mona kind:pr`);
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow.startsWith('repo:acme/a')).toBe(true);
+  expect(chipRow).toContain('…');
+  expect(chipRow).toContain('more');
+});
+
+test('a plain-word draft that matches nothing points to the / search', async () => {
+  const { setup, press, settle } = await mountFilters(80);
+
+  await press('f');
+  await typeText(setup, settle, 'zzzqq');
+
+  expect(setup.captureCharFrame()).toContain('Use / to search titles');
+});
+
+test('after Enter removes a chip found by typing, a second Enter removes the next chip', async () => {
+  const mounted = await mountFilters(100);
+  const { setup, press, settle, session } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, 'author:octo');
+  await press('return');
+  await typeText(setup, settle, 'author:mona');
+  await press('return');
+  await typeText(setup, settle, 'author:octo');
+  await press('return');
+
+  expect(session.getSnapshot().filters).toEqual([
+    { field: 'author', value: 'mona', negated: false },
+  ]);
+
+  await press('return');
+
+  expect(session.getSnapshot().filters).toEqual([]);
+});
+
+test('a long description wraps over several lines and never over more than three', async () => {
+  const threads = [treeThread(1, 'Change 1', { repository: 'acme/app' })];
+  const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
+  const { setup, press, settle } = await mount('dark', factsEffects(threads, facts), 50, false, 30);
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'age:');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const bottom = lines.findIndex((line) => line.startsWith('╰'));
+  expect(innerOf(lines[bottom - 3])).toMatch(/^Time since/);
+  expect(innerOf(lines[bottom - 2])).not.toBe('');
+  expect(innerOf(lines[bottom - 1])).toMatch(/…$/);
+  expect(innerOf(lines[bottom - 4])).not.toMatch(/Time since/);
+});
+
+test('author:@me shows its own text, and -kind:pr says it hides pull requests', async () => {
+  const { setup, press, settle } = await mountFilters(120);
+
+  await press('f');
+  await typeText(setup, settle, 'author:@me');
+
+  expect(descriptionLineOf(setup.captureCharFrame())).toContain(
+    'Pull requests and issues you opened',
+  );
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, '-kind:pr');
+
+  expect(descriptionLineOf(setup.captureCharFrame())).toBe(
+    'Hides these threads: Pull requests, drafts included.',
+  );
 });

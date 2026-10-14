@@ -269,6 +269,10 @@ const parseAge = (value: string): { operator: AgeOperator; milliseconds: number 
     return null;
   }
 
+  if (Number(amount) < 1) {
+    return null;
+  }
+
   return {
     operator: operator === '<' ? '<' : '>',
     milliseconds: Number(amount) * (millisecondsByUnit[unit] ?? 0),
@@ -330,7 +334,7 @@ const normalizeIs = (value: string): { field: FilterField; value: string } | nul
 
 const checkOpenValue = (field: FilterField, value: string): string | null => {
   if (field === 'age' && parseAge(value) === null) {
-    return 'age takes < or >, a whole number, and a unit m, h, d, or w, such as >7d';
+    return 'age takes < or >, a whole number of 1 or more, and a unit m, h, d, or w, such as >7d';
   }
 
   const wildcardField = field === 'repo' || field === 'org' || field === 'author';

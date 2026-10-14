@@ -22,6 +22,37 @@ export const ellipsized = (text: string, width: number): string => {
   return `${text.slice(0, Math.max(0, width - 1))}${ellipsis}`;
 };
 
+export const wrapText = (text: string, width: number, maxLines: number): string[] => {
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of text.split(' ').filter((part) => part !== '')) {
+    const joined = current === '' ? word : `${current} ${word}`;
+
+    if (joined.length <= width || current === '') {
+      current = joined;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+
+  if (current !== '') {
+    lines.push(current);
+  }
+
+  if (lines.length <= maxLines) {
+    return lines.map((line) => ellipsized(line, width));
+  }
+
+  const kept = lines.slice(0, maxLines);
+  const last = kept.at(-1) ?? '';
+
+  const cut = `${last.slice(0, Math.max(0, width - 1))}${ellipsis}`;
+
+  return [...kept.slice(0, -1), cut];
+};
+
 const fitted = (item: CandidateItem, width: number): string => {
   const countWidth = item.count === null ? 0 : String(item.count).length + 1;
 

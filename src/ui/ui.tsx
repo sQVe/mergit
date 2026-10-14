@@ -9,6 +9,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import {
+  describeFilterRow,
   filterCursorOf,
   filterRowsOf,
   formatFilter,
@@ -17,11 +18,10 @@ import {
 } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 import type { CandidateItem } from './CandidateList.tsx';
-import { CandidateList, ellipsized } from './CandidateList.tsx';
+import { CandidateList, wrapText } from './CandidateList.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
 import { FilterBar } from './FilterBar.tsx';
-import { fieldDescription, filterDescription } from './filterDescriptions.ts';
 import { HelpOverlay } from './HelpOverlay.tsx';
 import { InputLine } from './InputLine.tsx';
 import { hasNotice, Notice } from './Notice.tsx';
@@ -68,7 +68,7 @@ interface KeysProps extends AppProps {
 interface ComposerLayout {
   candidateRows: number;
   hintRows: number;
-  descriptionRows: number;
+  descriptionLines: string[];
 }
 
 const sidePaneMinimumWidth = 90;
@@ -285,7 +285,9 @@ const SearchLine = (props: {
       watch={session.subscribe}
       current={() => session.getSnapshot().searchText}
       onInput={(text) => {
-        if (session.getSnapshot().searchOpen) {
+        const live = session.getSnapshot();
+
+        if (live.searchOpen && live.searchText !== text) {
           session.send({ kind: 'editSearch', text });
         }
       }}
@@ -343,7 +345,7 @@ const itemOf = (row: FilterRow): CandidateItem => {
 };
 
 const noMatchesItem: CandidateItem = {
-  label: 'No matches',
+  label: 'No matches. Use / to search titles.',
   count: null,
   marked: false,
   failed: false,
@@ -365,42 +367,27 @@ const statusRows = 1;
 const showsNoMatches = (snapshot: Snapshot, rows: FilterRow[]): boolean =>
   rows.length === 0 && snapshot.filterDraft.trim() !== '' && !snapshot.filterDraft.includes(':');
 
-const draftFieldOf = (draft: string): string =>
-  draft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
+const descriptionOf = (snapshot: Snapshot, rows: FilterRow[]): string =>
+  describeFilterRow(snapshot, rows[filterCursorOf(snapshot)]);
 
-const rowDescriptionOf = (row: FilterRow | undefined): string | undefined => {
-  if (row?.kind === 'field') {
-    return fieldDescription(row.field);
-  }
+const maxDescriptionLines = 3;
 
-  if (row?.kind === 'candidate' || row?.kind === 'active') {
-    return filterDescription(row.filter);
-  }
-
-  const [first] = row?.kind === 'typed' ? row.filters : [];
-
-  return first === undefined ? undefined : filterDescription(first);
-};
-
-const descriptionOf = (snapshot: Snapshot, rows: FilterRow[]): string => {
-  const described = rowDescriptionOf(rows[filterCursorOf(snapshot)]);
-
-  if (described !== undefined || !snapshot.filterDraft.includes(':')) {
-    return described ?? '';
-  }
-
-  return fieldDescription(draftFieldOf(snapshot.filterDraft)) ?? '';
-};
-
-const composerLayoutOf = (snapshot: Snapshot, rowCount: number, height: number): ComposerLayout => {
+const composerLayoutOf = (
+  snapshot: Snapshot,
+  rows: FilterRow[],
+  size: { width: number; height: number },
+): ComposerLayout => {
+  const rowCount = showsNoMatches(snapshot, rows) ? 1 : rows.length;
   const taken = statusRows + boxChromeRows + searchLineRows(snapshot) + filterBarRows(snapshot);
-  const room = Math.max(0, height - taken);
+  const room = Math.max(0, size.height - taken);
   const wanted = Math.min(composerListRows, rowCount);
-  const hintRows = room > wanted ? 1 : 0;
-  const descriptionRows = room > wanted + hintRows ? 1 : 0;
-  const candidateRows = Math.min(wanted, room - hintRows - descriptionRows);
+  const lineRoom = Math.min(maxDescriptionLines, Math.max(0, room - wanted));
+  const text = lineRoom === 0 ? '' : descriptionOf(snapshot, rows);
+  const descriptionLines = wrapText(text, size.width - composerChromeWidth, lineRoom);
+  const hintRows = room > wanted + descriptionLines.length ? 1 : 0;
+  const candidateRows = Math.min(wanted, room - hintRows - descriptionLines.length);
 
-  return { candidateRows, hintRows, descriptionRows };
+  return { candidateRows, hintRows, descriptionLines };
 };
 
 const FilterComposer = (props: {
@@ -445,7 +432,9 @@ const FilterComposer = (props: {
         watch={session.subscribe}
         current={() => session.getSnapshot().filterDraft}
         onInput={(text) => {
-          if (session.getSnapshot().filtersOpen) {
+          const live = session.getSnapshot();
+
+          if (live.filtersOpen && live.filterDraft !== text) {
             session.send({ kind: 'editFilterDraft', text });
           }
         }}
@@ -462,13 +451,11 @@ const FilterComposer = (props: {
         width={width - composerChromeWidth}
         palette={palette}
       />
-      {layout.descriptionRows === 0 ? null : (
-        <box height={1} flexShrink={0}>
-          <text fg={palette.dim}>
-            {ellipsized(descriptionOf(snapshot, rows), width - composerChromeWidth)}
-          </text>
+      {layout.descriptionLines.map((line, index) => (
+        <box key={index} height={1} flexShrink={0}>
+          <text fg={palette.dim}>{line}</text>
         </box>
-      )}
+      ))}
     </box>
   );
 };
@@ -555,9 +542,7 @@ export const App = (props: AppProps): ReactNode => {
 
   const composerRows = snapshot.filtersOpen ? filterRowsOf(snapshot) : [];
 
-  const listedRows = showsNoMatches(snapshot, composerRows) ? 1 : composerRows.length;
-
-  const composerLayout = composerLayoutOf(snapshot, listedRows, height);
+  const composerLayout = composerLayoutOf(snapshot, composerRows, { width, height });
   const composerBlind = composerRows.length > 0 && composerLayout.candidateRows === 0;
 
   const widestPane = Math.floor(width * sidePaneShare);

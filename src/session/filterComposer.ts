@@ -67,7 +67,7 @@ const namesUnknownField = (draft: string): boolean =>
   tokenStartsOf(draft).some((start) => {
     const name = /^-?([^\s:"]*):/.exec(start)?.[1];
 
-    return name !== undefined && !knownNames.has(name.toLowerCase());
+    return name !== undefined && name !== '' && !knownNames.has(name.toLowerCase());
   });
 
 const typedRowsOf = (snapshot: Snapshot): FilterRow[] => {
@@ -214,6 +214,44 @@ const isFieldPrefix = (field: string, terms: string[][]): boolean => {
   return first !== '' && field.startsWith(first);
 };
 
+const booleanFields = new Set<FilterField>(['new', 'unread']);
+
+const booleanFieldOf = (row: FilterRow): FilterField | undefined => {
+  const field = row.kind === 'candidate' || row.kind === 'active' ? row.filter.field : undefined;
+
+  return field !== undefined && booleanFields.has(field) ? field : undefined;
+};
+
+const isFalseValue = (row: FilterRow): boolean => {
+  const filter = row.kind === 'candidate' || row.kind === 'active' ? row.filter : undefined;
+
+  return filter?.value === 'false';
+};
+
+// Within each boolean field, the rows keep their slots but `true` takes the earlier one.
+const trueFirst = (rows: FilterRow[]): FilterRow[] => {
+  const result = [...rows];
+
+  for (const field of booleanFields) {
+    const slots = result.flatMap((row, index) => (booleanFieldOf(row) === field ? [index] : []));
+
+    const ordered = slots
+      .map((index) => result[index])
+      .filter((row): row is FilterRow => row !== undefined)
+      .toSorted((left, right) => Number(isFalseValue(left)) - Number(isFalseValue(right)));
+
+    slots.forEach((slot, position) => {
+      const row = ordered[position];
+
+      if (row !== undefined) {
+        result[slot] = row;
+      }
+    });
+  }
+
+  return result;
+};
+
 const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
   const { negated, terms } = termsOf(draft);
   const listAll = draft === '';
@@ -270,21 +308,26 @@ const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
     const rest = values.filter(({ row }) => row.kind !== 'active');
     const fieldRows = fields.toSorted(byScoreThenCount).map(({ row }) => row);
 
-    return [...active, ...rest.toSorted(byScoreThenCount).map(({ row }) => row), ...fieldRows];
+    const valueRows = rest.toSorted(byScoreThenCount).map(({ row }) => row);
+
+    return [...active, ...trueFirst(valueRows), ...fieldRows];
   }
 
   const leads = (scored: Scored): boolean => isFieldPrefix(scored.field, terms);
   const sortedValues = [...unlisted, ...values].toSorted(byScoreThenCount);
   const sortedFields = fields.toSorted(byScoreThenCount);
 
+  const prefixOnly =
+    terms.length === 1 && filterFields.some((field) => isFieldPrefix(field, terms));
+
   const ranked = [
     ...sortedFields.filter(leads),
     ...sortedValues.filter(leads),
-    ...sortedValues.filter((scored) => !leads(scored)),
-    ...sortedFields.filter((scored) => !leads(scored)),
+    ...(prefixOnly ? [] : sortedValues.filter((scored) => !leads(scored))),
+    ...(prefixOnly ? [] : sortedFields.filter((scored) => !leads(scored))),
   ];
 
-  return ranked.map(({ row }) => row);
+  return trueFirst(ranked.map(({ row }) => row));
 };
 
 const twinOf = (row: FilterRow, typed: FilterRow): boolean => {
@@ -443,10 +486,15 @@ export const applyFilterRow = (snapshot: Snapshot): Snapshot => {
   }
 
   if (row.kind === 'active') {
-    return finishRow(
+    const removed = finishRow(
       snapshot,
       snapshot.filters.filter((filter) => !sameFilter(filter, row.filter)),
     );
+
+    const remaining = filterRowsOf(removed).length;
+    const stays = Math.min(clampedCursorOf(snapshot, filterRowsOf(snapshot)), remaining - 1);
+
+    return { ...removed, filterCursor: stays };
   }
 
   if (row.kind === 'field') {

@@ -39,6 +39,7 @@ export const InputLine = (props: {
       <input
         flexGrow={1}
         ref={input}
+        scrollMargin={0}
         value={props.value}
         focused={props.focused}
         textColor={props.palette.text}
