@@ -7,6 +7,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
 import type { Session, Snapshot } from '../session/session.ts';
 import { visibleRows } from '../session/session.ts';
+import type { BrowserPage } from '../work/work.ts';
+import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
 import { hasNotice, Notice } from './Notice.tsx';
@@ -16,7 +18,7 @@ import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
 
-type UiAction = Extract<Intent, { kind: 'ui' }>['action'];
+type UiIntent = Extract<Intent, { kind: 'ui' }>;
 
 type ThemeMode = 'light' | 'dark' | null;
 
@@ -33,7 +35,13 @@ export interface AppProps {
   onTerminalIntent: (intent: TerminalIntent) => void;
 }
 
+interface OpenRequest {
+  pages: readonly BrowserPage[];
+}
+
 interface KeysProps extends AppProps {
+  openRequest: OpenRequest | null;
+  setOpenRequest: (request: OpenRequest | null) => void;
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
   detailOpen: boolean;
@@ -45,16 +53,24 @@ const sidePaneMinimumWidth = 90;
 const sidePaneMaximumWidth = 44;
 const sidePaneShare = 0.36;
 
-const isActive = (command: Command, helpOpen: boolean, detailOpen: boolean): boolean => {
-  if (command.scope === 'modal') {
-    return helpOpen;
+const isActive = (
+  command: Command,
+  modals: { helpOpen: boolean; confirmOpen: boolean },
+  detailOpen: boolean,
+): boolean => {
+  if (command.scope === 'help') {
+    return modals.helpOpen;
+  }
+
+  if (command.scope === 'confirm') {
+    return modals.confirmOpen;
   }
 
   if (command.scope === 'global') {
     return true;
   }
 
-  if (helpOpen) {
+  if (modals.helpOpen || modals.confirmOpen) {
     return false;
   }
 
@@ -64,16 +80,32 @@ const isActive = (command: Command, helpOpen: boolean, detailOpen: boolean): boo
 const Keys = (props: KeysProps): null => {
   const { session, onTerminalIntent, setHelpOpen, setDetailOpen } = props;
 
-  const commands = props.catalog.filter((command) =>
-    isActive(command, props.helpOpen, props.detailOpen),
-  );
+  const { openRequest, setOpenRequest } = props;
+  const modals = { helpOpen: props.helpOpen, confirmOpen: openRequest !== null };
+  const commands = props.catalog.filter((command) => isActive(command, modals, props.detailOpen));
 
-  const runUiAction = (action: UiAction) => {
-    if (action === 'openDetail') {
+  const confirmOpen = () => {
+    setOpenRequest(null);
+
+    if (openRequest !== null) {
+      session.send({ kind: 'openInBrowser', pages: openRequest.pages });
+    }
+  };
+
+  const runUiAction = (intent: UiIntent) => {
+    const { action } = intent;
+
+    if (intent.action === 'askOpen') {
+      setOpenRequest({ pages: intent.pages });
+    } else if (action === 'confirmOpen') {
+      confirmOpen();
+    } else if (action === 'cancelOpen') {
+      setOpenRequest(null);
+    } else if (action === 'openDetail') {
       setDetailOpen(!props.sideLayout);
     } else if (action === 'closeDetail') {
       setDetailOpen(false);
-    } else {
+    } else if (openRequest === null) {
       setHelpOpen(action === 'toggleHelp' ? !props.helpOpen : false);
     }
   };
@@ -90,7 +122,7 @@ const Keys = (props: KeysProps): null => {
     if (intent.kind === 'application') {
       session.send(intent.intent);
     } else if (intent.kind === 'ui') {
-      runUiAction(intent.action);
+      runUiAction(intent);
     } else {
       onTerminalIntent(intent);
     }
@@ -109,6 +141,8 @@ const Keys = (props: KeysProps): null => {
     }),
     [
       props.helpOpen,
+      openRequest,
+      setOpenRequest,
       props.detailOpen,
       props.sideLayout,
       props.catalog,
@@ -177,6 +211,7 @@ const Body = (props: {
 export const App = (props: AppProps): ReactNode => {
   const [helpOpen, setHelpOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [openRequest, setOpenRequest] = useState<OpenRequest | null>(null);
 
   const snapshot = useSyncExternalStore(props.session.subscribe, props.session.getSnapshot);
 
@@ -204,6 +239,8 @@ export const App = (props: AppProps): ReactNode => {
     <KeymapProvider keymap={props.keymap}>
       <Keys
         {...props}
+        openRequest={openRequest}
+        setOpenRequest={setOpenRequest}
         helpOpen={helpOpen}
         setHelpOpen={setHelpOpen}
         detailOpen={fullDetail}
@@ -221,6 +258,9 @@ export const App = (props: AppProps): ReactNode => {
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />
+      {openRequest === null ? null : (
+        <ConfirmDialog repositories={openRequest.pages.length} palette={palette} />
+      )}
       {helpOpen ? <HelpOverlay catalog={props.catalog} palette={palette} /> : null}
     </KeymapProvider>
   );

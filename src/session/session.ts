@@ -1,3 +1,4 @@
+import type { OpenResult } from '../actions.ts';
 import type {
   GitHubFailure,
   GitHubResult,
@@ -10,7 +11,13 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
-import type { Grouping, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
+import type {
+  BrowserPage,
+  Grouping,
+  NotificationThread,
+  ThreadId,
+  ViewerLogin,
+} from '../work/work.ts';
 import { createDoneQueue, undoWindowMilliseconds } from './done.ts';
 import type { Snapshot, Toast, UnsavedChange } from './sessionState.ts';
 import {
@@ -54,7 +61,8 @@ export type ApplicationIntent =
   | { kind: 'cycleGrouping' }
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
-  | { kind: 'undoDone' };
+  | { kind: 'undoDone' }
+  | { kind: 'openInBrowser'; pages: readonly BrowserPage[] };
 
 export interface SavedState {
   grouping: Grouping;
@@ -75,6 +83,7 @@ export interface SessionEffects {
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
+  openInBrowser: (page: BrowserPage, signal: AbortSignal) => Promise<OpenResult>;
   stateWarning: string | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
@@ -117,6 +126,7 @@ type StateIntent = Exclude<
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
+  | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
 >;
 
 const minimumPollSeconds = 60;
@@ -213,6 +223,7 @@ export const createSession = (effects: SessionEffects): Session => {
   let stopped = false;
   let generation = 0;
   let controller: AbortController | null = null;
+  const openController = new AbortController();
   let followUpPending = false;
   let feed: NotificationFeed | null = savedSnapshot?.feed ?? null;
   let cancelTimer: (() => void) | null = null;
@@ -898,6 +909,39 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
+  let openQueue: Promise<void> = Promise.resolve();
+
+  const openInBrowser = async (pages: readonly BrowserPage[]) => {
+    const results: OpenResult[] = [];
+
+    for (const page of pages) {
+      if (stopped) {
+        return;
+      }
+
+      // oxlint-disable-next-line eslint/no-await-in-loop -- opens run one at a time, in order
+      results.push(await effects.openInBrowser(page, openController.signal));
+    }
+
+    if (stopped) {
+      return;
+    }
+
+    const failures = results.filter((result) => !result.ok);
+    const [first] = failures;
+
+    if (first === undefined) {
+      return;
+    }
+
+    const title =
+      pages.length === 1
+        ? 'Could not open the page in the browser'
+        : `Could not open ${failures.length} of ${pages.length} pages in the browser`;
+
+    showToast({ title, lines: [first.message], tone: 'error' });
+  };
+
   snapshot = withMarkers(snapshot);
 
   const send = (intent: ApplicationIntent) => {
@@ -913,6 +957,8 @@ export const createSession = (effects: SessionEffects): Session => {
       markThreadsDone(intent.threadIds);
     } else if (intent.kind === 'undoDone') {
       undoDone();
+    } else if (intent.kind === 'openInBrowser') {
+      openQueue = openQueue.then(() => openInBrowser(intent.pages)).catch(() => undefined);
     } else {
       update(transitions[intent.kind](snapshot));
 
@@ -928,6 +974,7 @@ export const createSession = (effects: SessionEffects): Session => {
     }
 
     stopped = true;
+    openController.abort();
     controller?.abort();
     controller = null;
     lookupController?.abort();

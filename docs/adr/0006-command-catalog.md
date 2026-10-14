@@ -27,8 +27,8 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Commands
 
-- Each command has an id, a label, a scope (`global`, `list`, `preview`, or `modal`), and default
-  keys.
+- Each command has an id, a label, a scope (`global`, `list`, `preview`, `help`, or `confirm`), and
+  default keys.
 - `disabledReason(snapshot)` returns why the command cannot run, or nothing when it can.
 - `intent(snapshot)` returns an application intent for the session, a UI intent for React, or a
   terminal intent. It performs no I/O. Only `terminal.tsx` handles terminal intents, so the session
@@ -40,6 +40,8 @@ remaps read the same records, and tests assert intents without running effects.
 ### Scopes
 
 - `list` and `preview` bindings follow focus. `global` bindings work outside modals.
+- `help` and `confirm` bindings work only while their own modal is open, so `escape` in one never
+  runs the other's command.
 - An open modal blocks the commands beneath it. On close, focus returns to the previous target only
   if it is still mounted.
 

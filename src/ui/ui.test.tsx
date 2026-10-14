@@ -31,6 +31,7 @@ const idleEffects: SessionEffects = {
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true, value: null }),
+  openInBrowser: () => Promise.resolve({ ok: true as const }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
@@ -237,9 +238,11 @@ test('? opens the overlay with every command label and ? closes it', async () =>
 
   const open = setup.captureCharFrame();
 
-  for (const command of catalog) {
+  for (const command of catalog.filter((candidate) => candidate.scope !== 'confirm')) {
     expect(open).toContain(command.label);
   }
+
+  expect(open).not.toContain('Confirm opening');
 
   await press('?');
 
@@ -1668,4 +1671,127 @@ test('d on a folded group hides every thread under it, and one u brings them all
 
   expect(restored).toContain('Review requested');
   expect(restored.split('\n').slice(0, 8)).toEqual(before.split('\n').slice(0, 8));
+});
+
+const fourRepoThreads = ['a', 'b', 'c', 'd'].map((name, index) =>
+  treeThread(index + 1, `Thread ${name}`, {
+    reason: 'review_requested',
+    repository: `example/${name}`,
+    subjectUrl: null,
+  }),
+);
+
+const mountWithGroup = async (feed: () => NotificationThread[] = () => fourRepoThreads) => {
+  const opens: unknown[] = [];
+
+  const effects: SessionEffects = {
+    ...feedEffects(feed),
+    openInBrowser: (page) => {
+      opens.push(page);
+
+      return Promise.resolve({ ok: true });
+    },
+  };
+
+  const mounted = await mount('dark', effects);
+
+  await pressAll(mounted.press, ['r', 'g']);
+
+  return { ...mounted, opens };
+};
+
+const openedPages = ['a', 'b', 'c', 'd'].map((name) => ({
+  kind: 'repo',
+  repository: `example/${name}`,
+}));
+
+const hasOpenIntent = (sent: unknown[]) =>
+  sent.some((intent) => (intent as { kind: string }).kind === 'openInBrowser');
+
+test('o on a group node over 4 repos shows the dialog and opens nothing', async () => {
+  const { setup, press, sent, opens } = await mountWithGroup();
+
+  await press('o');
+
+  expect(setup.captureCharFrame()).toContain('Open 4 repos');
+  expect(hasOpenIntent(sent)).toBe(false);
+  expect(opens).toEqual([]);
+});
+
+for (const key of ['y', 'return']) {
+  test(`${key} in the dialog opens each repo once and closes the dialog`, async () => {
+    const { setup, press, settle, opens } = await mountWithGroup();
+
+    await press('o');
+    await press(key);
+    await settle();
+
+    expect(opens).toEqual(openedPages);
+    expect(setup.captureCharFrame()).not.toContain('Open 4 repos');
+  });
+}
+
+for (const key of ['n', 'escape']) {
+  test(`${key} in the dialog opens nothing and closes the dialog`, async () => {
+    const { setup, press, settle, sent, opens } = await mountWithGroup();
+
+    await press('o');
+    await press(key);
+    await settle();
+
+    expect(opens).toEqual([]);
+    expect(hasOpenIntent(sent)).toBe(false);
+    expect(setup.captureCharFrame()).not.toContain('Open 4 repos');
+  });
+}
+
+test('list keys do nothing while the dialog is open', async () => {
+  const { setup, press, sent } = await mountWithGroup();
+
+  await press('o');
+
+  const before = sent.length;
+
+  await pressAll(press, ['j', 'd', 'z', '?']);
+
+  expect(sent).toHaveLength(before);
+  expect(setup.captureCharFrame()).toContain('Open 4 repos');
+  expect(setup.captureCharFrame()).not.toContain('Toggle help');
+});
+
+test('Escape with help open closes help and opens no dialog', async () => {
+  const { setup, press } = await mountWithGroup();
+
+  await pressAll(press, ['?', 'escape']);
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).not.toContain('Toggle help');
+  expect(frame).not.toContain('Open 4 repos');
+});
+
+test('confirm opens the repos captured when the dialog opened, not the refreshed group', async () => {
+  let current = fourRepoThreads;
+  const { setup, session, press, settle, opens } = await mountWithGroup(() => current);
+
+  await press('o');
+
+  current = [
+    ...fourRepoThreads.slice(0, 2),
+    treeThread(9, 'Thread z', {
+      reason: 'review_requested',
+      repository: 'example/z',
+      subjectUrl: null,
+    }),
+  ];
+
+  session.send({ kind: 'refresh' });
+  await settle();
+
+  expect(setup.captureCharFrame()).toContain('Open 4 repos');
+
+  await press('y');
+  await settle();
+
+  expect(opens).toEqual(openedPages);
 });

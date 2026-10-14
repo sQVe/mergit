@@ -24,12 +24,14 @@ export const HelpOverlay = (props: {
       paddingLeft={1}
       paddingRight={1}
     >
-      {props.catalog.map((command) => (
-        <box key={command.id} flexDirection="row" gap={2}>
-          <text fg={palette.key}>{command.keys.join(' ')}</text>
-          <text fg={palette.text}>{command.label}</text>
-        </box>
-      ))}
+      {props.catalog
+        .filter((command) => command.scope !== 'confirm')
+        .map((command) => (
+          <box key={command.id} flexDirection="row" gap={2}>
+            <text fg={palette.key}>{command.keys.join(' ')}</text>
+            <text fg={palette.text}>{command.label}</text>
+          </box>
+        ))}
     </box>
   );
 };

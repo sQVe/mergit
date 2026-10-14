@@ -115,6 +115,9 @@ const repoNodes = (threads: NotificationThread[], prefix: string): TreeNode[] =>
   }));
 };
 
+export const listedRepositories = (threads: NotificationThread[]): string[] =>
+  sortByCount(repoNodes(threads, '')).map((node) => node.title);
+
 const groupNodes = (
   threads: NotificationThread[],
   buckets: Bucket[],
