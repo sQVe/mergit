@@ -387,3 +387,47 @@ export const factsOf = (thread: NotificationThread, author = 'hubot'): SubjectLo
   updatedAt: thread.updatedAt,
   facts: { state: 'open', author, latestActor: null },
 });
+
+export const accountKeyOf = (login: ViewerLogin): string => `github.com/${login}`;
+
+export const seenFor = (
+  login: ViewerLogin,
+  ...entries: [NotificationThread, string][]
+): Map<string, Map<ThreadId, string>> =>
+  new Map([[accountKeyOf(login), new Map(entries.map(([thread, seenAt]) => [thread.id, seenAt]))]]);
+
+export const stateWithSeen = (seen: SavedState['seen']): SavedState => ({
+  grouping: 'reason',
+  done: new Map(),
+  seen,
+});
+
+export const releaseOf = (id: string, updatedAt = '2026-01-02T10:00:00Z'): NotificationThread =>
+  makeThread(id, { subjectType: 'Release', subjectUrl: null, updatedAt });
+
+export const newThreadsFixture = (): {
+  a: NotificationThread;
+  b: NotificationThread;
+  savedState: SavedState;
+} => {
+  const [a, b] = [releaseOf('1'), releaseOf('2', '2026-01-03T10:00:00Z')];
+
+  return {
+    a,
+    b,
+    savedState: stateWithSeen(seenFor(octocat, [a, a.updatedAt], [b, '2026-01-01T10:00:00Z'])),
+  };
+};
+
+export const seenOf = (
+  state: SavedState | undefined,
+  thread: NotificationThread,
+): string | undefined => state?.seen.get(accountKeyOf(octocat))?.get(thread.id);
+
+export const doneOf = (...threads: NotificationThread[]): Map<ThreadId, string> =>
+  new Map(threads.map((thread) => [thread.id, thread.updatedAt]));
+
+export const doneFor = (
+  login: ViewerLogin,
+  ...threads: NotificationThread[]
+): Map<string, Map<ThreadId, string>> => new Map([[accountKeyOf(login), doneOf(...threads)]]);

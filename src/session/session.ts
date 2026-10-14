@@ -25,6 +25,7 @@ import {
   openFilters,
   takeFilterRow,
 } from './filterComposer.ts';
+import { createMarker } from './marker.ts';
 import { createMessageToast } from './messageToast.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import {
@@ -36,16 +37,13 @@ import {
   failureMessage,
   hideThreads,
   initialSnapshot,
-  isViewerActor,
   keepSearch,
-  keepSelectionVisible,
   openSearch,
   restoreSearch,
   markFeedBusy,
   cycleGrouping,
   jumpTopLevel,
   moveSelection,
-  newThreadIdsOf,
   releaseThreads,
   selectEdge,
   selectedThreadOf,
@@ -193,7 +191,6 @@ export const createSession = (effects: SessionEffects): Session => {
   const listeners = new Set<() => void>();
 
   const accountRecords = copyAccountRecords(effects.savedState?.done);
-  const seenRecords = copyAccountRecords(effects.savedState?.seen);
 
   const accountSwitch = createAccountSwitch(savedSnapshot);
   const noRecords: ReadonlyMap<ThreadId, string> = new Map();
@@ -261,83 +258,25 @@ export const createSession = (effects: SessionEffects): Session => {
     unsavedChanges.add(change);
 
     try {
-      effects.saveState({ grouping, done: accountRecords, seen: seenRecords });
+      effects.saveState({ grouping, done: accountRecords, seen: marker.records });
     } catch {
       // A failed save must not stop the session.
     }
   };
 
-  const currentSeen = (): Map<ThreadId, string> | undefined =>
-    accountSwitch.currentLogin() === null
-      ? undefined
-      : seenRecords.get(`${effects.host}/${accountSwitch.currentLogin()}`);
-
-  const recordSeen = (candidate: Snapshot, left: NotificationThread | undefined): boolean => {
-    const seen = currentSeen();
-    const login = accountSwitch.currentLogin();
-
-    if (seen === undefined || login === null) {
-      return false;
-    }
-
-    const seenNow = candidate.threads.filter((thread) =>
-      isViewerActor(candidate.subjectFacts.get(thread.id), login),
-    );
-
-    if (left !== undefined) {
-      seenNow.push(candidate.threads.find((thread) => thread.id === left.id) ?? left);
-    }
-
-    let changed = false;
-
-    for (const thread of seenNow) {
-      if (seen.get(thread.id) !== thread.updatedAt) {
-        seen.set(thread.id, thread.updatedAt);
-        changed = true;
-      }
-    }
-
-    return changed;
-  };
-
-  const threadLeftBy = (candidate: Snapshot): NotificationThread | undefined => {
-    const previous = selectedThreadOf(snapshot);
-
-    return previous?.id === selectedThreadOf(candidate)?.id ? undefined : previous;
-  };
-
-  const withMarkers = (candidate: Snapshot, left?: NotificationThread): Snapshot => {
-    if (recordSeen(candidate, left)) {
-      saveStateQuietly('seen', candidate.grouping);
-    }
-
-    const pendingThreadIds = subjectLookup.pendingThreadIdsOf(candidate.threads);
-
-    const newThreadIds = newThreadIdsOf({
-      threads: candidate.threads,
-      seen: currentSeen(),
-      subjectFacts: candidate.subjectFacts,
-      viewerLogin: accountSwitch.currentLogin() ?? '',
-      pendingThreadIds,
-    });
-
-    const sameNewIds =
-      newThreadIds.size === candidate.newThreadIds.size &&
-      [...newThreadIds].every((threadId) => candidate.newThreadIds.has(threadId));
-
-    if (sameNewIds && candidate.viewerLogin === accountSwitch.currentLogin()) {
-      return candidate;
-    }
-
-    return keepSelectionVisible(candidate, {
-      ...candidate,
-      newThreadIds,
-      viewerLogin: accountSwitch.currentLogin(),
-    });
-  };
+  const marker = createMarker({
+    host: effects.host,
+    seen: copyAccountRecords(effects.savedState?.seen),
+    currentLogin: accountSwitch.currentLogin,
+    pendingThreadIdsOf: subjectLookup.pendingThreadIdsOf,
+    getSnapshot,
+    save: (grouping) => {
+      saveStateQuietly('seen', grouping);
+    },
+  });
 
   const update = (candidate: Snapshot) => {
-    const next = withMarkers(candidate, threadLeftBy(candidate));
+    const next = marker.applyLeaving(candidate);
 
     if (next === snapshot) {
       return;
@@ -415,39 +354,6 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const pruneSeenRecords = (fetched: NotificationThread[]) => {
-    const login = accountSwitch.currentLogin();
-
-    if (login === null) {
-      return;
-    }
-
-    const account = `${effects.host}/${login}`;
-    const seen = seenRecords.get(account);
-
-    if (seen === undefined) {
-      seenRecords.set(account, new Map(fetched.map((thread) => [thread.id, thread.updatedAt])));
-
-      saveStateQuietly('seen');
-
-      return;
-    }
-
-    const fetchedIds = new Set(fetched.map((thread) => thread.id));
-    let changed = false;
-
-    for (const threadId of seen.keys()) {
-      if (!fetchedIds.has(threadId)) {
-        seen.delete(threadId);
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      saveStateQuietly('seen');
-    }
-  };
-
   const releaseSentThreads = () => {
     update(releaseThreads(snapshot, sentThreadIds));
     sentThreadIds.clear();
@@ -461,7 +367,7 @@ export const createSession = (effects: SessionEffects): Session => {
       subjectLookup.start(next.threads);
       update(next);
       // After the update, so a selected thread that left the feed is not saved again as seen.
-      pruneSeenRecords(outcome.read.threads);
+      marker.prune(outcome.read.threads);
       releaseSentThreads();
       saveQuietly(outcome.viewer, now);
     } else if (outcome.kind === 'busy') {
@@ -639,7 +545,7 @@ export const createSession = (effects: SessionEffects): Session => {
     toaster.show({ title, lines: [first.message], tone: 'error' });
   };
 
-  snapshot = withMarkers(snapshot);
+  snapshot = marker.apply(snapshot);
 
   const send = (intent: ApplicationIntent) => {
     if (stopped) {
@@ -672,9 +578,7 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const stop = (deadline: AbortSignal): Promise<void> => {
-    if (recordSeen(snapshot, selectedThreadOf(snapshot))) {
-      saveStateQuietly('seen');
-    }
+    marker.recordSelected(snapshot);
 
     stopped = true;
     openController.abort();
