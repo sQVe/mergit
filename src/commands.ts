@@ -1,9 +1,13 @@
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
 import { visibleRows } from './session/session.ts';
+import type { BrowserPage } from './work/work.ts';
+import { pagesOfRow } from './work/work.ts';
 
 export type Intent =
   | { kind: 'application'; intent: ApplicationIntent }
   | { kind: 'ui'; action: 'toggleHelp' | 'closeHelp' | 'openDetail' | 'closeDetail' }
+  | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
+  | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
   | { kind: 'terminal'; action: 'quit' };
 
 export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
@@ -11,11 +15,13 @@ export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 export interface Command {
   id: string;
   label: string;
-  scope: 'global' | 'list' | 'preview' | 'modal';
+  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm';
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   intent: (snapshot: Snapshot) => Intent;
 }
+
+const confirmAfterRepositories = 3;
 
 const selectedRowOf = (snapshot: Snapshot) =>
   visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
@@ -149,6 +155,24 @@ export const catalog: readonly Command[] = [
     },
   },
   {
+    id: 'openInBrowser',
+    label: 'Open in browser',
+    scope: 'list',
+    keys: ['o'],
+    disabledReason: (snapshot) =>
+      selectedRowOf(snapshot) === undefined ? 'Select a row to open it' : undefined,
+    intent: (snapshot) => {
+      const row = selectedRowOf(snapshot);
+      const pages = row === undefined ? [] : pagesOfRow(row);
+
+      if (row !== undefined && pages.length > confirmAfterRepositories) {
+        return { kind: 'ui', action: 'askOpen', pages };
+      }
+
+      return { kind: 'application', intent: { kind: 'openInBrowser', pages } };
+    },
+  },
+  {
     id: 'undoDone',
     label: 'Undo the last done',
     scope: 'list',
@@ -167,9 +191,25 @@ export const catalog: readonly Command[] = [
   {
     id: 'closeHelp',
     label: 'Close help',
-    scope: 'modal',
+    scope: 'help',
     keys: ['escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'closeHelp' }),
+  },
+  {
+    id: 'confirmOpen',
+    label: 'Confirm opening the repos',
+    scope: 'confirm',
+    keys: ['y', 'return'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'confirmOpen' }),
+  },
+  {
+    id: 'cancelOpen',
+    label: 'Cancel opening the repos',
+    scope: 'confirm',
+    keys: ['n', 'escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'cancelOpen' }),
   },
 ];

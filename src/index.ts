@@ -1,3 +1,4 @@
+import { openInBrowser } from './actions.ts';
 import { catalog } from './commands.ts';
 import {
   createGhRunner,
@@ -25,7 +26,8 @@ import type { SavedSnapshot, SavedState, Session } from './session/session.ts';
 import { refuseStart, startTerminal } from './terminal.tsx';
 
 const now = () => new Date();
-const githubEffects = { runGh: createGhRunner(), now };
+const runGh = createGhRunner();
+const githubEffects = { runGh, now };
 
 const setTimer = (delayMilliseconds: number, callback: () => void) => {
   const handle = setTimeout(callback, delayMilliseconds);
@@ -118,6 +120,7 @@ if (newerVersion !== null) {
     savedState,
     saveState: (state) => writer?.save(state),
     markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),
+    openInBrowser: (page, signal) => openInBrowser({ runGh }, page, signal),
     stateWarning,
     readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
     saveSnapshot: (viewer, feed, savedAt) => {

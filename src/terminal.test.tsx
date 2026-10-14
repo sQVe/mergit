@@ -22,6 +22,7 @@ const idleEffects: SessionEffects = {
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true, value: null }),
+  openInBrowser: () => Promise.resolve({ ok: true as const }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({

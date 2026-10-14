@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import type { Command } from './commands.ts';
+import type { Command, Intent } from './commands.ts';
 import { catalog } from './commands.ts';
 import { createSession, visibleRows } from './session/session.ts';
+import type { BrowserPage } from './work/work.ts';
 import { toThreadId, toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
@@ -11,6 +12,7 @@ const idleEffects = {
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true as const, value: null }),
+  openInBrowser: () => Promise.resolve({ ok: true as const }),
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
@@ -123,7 +125,10 @@ test('no key is bound to two commands whose scopes can be active together', () =
 });
 
 test('return folds a group on a node row and opens the detail on a thread row', () => {
-  const bound = catalog.filter((candidate) => candidate.keys.includes('return'));
+  const bound = catalog.filter(
+    (candidate) => candidate.scope === 'list' && candidate.keys.includes('return'),
+  );
+
   const [command] = bound;
   const onNode = { ...loadedSnapshot, selectedRowKey: 'node:review' };
   const onThread = { ...loadedSnapshot, selectedRowKey: 'thread:1' };
@@ -181,4 +186,74 @@ test('undo is bound to u and returns the undoDone intent', () => {
   expect(command?.keys).toEqual(['u']);
   expect(command?.scope).toBe('list');
   expect(command?.intent(snapshot)).toEqual({ kind: 'application', intent: { kind: 'undoDone' } });
+});
+
+const intentOf = (pages: BrowserPage[]): Intent => ({
+  kind: 'application',
+  intent: { kind: 'openInBrowser', pages },
+});
+
+test('o on a thread row, a repo node, and a group node sends the expected open intent', () => {
+  const command = catalog.find((candidate) => candidate.id === 'openInBrowser');
+
+  const threads = [
+    { ...loadedThread, subjectUrl: 'https://api.github.com/repos/acme/app/pulls/42' },
+    { ...loadedThread, id: toThreadId('2'), repository: 'acme/lib', subjectUrl: null },
+  ];
+
+  const rows = visibleRows({ ...loadedSnapshot, threads });
+
+  const openedOn = (key: string | undefined) =>
+    command?.intent({ ...loadedSnapshot, threads, selectedRowKey: key ?? null });
+
+  const groupRow = rows.find((row) => row.kind === 'node' && row.topLevel);
+
+  const repoRow = rows.find(
+    (row) => row.kind === 'node' && !row.topLevel && row.title === 'acme/app',
+  );
+
+  const threadRow = rows.find((row) => row.kind === 'thread' && row.thread.id === threads[0]?.id);
+
+  expect(command?.keys).toEqual(['o']);
+  expect(command?.scope).toBe('list');
+  expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null })).toBeDefined();
+
+  expect(openedOn(threadRow?.key)).toEqual(
+    intentOf([{ kind: 'item', repository: 'acme/app', number: 42 }]),
+  );
+
+  expect(openedOn(repoRow?.key)).toEqual(intentOf([{ kind: 'repo', repository: 'acme/app' }]));
+
+  expect(openedOn(groupRow?.key)).toEqual(
+    intentOf([
+      { kind: 'repo', repository: 'acme/app' },
+      { kind: 'repo', repository: 'acme/lib' },
+    ]),
+  );
+});
+
+test('o on a group node over 3 repos opens at once, and over 4 repos opens the dialog', () => {
+  const command = catalog.find((candidate) => candidate.id === 'openInBrowser');
+
+  const groupOf = (repositories: number) => {
+    const threads = Array.from({ length: repositories }, (_, index) => ({
+      ...loadedThread,
+      id: toThreadId(String(index + 1)),
+      repository: `acme/repo${index}`,
+    }));
+
+    const rows = visibleRows({ ...loadedSnapshot, threads });
+    const group = rows.find((row) => row.kind === 'node' && row.topLevel);
+
+    return command?.intent({ ...loadedSnapshot, threads, selectedRowKey: group?.key ?? null });
+  };
+
+  const three = groupOf(3);
+
+  expect(three?.kind).toBe('application');
+  expect(three?.kind === 'application' ? three.intent.kind : null).toBe('openInBrowser');
+
+  const four = groupOf(4);
+
+  expect(four?.kind === 'ui' && four.action === 'askOpen' ? four.pages : []).toHaveLength(4);
 });
