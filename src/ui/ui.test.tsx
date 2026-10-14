@@ -2777,13 +2777,13 @@ test('the last line of the box describes the selected row, or the field being ty
 });
 
 test('a description that does not fit ends with an ellipsis', async () => {
-  const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
+  const threads = [treeThread(1, 'Change 1', { reason: 'state_change', repository: 'acme/app' })];
   const { setup, press, settle } = await mount('dark', threadsEffects(threads), 40, false, 30);
 
   await press('r');
   await settle();
   await press('f');
-  await typeText(setup, settle, 'age:');
+  await typeText(setup, settle, 'reason:state_change');
 
   expect(descriptionLineOf(setup.captureCharFrame())).toMatch(/…$/);
 });
@@ -2898,21 +2898,21 @@ test('after Enter removes a chip found by typing, a second Enter removes the nex
 });
 
 test('a long description wraps over several lines and never over more than three', async () => {
-  const threads = [treeThread(1, 'Change 1', { repository: 'acme/app' })];
+  const threads = [treeThread(1, 'Change 1', { reason: 'state_change', repository: 'acme/app' })];
   const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
   const { setup, press, settle } = await mount('dark', factsEffects(threads, facts), 50, false, 30);
 
   await press('r');
   await settle();
   await press('f');
-  await typeText(setup, settle, 'age:');
+  await typeText(setup, settle, '-reason:state_change');
 
   const lines = setup.captureCharFrame().split('\n');
   const bottom = lines.findIndex((line) => line.startsWith('╰'));
-  expect(innerOf(lines[bottom - 3])).toMatch(/^Time since/);
+  expect(innerOf(lines[bottom - 3])).toMatch(/^Hides these threads/);
   expect(innerOf(lines[bottom - 2])).not.toBe('');
   expect(innerOf(lines[bottom - 1])).toMatch(/…$/);
-  expect(innerOf(lines[bottom - 4])).not.toMatch(/Time since/);
+  expect(innerOf(lines[bottom - 4])).not.toMatch(/Hides these threads/);
 });
 
 test('author:@me shows its own text, and -kind:pr says it hides pull requests', async () => {

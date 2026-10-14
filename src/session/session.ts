@@ -64,7 +64,7 @@ import {
 export type { Snapshot } from './sessionState.ts';
 export { filterCursorOf, filterRowsOf } from './filterComposer.ts';
 export type { FilterRow } from './filterComposer.ts';
-export { describeFilterRow, inboxExamples } from './filterDescriptions.ts';
+export { describeFilterRow } from './filterDescriptions.ts';
 export { formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
 export { matchCountOf, openThreads, visibleRows } from './sessionState.ts';

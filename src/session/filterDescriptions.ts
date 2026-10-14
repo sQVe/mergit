@@ -4,52 +4,20 @@ import type { FilterRow } from './filterComposer.ts';
 import { openThreads, threadsKnownMatching } from './sessionState.ts';
 import type { Snapshot } from './sessionState.ts';
 
-export interface InboxExamples {
-  owner: string | null;
-  author: string | null;
-}
-
 const fieldDescriptions = new Map([
-  [
-    'kind',
-    'What the notification is about: a pull request, issue, release, discussion, commit comment, or GitHub Actions run (ci).',
-  ],
-  [
-    'repo',
-    'Only threads from one repository, written as owner/name. A * matches any text, so owner/* keeps every repository of one owner and */docs keeps every repository named docs.',
-  ],
-  [
-    'org',
-    'Only threads from repositories owned by one user or organization, the part of owner/name before the slash. A * matches any text, such as acme-*.',
-  ],
-  [
-    'author',
-    'Who opened the pull request or issue. @me is you, and bot accounts end in [bot], so -author:*[bot] hides every bot. Releases, commits, and CI runs have no author, so this filter never hides them.',
-  ],
-  [
-    'reason',
-    'Why GitHub sent you the notification, such as a review request, a mention, or activity on something you opened. Each value explains its case.',
-  ],
+  ['kind', 'The type of thread: pull request, issue, release, discussion, commit, or CI run.'],
+  ['repo', 'The repository, as owner/name. Supports * wildcards.'],
+  ['org', 'The owner of the repository. Supports * wildcards.'],
+  ['author', 'Who opened the pull request or issue. @me is you. Supports * wildcards.'],
+  ['reason', 'Why GitHub notified you.'],
   [
     'state',
-    'The current state of the pull request or issue: open, closed, or merged. Zeta looks it up after the list loads, and until it knows, every thread stays visible.',
+    'Open, closed, or merged. Unknown until Zeta looks it up, so every thread shows meanwhile.',
   ],
-  [
-    'new',
-    'Whether someone else has been active on the thread since you last saw it in Zeta. A thread counts as seen once the cursor rests on it, and your own activity never makes it new.',
-  ],
-  [
-    'unread',
-    "GitHub's own read mark. Opening the thread on github.com or in another GitHub client marks it read; viewing it in Zeta does not.",
-  ],
-  [
-    'age',
-    "Time since the thread's last update. >7d keeps threads with no update for over a week, and <2h keeps threads updated in the last two hours. Units: m minutes, h hours, d days, w weeks.",
-  ],
-  [
-    'title',
-    'Threads whose title contains the text, ignoring case. Quote text with spaces, such as title:"release notes". Two title chips must both match.',
-  ],
+  ['new', 'Activity by someone else since you last viewed the thread in Zeta.'],
+  ['unread', 'Unread on GitHub. Viewing a thread in Zeta does not mark it read.'],
+  ['age', 'Time since the last update, such as >7d or <2h. Units: m, h, d, w.'],
+  ['title', 'Text in the title, ignoring case. Quote text with spaces.'],
 ]);
 
 const valueDescriptions = new Map([
@@ -119,40 +87,6 @@ const kindWords: { subjectType: string; one: string; many: string }[] = [
   { subjectType: 'Commit', one: 'commit', many: 'commits' },
   { subjectType: 'CheckSuite', one: 'workflow run', many: 'workflow runs' },
 ];
-
-const ownerOf = (repository: string): string => repository.split('/')[0] ?? repository;
-
-const mostCommon = (values: string[]): string | null => {
-  const counts = new Map<string, number>();
-
-  for (const value of values) {
-    counts.set(value, (counts.get(value) ?? 0) + 1);
-  }
-
-  const ranked = [...counts].toSorted(
-    (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
-  );
-
-  return ranked[0]?.[0] ?? null;
-};
-
-export const inboxExamples = (snapshot: Snapshot): InboxExamples => {
-  const threads = openThreads(snapshot);
-  const viewer = snapshot.viewerLogin?.toLowerCase();
-
-  const authors = threads.flatMap((thread) => {
-    const author = snapshot.subjectFacts.get(thread.id)?.author;
-
-    return author === null || author === undefined || author.toLowerCase() === viewer
-      ? []
-      : [author];
-  });
-
-  return {
-    owner: mostCommon(threads.map((thread) => ownerOf(thread.repository))),
-    author: mostCommon(authors),
-  };
-};
 
 const listed = (parts: string[]): string => {
   const last = parts.at(-1);
@@ -225,47 +159,16 @@ const liveDescriptionOf = (snapshot: Snapshot, filter: Filter): string | undefin
   return `Pull requests and issues opened by ${value}: ${count} in your inbox.${bot}`;
 };
 
-const fieldTextOf = (field: string, examples: InboxExamples): string | undefined => {
-  const { owner, author } = examples;
+const fieldTextOf = (field: string): string | undefined => fieldDescriptions.get(field);
 
-  if (field === 'repo') {
-    const ownerExample = owner ?? 'owner';
-    const whose = owner ?? 'one owner';
-
-    return `Only threads from one repository, written as owner/name. A * matches any text, so ${ownerExample}/* keeps every repository of ${whose} and */docs keeps every repository named docs.`;
-  }
-
-  if (field === 'org') {
-    const pattern = owner === null ? 'acme-*' : `${owner}*`;
-
-    return `Only threads from repositories owned by one user or organization, the part of owner/name before the slash. A * matches any text, such as ${pattern}.`;
-  }
-
-  if (field === 'author') {
-    const example = author === null ? '' : `, such as author:${author}`;
-
-    return `Who opened the pull request or issue${example}. @me is you, and bot accounts end in [bot], so -author:*[bot] hides every bot. Releases, commits, and CI runs have no author, so this filter never hides them.`;
-  }
-
-  return fieldDescriptions.get(field);
-};
-
-const positiveTextOf = (
-  snapshot: Snapshot,
-  filter: Filter,
-  examples: InboxExamples,
-): string | undefined => {
+const positiveTextOf = (snapshot: Snapshot, filter: Filter): string | undefined => {
   const explicit = valueDescriptions.get(`${filter.field}:${filter.value.toLowerCase()}`);
 
-  return explicit ?? liveDescriptionOf(snapshot, filter) ?? fieldTextOf(filter.field, examples);
+  return explicit ?? liveDescriptionOf(snapshot, filter) ?? fieldTextOf(filter.field);
 };
 
-const filterTextOf = (
-  snapshot: Snapshot,
-  filter: Filter,
-  examples: InboxExamples,
-): string | undefined => {
-  const text = positiveTextOf(snapshot, { ...filter, negated: false }, examples);
+const filterTextOf = (snapshot: Snapshot, filter: Filter): string | undefined => {
+  const text = positiveTextOf(snapshot, { ...filter, negated: false });
 
   if (text === undefined || !filter.negated) {
     return text;
@@ -286,16 +189,14 @@ const draftFieldOf = (draft: string): string =>
   draft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
 
 export const describeFilterRow = (snapshot: Snapshot, row: FilterRow | undefined): string => {
-  const examples = inboxExamples(snapshot);
-
   if (row?.kind === 'field') {
-    return fieldTextOf(row.field, examples) ?? '';
+    return fieldTextOf(row.field) ?? '';
   }
 
   const filter = row === undefined ? undefined : rowFilterOf(row);
 
   if (filter !== undefined) {
-    return filterTextOf(snapshot, filter, examples) ?? '';
+    return filterTextOf(snapshot, filter) ?? '';
   }
 
   if (!snapshot.filterDraft.includes(':') || row?.kind === 'error') {
@@ -304,5 +205,5 @@ export const describeFilterRow = (snapshot: Snapshot, row: FilterRow | undefined
 
   const field = draftFieldOf(snapshot.filterDraft);
 
-  return fieldTextOf(field, examples) ?? '';
+  return fieldTextOf(field) ?? '';
 };

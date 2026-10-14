@@ -19,7 +19,6 @@ import {
   filterCursorOf,
   filterRowsOf,
   formatFilter,
-  inboxExamples,
   matchCountOf,
   visibleRows,
 } from './session.ts';
@@ -4464,43 +4463,12 @@ test('a typed value with a star counts the threads it matches', async () => {
   );
 });
 
-test('inbox examples name the owner with the most threads and the most common other author', async () => {
-  const session = await loadInbox([
-    { id: '1', overrides: { repository: 'acme/app' }, author: 'mona' },
-    { id: '2', overrides: { repository: 'acme/web' }, author: 'mona' },
-    { id: '3', overrides: { repository: 'other/web' }, author: 'octocat' },
-  ]);
-
-  expect(inboxExamples(session.getSnapshot())).toEqual({ owner: 'acme', author: 'mona' });
-});
-
-test('an empty inbox has no examples', async () => {
-  const session = await loadInbox([]);
-
-  expect(inboxExamples(session.getSnapshot())).toEqual({ owner: null, author: null });
-});
-
 test('a repo value with no threads leaves out the kind list', async () => {
   const session = await loadInbox([{ id: '1', overrides: { repository: 'acme/app' } }]);
 
   expect(descriptionOfDraft(session, 'repo:x/y')).toBe(
     'Threads from the x/y repository: 0 in your inbox.',
   );
-});
-
-test('the org field text takes its example from the owner with the most threads', async () => {
-  const session = await loadInbox([
-    { id: '1', overrides: { repository: 'acme/app' } },
-    { id: '2', overrides: { repository: 'acme/web' } },
-  ]);
-
-  session.send({ kind: 'editFilterDraft', text: 'org' });
-
-  const snapshot = session.getSnapshot();
-  const row = filterRowsOf(snapshot)[0];
-
-  expect(row).toEqual({ kind: 'field', field: 'org' });
-  expect(describeFilterRow(snapshot, row)).toContain('such as acme*.');
 });
 
 test('a negated row hides what its positive row describes, and an explicit value text wins over live text', async () => {
