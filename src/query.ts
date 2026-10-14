@@ -302,7 +302,11 @@ const parseGroup = (
 ): Parsed<Query> => {
   const first = cursor.tokens[cursor.index];
 
-  if (first?.type === 'close') {
+  if (first === undefined) {
+    return fail('Missing closing parenthesis.', openPosition);
+  }
+
+  if (first.type === 'close') {
     return fail('Parentheses must contain a term.', openPosition);
   }
 

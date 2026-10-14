@@ -17,6 +17,7 @@ import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
 import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
+import { truncate } from './threadRow.ts';
 import { Toast } from './Toast.tsx';
 
 type UiIntent = Extract<Intent, { kind: 'ui' }>;
@@ -180,6 +181,7 @@ const QueryLine = (props: {
   session: Session;
   snapshot: Snapshot;
   palette: Palette;
+  width: number;
 }): ReactNode => {
   const { session, snapshot, palette } = props;
   const { queryError } = snapshot;
@@ -204,8 +206,9 @@ const QueryLine = (props: {
         }}
       />
       {queryError === null ? null : (
+        // queryLineRows reserves one row for the error, so it must never wrap.
         <text fg={palette.error}>
-          {' '.repeat(queryError.position + 1)}^ {queryError.message}
+          {truncate(`${' '.repeat(queryError.position + 1)}^ ${queryError.message}`, props.width)}
         </text>
       )}
     </box>
@@ -317,7 +320,7 @@ export const App = (props: AppProps): ReactNode => {
           paneWidth={paneWidth}
           fullDetail={fullDetail}
         />
-        <QueryLine session={props.session} snapshot={snapshot} palette={palette} />
+        <QueryLine session={props.session} snapshot={snapshot} palette={palette} width={width} />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />

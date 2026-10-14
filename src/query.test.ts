@@ -101,6 +101,12 @@ test('parse reports parenthesis and OR errors with a position', () => {
   expect(failure('kind:pr,').position).toBe(8);
 });
 
+test('a parenthesis at the end of the text fails at that parenthesis', () => {
+  const unclosed = failure('(is:pr');
+
+  expect(failure('is:pr (')).toEqual({ ...unclosed, position: 6 });
+});
+
 test('parse does not throw and gives each error its own message', () => {
   const messages = ['foo:bar', 'repo:', 'kind:x', '(a', 'a)', '()', 'OR a'].map(
     (text) => failure(text).message,

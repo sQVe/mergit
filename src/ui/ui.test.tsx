@@ -1970,6 +1970,30 @@ test('under a query with more matches than rows, the last selected row stays ful
   expect(lines[rowIndex]).toContain('3h');
 });
 
+test('a query error longer than the width keeps the last selected row visible', async () => {
+  const many = Array.from({ length: 35 }, (_, index) =>
+    makeThread(index + 1, `Match thread ${String(index + 1).padStart(2, '0')}`),
+  );
+
+  const { setup, press, settle } = await mount('dark', threadsEffects(many));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'is:pr');
+  await press('return');
+  await press('G');
+  await press('/');
+  await typeText(setup, settle, ' Match Match Match Match (');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const rowIndex = lines.findIndex((line) => line.includes('Match thread 35'));
+  const queryIndex = lines.findIndex((line) => line.startsWith('/is:pr'));
+
+  expect(rowIndex).toBeGreaterThanOrEqual(0);
+  expect(rowIndex).toBeLessThan(queryIndex);
+  expect(lines[queryIndex + 1]).toContain('^');
+});
+
 test('ctrl+c quits while the query line is open and q still types', async () => {
   const { setup, press, settle, terminalIntents } = await mount(
     'dark',
