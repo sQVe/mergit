@@ -37,10 +37,9 @@ then.
 
 ### Logic
 
-- Positive chips of `age` and `title` combine with AND, so `age:>7d age:<30d` is a range and
-  `title:fix title:auth` needs both words. Positive chips of the other fields combine with OR.
-  Different fields combine with AND. Each negated chip excludes on its own. `/` text and filters
-  combine with AND.
+- Different fields combine with AND. Chips of one field combine with OR, except `age` and `title`,
+  which combine with AND, so `age:>7d age:<30d` is a range and `title:fix title:auth` needs both
+  words. Negated chips always exclude, each on its own. `/` text and filters combine with AND.
 - An unknown fact never hides a thread, as in ADR 0019. A release has no author, so `-author:*[bot]`
   keeps it.
 - A bot author reads as `login[bot]`, as GitHub shows it, so one pattern matches every bot.
