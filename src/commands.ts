@@ -15,7 +15,7 @@ export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 export interface Command {
   id: string;
   label: string;
-  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm' | 'input';
+  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm' | 'input' | 'filter';
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   intent: (snapshot: Snapshot) => Intent;
@@ -199,6 +199,23 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'clearSearch' } }),
   },
   {
+    id: 'openFilters',
+    label: 'Filter the list',
+    scope: 'list',
+    keys: ['f'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'openFilters' } }),
+  },
+  {
+    id: 'clearFilters',
+    label: 'Clear all filters',
+    scope: 'list',
+    keys: ['shift+f'],
+    disabledReason: (snapshot) =>
+      snapshot.filters.length === 0 ? 'No filter is active.' : undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'clearFilters' } }),
+  },
+  {
     id: 'submitInput',
     label: 'Keep the search',
     scope: 'input',
@@ -271,5 +288,74 @@ export const catalog: readonly Command[] = [
     keys: ['n', 'escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'cancelOpen' }),
+  },
+  {
+    id: 'applyFilterRow',
+    label: 'Apply the filter row',
+    scope: 'filter',
+    keys: ['return'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'applyFilterRow' } }),
+  },
+  {
+    id: 'takeFilterRow',
+    label: 'Copy the filter row to the line',
+    scope: 'filter',
+    keys: ['tab'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'takeFilterRow' } }),
+  },
+  {
+    id: 'moveFilterUp',
+    label: 'Move up a filter row',
+    scope: 'filter',
+    keys: ['up', 'ctrl+p'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'moveFilterCursor', direction: 'up' } }),
+  },
+  {
+    id: 'moveFilterDown',
+    label: 'Move down a filter row',
+    scope: 'filter',
+    keys: ['down', 'ctrl+n'],
+    disabledReason: () => undefined,
+    intent: () => ({
+      kind: 'application',
+      intent: { kind: 'moveFilterCursor', direction: 'down' },
+    }),
+  },
+  {
+    id: 'closeFilters',
+    label: 'Close the composer or cancel the edit',
+    scope: 'filter',
+    keys: ['escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'closeFilters' } }),
+  },
+  {
+    id: 'clearFilterDraft',
+    label: 'Clear the line',
+    scope: 'filter',
+    keys: ['ctrl+u'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'editFilterDraft', text: '' } }),
+  },
+  {
+    id: 'closeEmptyFilterDraft',
+    label: 'Close the composer when the line is empty',
+    scope: 'filter',
+    keys: ['backspace'],
+    preventDefault: false,
+    disabledReason: (snapshot) =>
+      snapshot.filterDraft === '' ? undefined : 'The line has text to delete.',
+    intent: () => ({ kind: 'application', intent: { kind: 'leaveFilters' } }),
+  },
+  {
+    id: 'quitFromFilters',
+    label: 'Quit',
+    scope: 'filter',
+    keys: ['ctrl+c'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'terminal', action: 'quit' }),
   },
 ];

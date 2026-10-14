@@ -1,3 +1,4 @@
+import { invariant } from './invariant.ts';
 import type { NotificationThread, SubjectFacts } from './work/work.ts';
 
 type Truth = boolean | 'unknown';
@@ -11,6 +12,7 @@ export type Query =
   | { type: 'or'; terms: Query[] }
   | { type: 'not'; term: Query }
   | { type: 'text'; value: string }
+  | { type: 'title'; value: string }
   | { type: 'kind'; subjectType: string }
   | { type: 'repo'; value: string }
   | { type: 'org'; value: string }
@@ -20,6 +22,40 @@ export type Query =
   | { type: 'new'; value: boolean }
   | { type: 'unread'; value: boolean }
   | { type: 'age'; operator: AgeOperator; milliseconds: number };
+
+export type FilterField =
+  | 'kind'
+  | 'repo'
+  | 'org'
+  | 'author'
+  | 'reason'
+  | 'state'
+  | 'new'
+  | 'unread'
+  | 'age'
+  | 'title';
+
+export interface Filter {
+  field: FilterField;
+  value: string;
+  negated: boolean;
+}
+
+export type ParseFiltersResult = { ok: true; filters: Filter[] } | { ok: false; error: string };
+
+export interface FilterCandidate {
+  field: FilterField;
+  value: string;
+  count: number;
+}
+
+export interface FilterCandidateContext {
+  factsOf: (thread: NotificationThread) => SubjectFacts | undefined;
+  isNew: (thread: NotificationThread) => boolean;
+  viewerLogin: string | null;
+}
+
+type Parsed<Value> = { ok: true; value: Value } | { ok: false; error: string };
 
 export interface QueryContext {
   facts: SubjectFacts | undefined;
@@ -59,7 +95,21 @@ const any = (values: Truth[]): Truth => {
   return values.includes('unknown') ? 'unknown' : false;
 };
 
-const sameText = (left: string, right: string): boolean => left.toLowerCase() === right;
+// The pattern is lower case and holds at most one `*`.
+const matchesPattern = (actual: string, pattern: string): boolean => {
+  const lower = actual.toLowerCase();
+  const star = pattern.indexOf('*');
+
+  if (star === -1) {
+    return lower === pattern;
+  }
+
+  const prefix = pattern.slice(0, star);
+  const suffix = pattern.slice(star + 1);
+  const longEnough = lower.length >= prefix.length + suffix.length;
+
+  return longEnough && lower.startsWith(prefix) && lower.endsWith(suffix);
+};
 
 const evaluateAuthor = (value: string, context: QueryContext): Truth => {
   const author = context.facts?.author ?? null;
@@ -69,7 +119,7 @@ const evaluateAuthor = (value: string, context: QueryContext): Truth => {
     return 'unknown';
   }
 
-  return sameText(author, expected.toLowerCase());
+  return matchesPattern(author, expected.toLowerCase());
 };
 
 const evaluateAge = (
@@ -100,20 +150,24 @@ const evaluateThreadField = (query: Query, thread: NotificationThread): Truth =>
     return evaluateText(query.value, thread);
   }
 
+  if (query.type === 'title') {
+    return thread.title.toLowerCase().includes(query.value);
+  }
+
   if (query.type === 'kind') {
     return thread.subjectType === query.subjectType;
   }
 
   if (query.type === 'repo') {
-    return sameText(thread.repository, query.value);
+    return matchesPattern(thread.repository, query.value);
   }
 
   if (query.type === 'org') {
-    return sameText(thread.repository.split('/')[0] ?? '', query.value);
+    return matchesPattern(thread.repository.split('/')[0] ?? '', query.value);
   }
 
   if (query.type === 'reason') {
-    return sameText(thread.reason, query.value);
+    return thread.reason.toLowerCase() === query.value.toLowerCase();
   }
 
   return query.type === 'unread' ? thread.unread === query.value : 'unknown';
@@ -163,4 +217,351 @@ export const evaluate = (
   }
 
   return evaluateField(query, thread, context);
+};
+
+const filterFields: FilterField[] = [
+  'kind',
+  'repo',
+  'org',
+  'author',
+  'reason',
+  'state',
+  'new',
+  'unread',
+  'age',
+  'title',
+];
+
+const subjectTypeByKind: Record<string, string> = {
+  pr: 'PullRequest',
+  issue: 'Issue',
+  release: 'Release',
+  discussion: 'Discussion',
+  commit: 'Commit',
+  ci: 'CheckSuite',
+};
+
+const millisecondsByUnit: Record<string, number> = {
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+  w: 604_800_000,
+};
+
+const stateValues = new Set<string>(['open', 'closed', 'merged']);
+
+const isFilterField = (name: string): name is FilterField => filterFields.some((f) => f === name);
+
+const subjectTypeOf = (kind: string): string | undefined =>
+  Object.hasOwn(subjectTypeByKind, kind) ? subjectTypeByKind[kind] : undefined;
+
+const isStateValue = (value: string): value is StateValue => stateValues.has(value);
+
+const isBooleanText = (value: string): boolean => value === 'true' || value === 'false';
+
+const parseAge = (value: string): { operator: AgeOperator; milliseconds: number } | null => {
+  const match = /^([<>])(\d+)([mhdw])$/.exec(value);
+  const operator = match?.[1];
+  const amount = match?.[2];
+  const unit = match?.[3];
+
+  if (operator === undefined || amount === undefined || unit === undefined) {
+    return null;
+  }
+
+  return {
+    operator: operator === '<' ? '<' : '>',
+    milliseconds: Number(amount) * (millisecondsByUnit[unit] ?? 0),
+  };
+};
+
+const splitTokens = (text: string): Parsed<string[]> => {
+  const tokens: string[] = [];
+  let current = '';
+  let quoted = false;
+
+  for (const character of text) {
+    if (character === '"') {
+      quoted = !quoted;
+      current += character;
+    } else if (!quoted && /\s/.test(character)) {
+      if (current !== '') {
+        tokens.push(current);
+      }
+
+      current = '';
+    } else {
+      current += character;
+    }
+  }
+
+  if (quoted) {
+    return { ok: false, error: `Invalid filter "${current}": the quote is not closed.` };
+  }
+
+  if (current !== '') {
+    tokens.push(current);
+  }
+
+  return { ok: true, value: tokens };
+};
+
+const unquote = (value: string): string => value.replaceAll('"', '');
+
+const normalizeIs = (value: string): { field: FilterField; value: string } | null => {
+  if (subjectTypeOf(value) !== undefined) {
+    return { field: 'kind', value };
+  }
+
+  if (isStateValue(value)) {
+    return { field: 'state', value };
+  }
+
+  if (value === 'unread') {
+    return { field: 'unread', value: 'true' };
+  }
+
+  return value === 'read' ? { field: 'unread', value: 'false' } : null;
+};
+
+const checkOpenValue = (field: FilterField, value: string): string | null => {
+  if (field === 'age' && parseAge(value) === null) {
+    return 'age takes < or >, a whole number, and a unit m, h, d, or w, such as >7d';
+  }
+
+  const wildcardField = field === 'repo' || field === 'org' || field === 'author';
+
+  if (wildcardField && value.split('*').length > 2) {
+    return `${field} takes at most one *`;
+  }
+
+  return null;
+};
+
+const checkValue = (field: FilterField, value: string): string | null => {
+  if (value === '') {
+    return `${field} needs a value`;
+  }
+
+  if (field === 'kind' && subjectTypeOf(value) === undefined) {
+    return 'kind takes pr, issue, release, discussion, commit, or ci';
+  }
+
+  if (field === 'state' && !isStateValue(value)) {
+    return 'state takes open, closed, or merged';
+  }
+
+  const booleanField = field === 'new' || field === 'unread';
+
+  if (booleanField && !isBooleanText(value)) {
+    return `${field} takes true or false`;
+  }
+
+  return checkOpenValue(field, value);
+};
+
+const lowercasedFields = new Set<FilterField>(['kind', 'state', 'new', 'unread']);
+
+const normalizeValue = (field: FilterField, value: string): string => {
+  if (field === 'reason') {
+    return value.toLowerCase().replaceAll('-', '_');
+  }
+
+  if (field === 'author' && value.toLowerCase().startsWith('app/')) {
+    return `${value.slice('app/'.length)}[bot]`;
+  }
+
+  return lowercasedFields.has(field) ? value.toLowerCase() : value;
+};
+
+const parseToken = (token: string): Parsed<Filter> => {
+  const negated = token.startsWith('-');
+  const body = negated ? token.slice(1) : token;
+  const colon = body.indexOf(':');
+
+  if (colon === -1) {
+    return { ok: false, error: `Invalid filter "${token}": expected field:value.` };
+  }
+
+  const name = body.slice(0, colon).toLowerCase();
+  const rawValue = unquote(body.slice(colon + 1));
+  const alias = name === 'is' ? normalizeIs(rawValue.toLowerCase()) : null;
+  const field = alias?.field ?? name;
+
+  if (!isFilterField(field)) {
+    const valid = name === 'is' ? 'kind, state, or unread' : filterFields.join(', ');
+    const subject = name === 'is' ? `value "${rawValue}"` : `field "${name}"`;
+
+    return { ok: false, error: `Invalid filter "${token}": unknown ${subject}. Use ${valid}.` };
+  }
+
+  const value = normalizeValue(field, alias?.value ?? rawValue);
+  const problem = checkValue(field, value);
+
+  if (problem !== null) {
+    return { ok: false, error: `Invalid filter "${token}": ${problem}.` };
+  }
+
+  return { ok: true, value: { field, value, negated } };
+};
+
+export const parseFilters = (text: string): ParseFiltersResult => {
+  const filters: Filter[] = [];
+
+  const split = splitTokens(text);
+
+  if (!split.ok) {
+    return split;
+  }
+
+  for (const token of split.value) {
+    const parsed = parseToken(token);
+
+    if (!parsed.ok) {
+      return parsed;
+    }
+
+    filters.push(parsed.value);
+  }
+
+  return { ok: true, filters };
+};
+
+export const formatFilter = (filter: Filter): string => {
+  const value = /\s/.test(filter.value) ? `"${filter.value}"` : filter.value;
+
+  return `${filter.negated ? '-' : ''}${filter.field}:${value}`;
+};
+
+const filterTerm = (filter: Filter): Query => {
+  const value = filter.value.toLowerCase();
+  const { field } = filter;
+
+  if (field === 'kind') {
+    const subjectType = subjectTypeOf(value);
+
+    invariant(subjectType !== undefined, `Invalid kind filter value "${filter.value}".`);
+
+    return { type: 'kind', subjectType };
+  }
+
+  if (field === 'state') {
+    invariant(isStateValue(value), `Invalid state filter value "${filter.value}".`);
+
+    return { type: 'state', value };
+  }
+
+  if (field === 'new' || field === 'unread') {
+    invariant(isBooleanText(value), `Invalid ${field} filter value "${filter.value}".`);
+
+    return { type: field, value: value === 'true' };
+  }
+
+  if (field === 'age') {
+    const age = parseAge(value);
+
+    invariant(age !== null, `Invalid age filter value "${filter.value}".`);
+
+    return { type: 'age', ...age };
+  }
+
+  return { type: field, value };
+};
+
+const groupTerms = (terms: Query[]): Query | null => {
+  const [first] = terms;
+
+  if (first === undefined) {
+    return null;
+  }
+
+  return terms.length === 1 ? first : { type: 'or', terms };
+};
+
+export const filterQuery = (filters: Filter[]): Query | null => {
+  const positiveByField = new Map<FilterField, Query[]>();
+  const terms: Query[] = [];
+
+  for (const filter of filters) {
+    if (filter.negated) {
+      terms.push({ type: 'not', term: filterTerm(filter) });
+    } else {
+      const group = positiveByField.get(filter.field) ?? [];
+
+      group.push(filterTerm(filter));
+      positiveByField.set(filter.field, group);
+    }
+  }
+
+  const positives = [...positiveByField.values()].flatMap((group) => groupTerms(group) ?? []);
+  const combined = [...positives, ...terms];
+  const [first] = combined;
+
+  if (first === undefined) {
+    return null;
+  }
+
+  return combined.length === 1 ? first : { type: 'and', terms: combined };
+};
+
+const kindByType = new Map(Object.entries(subjectTypeByKind).map(([kind, type]) => [type, kind]));
+
+const factValues = (
+  thread: NotificationThread,
+  context: FilterCandidateContext,
+): Record<string, string | null> => {
+  const facts = context.factsOf(thread);
+  const author = facts?.author ?? null;
+  const isViewer = author !== null && author.toLowerCase() === context.viewerLogin?.toLowerCase();
+
+  return {
+    kind: kindByType.get(thread.subjectType) ?? null,
+    repo: thread.repository,
+    org: thread.repository.split('/')[0] ?? null,
+    author,
+    me: isViewer ? '@me' : null,
+    reason: thread.reason,
+    state: facts?.state ?? null,
+    new: String(context.isNew(thread)),
+    unread: String(thread.unread),
+  };
+};
+
+const candidateFields: { field: FilterField; key: string }[] = [
+  { field: 'kind', key: 'kind' },
+  { field: 'repo', key: 'repo' },
+  { field: 'org', key: 'org' },
+  { field: 'author', key: 'author' },
+  { field: 'author', key: 'me' },
+  { field: 'reason', key: 'reason' },
+  { field: 'state', key: 'state' },
+  { field: 'new', key: 'new' },
+  { field: 'unread', key: 'unread' },
+];
+
+export const filterCandidates = (
+  threads: NotificationThread[],
+  context: FilterCandidateContext,
+): { fields: FilterField[]; values: FilterCandidate[] } => {
+  const counts = new Map<string, FilterCandidate>();
+
+  for (const thread of threads) {
+    const values = factValues(thread, context);
+
+    for (const { field, key } of candidateFields) {
+      const value = values[key];
+
+      if (value === null || value === undefined) {
+        continue;
+      }
+
+      const id = `${field}:${value}`;
+      const entry = counts.get(id) ?? { field, value, count: 0 };
+
+      entry.count += 1;
+      counts.set(id, entry);
+    }
+  }
+
+  return { fields: filterFields, values: [...counts.values()] };
 };

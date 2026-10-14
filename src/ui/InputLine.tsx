@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { Palette } from './palette.ts';
 
 export const InputLine = (props: {
-  prompt: string;
+  prompt: string | null;
   value: string;
   palette: Palette;
   focused: boolean;
@@ -11,7 +11,7 @@ export const InputLine = (props: {
   onInput: (value: string) => void;
 }): ReactNode => (
   <box height={1} flexShrink={0} flexDirection="row">
-    <text fg={props.palette.dim}>{props.prompt}</text>
+    {props.prompt === null ? null : <text fg={props.palette.dim}>{props.prompt}</text>}
     <input
       flexGrow={1}
       value={props.value}

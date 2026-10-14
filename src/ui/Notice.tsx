@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
-import { visibleRows } from '../session/session.ts';
+import { openThreads, visibleRows } from '../session/session.ts';
 import type { Palette } from './palette.ts';
 
 const noticeText = {
@@ -26,6 +26,10 @@ const readMessage = (snapshot: Snapshot): { text: string; dim: boolean } | null 
   }
 
   if (hasNoRows(snapshot) && snapshot.errorMessage === null) {
+    if (openThreads(snapshot).length > 0) {
+      return { text: 'No notifications match the search or filters', dim: false };
+    }
+
     return { text: 'No open notifications', dim: false };
   }
 

@@ -29,6 +29,7 @@ const subjectKinds: Record<string, SubjectKind> = {
 
 const actorFields = 'actor { login }';
 const authorFields = 'author { login }';
+const subjectAuthorFields = 'author { __typename login }';
 
 const sharedTimelineFragments = [
   `... on IssueComment { ${authorFields} }`,
@@ -59,8 +60,8 @@ const pullRequestItemTypes = [
 ];
 
 const selections: Record<SubjectKind, string> = {
-  pullRequest: `pullRequest(number: $number) { state author { login } timelineItems(last: 1, itemTypes: [${pullRequestItemTypes.join(', ')}]) { nodes { ${pullRequestTimelineFragments.join(' ')} } } }`,
-  issue: `issue(number: $number) { state author { login } timelineItems(last: 1, itemTypes: [${sharedItemTypes.join(', ')}]) { nodes { ${sharedTimelineFragments.join(' ')} } } }`,
+  pullRequest: `pullRequest(number: $number) { state ${subjectAuthorFields} timelineItems(last: 1, itemTypes: [${pullRequestItemTypes.join(', ')}]) { nodes { ${pullRequestTimelineFragments.join(' ')} } } }`,
+  issue: `issue(number: $number) { state ${subjectAuthorFields} timelineItems(last: 1, itemTypes: [${sharedItemTypes.join(', ')}]) { nodes { ${sharedTimelineFragments.join(' ')} } } }`,
 };
 
 const readSubjectRequest = (thread: NotificationThread): SubjectRequest | null => {
@@ -110,6 +111,10 @@ const buildBatchQuery = (batch: SubjectRequest[]) => {
 
 const loginSchema = z.object({ login: z.string() }).nullish();
 
+const subjectAuthorSchema = z
+  .object({ __typename: z.string().optional(), login: z.string() })
+  .nullish();
+
 const timelineNodeSchema = z.object({
   actor: loginSchema,
   author: loginSchema,
@@ -118,7 +123,7 @@ const timelineNodeSchema = z.object({
 
 const subjectSchema = z.object({
   state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
-  author: loginSchema,
+  author: subjectAuthorSchema,
   timelineItems: z.object({ nodes: z.array(timelineNodeSchema.nullable()) }),
 });
 
@@ -154,6 +159,17 @@ const readLatestActor = (subject: z.infer<typeof subjectSchema>): string | null 
   return node.actor?.login ?? node.author?.login ?? node.commit?.author?.user?.login ?? null;
 };
 
+const readAuthor = (subject: z.infer<typeof subjectSchema>): string | null => {
+  const { author } = subject;
+
+  if (author === undefined || author === null) {
+    return null;
+  }
+
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- GraphQL names this field.
+  return author.__typename === 'Bot' ? `${author.login}[bot]` : author.login;
+};
+
 const readFacts = (
   repository: z.infer<typeof repositorySchema> | undefined,
   kind: SubjectKind,
@@ -166,7 +182,7 @@ const readFacts = (
 
   return {
     state: stateByGraphql[subject.state],
-    author: subject.author?.login ?? null,
+    author: readAuthor(subject),
     latestActor: readLatestActor(subject),
   };
 };

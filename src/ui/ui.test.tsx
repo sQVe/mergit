@@ -198,6 +198,10 @@ const mount = async (
         setup.mockInput.pressEscape();
       } else if (key === 'return') {
         setup.mockInput.pressEnter();
+      } else if (key === 'down' || key === 'up') {
+        setup.mockInput.pressArrow(key);
+      } else if (key === 'tab') {
+        setup.mockInput.pressTab();
       } else if (key === 'backspace') {
         setup.mockInput.pressBackspace();
       } else {
@@ -234,7 +238,7 @@ const mount = async (
 };
 
 test('? opens the overlay with every command label and ? closes it', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
+  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
 
   await press('?');
 
@@ -342,7 +346,7 @@ test('a theme change keeps the overlay open, recolors it, and adds no subscriber
     idleEffects,
     60,
     false,
-    30,
+    50,
   );
 
   await press('?');
@@ -2038,4 +2042,497 @@ test('the help overlay lists the search line keys and still shows Close help', a
   }
 
   expect(frame).toContain('Close help');
+});
+
+const filterThreads = [
+  treeThread(1, 'Alpha change', { repository: 'acme/app' }),
+  treeThread(2, 'Beta change', { repository: 'acme/app' }),
+  treeThread(3, 'Gamma change', { repository: 'acme/web' }),
+];
+
+const filterFacts = new Map<string, { state: 'open'; author: string }>([
+  ['1', { state: 'open', author: 'octo' }],
+  ['2', { state: 'open', author: 'octo' }],
+  ['3', { state: 'open', author: 'mona' }],
+]);
+
+const mountFilters = async (width = 60) => {
+  const mounted = await mount('dark', factsEffects(filterThreads, filterFacts), width, false, 24);
+
+  await mounted.press('r');
+  await mounted.settle();
+
+  return mounted;
+};
+
+const composerInputOf = (frame: string): string | undefined => {
+  const lines = frame.split('\n');
+  const titleAt = lines.findIndex((line) => line.includes('─ Filter ─'));
+  const line = lines[titleAt + 1];
+
+  return titleAt === -1 ? undefined : line?.replace(/^│/, '').replace(/│$/, '').trim();
+};
+
+const addAuthorChip = async (mounted: Awaited<ReturnType<typeof mountFilters>>, text: string) => {
+  const { setup, press, settle } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, text);
+  await press('return');
+};
+
+test('f lists author candidates with their counts', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, 'author:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toMatch(/author:octo\s+2/);
+  expect(frame).toMatch(/author:mona\s+1/);
+});
+
+test('Enter on a candidate adds a chip and narrows the list', async () => {
+  const mounted = await mountFilters();
+  const { setup, press, settle } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, 'author:mona');
+  await press('return');
+  await press('escape');
+
+  const frame = setup.captureCharFrame();
+  const chipRow = frame.split('\n')[0] ?? '';
+
+  expect(chipRow).toContain('author:mona');
+  expect(frame).toContain('Gamma change');
+  expect(frame).not.toContain('Alpha change');
+  expect(frame).not.toContain('Beta change');
+});
+
+test('a field name that is an object key keeps the composer on screen and the list returns after Esc', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, '__proto__:');
+
+  const protoLines = setup.captureCharFrame().split('\n');
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('__proto__:');
+  expect(protoLines.some((line) => line.includes('Alpha change'))).toBe(false);
+
+  await press('escape');
+
+  expect(setup.captureCharFrame()).toContain('Alpha change');
+
+  const second = await mountFilters();
+
+  await second.press('f');
+  await typeText(second.setup, second.settle, 'constructor:');
+
+  const constructorFrame = second.setup.captureCharFrame();
+
+  expect(composerInputOf(constructorFrame)).toBe('constructor:');
+  expect(constructorFrame).not.toContain('function');
+});
+
+test('an invalid age shows an error and Enter adds no chip', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, 'age:>3');
+
+  expect(setup.captureCharFrame()).toContain('age takes');
+
+  await press('return');
+  await press('escape');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame.split('\n')[0]).not.toContain('age:');
+  expect(frame).toContain('Alpha change');
+  expect(frame).toContain('Gamma change');
+});
+
+test('Tab on a chip edits it and Enter replaces it', async () => {
+  const mounted = await mountFilters();
+  const { setup, press, settle } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await press('tab');
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('author:mona');
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'author:octo');
+  await press('return');
+  await press('escape');
+
+  const frame = setup.captureCharFrame();
+  const chipRow = frame.split('\n')[0] ?? '';
+
+  expect(chipRow).toContain('author:octo');
+  expect(chipRow).not.toContain('author:mona');
+  expect(frame).toContain('Alpha change');
+  expect(frame).not.toContain('Gamma change');
+});
+
+test('Esc during an edit keeps the old chip', async () => {
+  const mounted = await mountFilters();
+  const { setup, press, settle } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await press('tab');
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'author:octo');
+  await press('escape');
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('');
+
+  await press('escape');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame.split('\n')[0]).toContain('author:mona');
+  expect(frame).toContain('Gamma change');
+  expect(frame).not.toContain('Alpha change');
+});
+
+test('Backspace on an empty draft closes the composer', async () => {
+  const { setup, press } = await mountFilters();
+
+  await press('f');
+
+  expect(setup.captureCharFrame()).toContain('author');
+
+  await press('backspace');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).not.toContain('author');
+  expect(frame).toContain('Alpha change');
+});
+
+test('F clears all chips', async () => {
+  const mounted = await mountFilters();
+  const { setup, press } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+
+  expect(setup.captureCharFrame()).not.toContain('Alpha change');
+
+  await press('escape');
+  await press('F');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame.split('\n')[0]).not.toContain('author:');
+  expect(frame).toContain('Alpha change');
+  expect(frame).toContain('Gamma change');
+});
+
+test('chips that do not fit collapse into +N more', async () => {
+  const mounted = await mountFilters(40);
+  const { setup, press, settle } = mounted;
+
+  for (const text of ['author:octo', 'author:mona', 'repo:acme/app']) {
+    await press('f');
+    await typeText(setup, settle, text);
+    await press('return');
+    await press('escape');
+  }
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow).toMatch(/\+\d+ more/);
+  expect(chipRow).toContain('author:octo');
+  expect(chipRow).not.toContain('repo:acme/app');
+});
+
+const pressBackspace = async (setup: Setup, settle: () => Promise<void>) => {
+  await act(async () => {
+    setup.mockInput.pressBackspace();
+  });
+
+  await settle();
+};
+
+test('Backspace on an empty draft during an edit closes the composer and keeps the chip', async () => {
+  const mounted = await mountFilters();
+  const { setup, press, settle } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await press('tab');
+  await pressCtrlU(setup, settle);
+  await pressBackspace(setup, settle);
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame.split('\n')[0]).toContain('author:mona');
+  expect(frame).not.toContain('fauthor');
+  expect(frame).toContain('Gamma change');
+
+  await press('j');
+
+  expect(composerInputOf(setup.captureCharFrame())).toBeUndefined();
+});
+
+test('Esc during an edit cancels the edit and leaves the composer open', async () => {
+  const mounted = await mountFilters();
+  const { setup, press } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await press('tab');
+  await press('escape');
+  await press('j');
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('j');
+});
+
+test('-, f, j, and F typed in the composer go into the draft and run no list command', async () => {
+  const mounted = await mountFilters();
+  const { setup, press, settle } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await typeText(setup, settle, '-fjF');
+
+  const frame = setup.captureCharFrame();
+
+  expect(composerInputOf(frame)).toBe('-fjF');
+  expect(frame.split('\n')[0]).toContain('author:mona');
+  expect(frame).not.toContain('Alpha change');
+  await press('escape');
+});
+
+test('Backspace on a non-empty draft deletes a character and keeps the composer open', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, 'ab');
+  await pressBackspace(setup, settle);
+
+  const frame = setup.captureCharFrame();
+
+  expect(composerInputOf(frame)).toBe('a');
+
+  await typeText(setup, settle, 'u');
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('au');
+});
+
+const manyAuthors = Array.from({ length: 12 }, (_, index) =>
+  treeThread(index + 1, `Change ${index + 1}`, { repository: 'acme/app' }),
+);
+
+const manyFacts = new Map(
+  manyAuthors.map((thread, index) => [
+    thread.id as string,
+    { state: 'open' as const, author: `user${String(index).padStart(2, '0')}` },
+  ]),
+);
+
+test('moving the cursor past the last shown candidate scrolls the list', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 40);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'author:');
+
+  const selectedBackground = RGBA.fromHex(pickPalette('dark').selectedBackground).toString();
+
+  const cursorText = (): string | undefined =>
+    setup
+      .captureSpans()
+      .lines.map((line) => line.spans)
+      .filter((spans) => spans.some((span) => span.bg.toString() === selectedBackground))
+      .map((spans) => spans.map((span) => span.text).join(''))
+      .find((text) => text.includes('author:user'));
+
+  const firstCandidate = cursorText()?.match(/author:user\d+/)?.[0];
+
+  for (let step = 0; step < 10; step += 1) {
+    await press('down');
+  }
+
+  const movedTo = cursorText()?.match(/author:user\d+/)?.[0];
+  const candidateLines = setup.captureCharFrame().split('\n');
+
+  const firstStillShown = candidateLines.some(
+    (line) => firstCandidate !== undefined && line.includes(firstCandidate),
+  );
+
+  expect(firstCandidate).toBeDefined();
+  expect(movedTo).toBeDefined();
+  expect(movedTo).not.toBe(firstCandidate);
+  expect(firstStillShown).toBe(false);
+});
+
+test('in a short terminal the composer keeps the input, a candidate, and the status line visible', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 9);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'author:');
+
+  const lines = setup.captureCharFrame().split('\n');
+
+  expect(composerInputOf(lines.join('\n'))).toBe('author:');
+  expect(lines.at(-2)).toContain('? help');
+  expect(lines.some((line) => /author:user00\s+1/.test(line))).toBe(true);
+});
+
+test('chips of a field are joined by or only when positive; negated chips stand apart', async () => {
+  const mounted = await mountFilters(100);
+  const { setup, press, settle } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, 'repo:a repo:b -repo:c -repo:d');
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow).toContain('repo:a or repo:b');
+  expect(chipRow).not.toContain('or -repo');
+  expect(chipRow).not.toContain('-repo:c or');
+  expect(chipRow).toContain('-repo:c');
+  expect(chipRow).toContain('-repo:d');
+});
+
+test('positive chips of a field stay joined by or when a negated chip was added between them', async () => {
+  const mounted = await mountFilters(100);
+  const { setup, press, settle } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, 'repo:a -repo:c repo:b');
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow).toContain('repo:a or repo:b');
+  expect(chipRow).toContain('-repo:c');
+  expect(chipRow).not.toContain('or -repo');
+});
+
+test('filters that hide every open thread show a no-match notice, not the empty inbox one', async () => {
+  const mounted = await mountFilters();
+  const { setup, press, settle } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, 'author:nobody');
+  await press('return');
+  await press('escape');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('No notifications match');
+  expect(frame).not.toContain('No open notifications');
+});
+
+test('a search that hides every open thread shows a no-match notice', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('/');
+  await typeText(setup, settle, 'zzzzqq');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('No notifications match');
+  expect(frame).not.toContain('No open notifications');
+});
+
+test('an inbox with no open threads keeps the empty inbox notice', async () => {
+  const { setup, press } = await mount('dark', threadsEffects([]));
+
+  await press('r');
+
+  expect(setup.captureCharFrame()).toContain('No open notifications');
+});
+
+test('the composer box sits on the top row with no chips and has no prompt', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, 'ab');
+
+  const lines = setup.captureCharFrame().split('\n');
+
+  expect(lines[0]).toContain('─ Filter ─');
+  expect(lines[1]?.startsWith('│ ab')).toBe(true);
+});
+
+test('the composer box sits directly under the chip bar', async () => {
+  const mounted = await mountFilters();
+
+  await addAuthorChip(mounted, 'author:mona');
+
+  const lines = mounted.setup.captureCharFrame().split('\n');
+
+  expect(lines[0]).toContain('author:mona');
+  expect(lines[1]).toContain('─ Filter ─');
+});
+
+test('opening the composer leaves the thread rows below the box where they were', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 30);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+
+  const rowOf = (label: string): number =>
+    setup
+      .captureCharFrame()
+      .split('\n')
+      .findIndex((line) => line.includes(label));
+
+  const before = rowOf('Change 12');
+
+  await press('f');
+  await typeText(setup, settle, 'author:user0');
+
+  expect(before).toBeGreaterThan(0);
+  expect(rowOf('Change 12')).toBe(before);
+
+  await press('escape');
+
+  expect(rowOf('Change 12')).toBe(before);
+});
+
+test('in a very short terminal Enter applies the row shown under the cursor or nothing', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 6);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+  await press('f');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const shown = lines.filter((line) => /^│\s+(✓ )?\S.*\d\s*│$/.test(line));
+
+  expect(shown.length).toBeGreaterThanOrEqual(1);
+
+  const label = shown[0]?.replace(/^│\s*/, '').split(/\s+/)[0] ?? '';
+
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow).toContain(label);
+});
+
+test('in a terminal too short for any candidate row Enter adds nothing', async () => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 4);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+  await press('f');
+  await press('return');
+  await press('escape');
+
+  expect(setup.captureCharFrame().split('\n')[0]).not.toContain('kind:');
 });
