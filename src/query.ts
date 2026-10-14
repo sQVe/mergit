@@ -219,7 +219,7 @@ export const evaluate = (
   return evaluateField(query, thread, context);
 };
 
-const filterFields: FilterField[] = [
+export const filterFields: FilterField[] = [
   'kind',
   'repo',
   'org',
@@ -317,6 +317,10 @@ const normalizeIs = (value: string): { field: FilterField; value: string } | nul
     return { field: 'state', value };
   }
 
+  if (value === 'new') {
+    return { field: 'new', value: 'true' };
+  }
+
   if (value === 'unread') {
     return { field: 'unread', value: 'true' };
   }
@@ -389,7 +393,7 @@ const parseToken = (token: string): Parsed<Filter> => {
   const field = alias?.field ?? name;
 
   if (!isFilterField(field)) {
-    const valid = name === 'is' ? 'kind, state, or unread' : filterFields.join(', ');
+    const valid = name === 'is' ? 'kind, state, new, or unread' : filterFields.join(', ');
     const subject = name === 'is' ? `value "${rawValue}"` : `field "${name}"`;
 
     return { ok: false, error: `Invalid filter "${token}": unknown ${subject}. Use ${valid}.` };
@@ -481,10 +485,13 @@ const groupTerms = (terms: Query[]): Query | null => {
 export const filterQuery = (filters: Filter[]): Query | null => {
   const positiveByField = new Map<FilterField, Query[]>();
   const terms: Query[] = [];
+  const conjunctive = new Set<FilterField>(['age', 'title']);
 
   for (const filter of filters) {
     if (filter.negated) {
       terms.push({ type: 'not', term: filterTerm(filter) });
+    } else if (conjunctive.has(filter.field)) {
+      terms.push(filterTerm(filter));
     } else {
       const group = positiveByField.get(filter.field) ?? [];
 
@@ -527,6 +534,8 @@ const factValues = (
   };
 };
 
+const typedValueFields: FilterField[] = ['repo', 'org', 'author', 'reason', 'age', 'title'];
+
 const candidateFields: { field: FilterField; key: string }[] = [
   { field: 'kind', key: 'kind' },
   { field: 'repo', key: 'repo' },
@@ -563,5 +572,5 @@ export const filterCandidates = (
     }
   }
 
-  return { fields: filterFields, values: [...counts.values()] };
+  return { fields: typedValueFields, values: [...counts.values()] };
 };

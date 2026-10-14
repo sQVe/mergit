@@ -50,6 +50,7 @@ export interface Snapshot {
   filtersOpen: boolean;
   filterDraft: string;
   filterCursor: number;
+  filterError: string | null;
   filterEditing: Filter | null;
 }
 
@@ -90,7 +91,8 @@ export const initialSnapshot: Snapshot = {
   filters: [],
   filtersOpen: false,
   filterDraft: '',
-  filterCursor: 0,
+  filterCursor: -1,
+  filterError: null,
   filterEditing: null,
 };
 
@@ -123,7 +125,19 @@ export const newThreadIdsOf = (input: NewThreadInput): ReadonlySet<ThreadId> => 
 export const openThreads = (snapshot: Snapshot): NotificationThread[] =>
   snapshot.threads.filter((thread) => !snapshot.hiddenThreadIds.has(thread.id));
 
-export const threadsMatching = (
+const evaluateThread = (
+  snapshot: Snapshot,
+  thread: NotificationThread,
+  query: Query,
+): boolean | 'unknown' =>
+  evaluate(query, thread, {
+    facts: snapshot.subjectFacts.get(thread.id),
+    isNew: snapshot.newThreadIds.has(thread.id),
+    viewerLogin: snapshot.viewerLogin,
+    now: snapshot.savedAt ?? snapshot.refreshedAt,
+  });
+
+const threadsMatching = (
   snapshot: Snapshot,
   threads: NotificationThread[],
   query: Query | null,
@@ -132,17 +146,15 @@ export const threadsMatching = (
     return threads;
   }
 
-  return threads.filter((thread) => {
-    const result = evaluate(query, thread, {
-      facts: snapshot.subjectFacts.get(thread.id),
-      isNew: snapshot.newThreadIds.has(thread.id),
-      viewerLogin: snapshot.viewerLogin,
-      now: snapshot.savedAt ?? snapshot.refreshedAt,
-    });
-
-    return result !== false;
-  });
+  return threads.filter((thread) => evaluateThread(snapshot, thread, query) !== false);
 };
+
+export const threadsKnownMatching = (
+  snapshot: Snapshot,
+  threads: NotificationThread[],
+  query: Query,
+): NotificationThread[] =>
+  threads.filter((thread) => evaluateThread(snapshot, thread, query) === true);
 
 const searchedThreads = (snapshot: Snapshot): NotificationThread[] => {
   const searched = threadsMatching(

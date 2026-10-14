@@ -1,18 +1,27 @@
+import type { KeyEvent, Renderable } from '@opentui/core';
+import type { CommandContext } from '@opentui/keymap';
 import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings } from '@opentui/keymap/react';
-import { useTerminalDimensions } from '@opentui/react';
+import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode } from 'react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
-import { filterRowsOf, formatFilter, matchCountOf, visibleRows } from '../session/session.ts';
+import {
+  filterCursorOf,
+  filterRowsOf,
+  formatFilter,
+  matchCountOf,
+  visibleRows,
+} from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 import type { CandidateItem } from './CandidateList.tsx';
-import { CandidateList } from './CandidateList.tsx';
+import { CandidateList, ellipsized } from './CandidateList.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
 import { FilterBar } from './FilterBar.tsx';
+import { fieldDescription, filterDescription } from './filterDescriptions.ts';
 import { HelpOverlay } from './HelpOverlay.tsx';
 import { InputLine } from './InputLine.tsx';
 import { hasNotice, Notice } from './Notice.tsx';
@@ -59,6 +68,7 @@ interface KeysProps extends AppProps {
 interface ComposerLayout {
   candidateRows: number;
   hintRows: number;
+  descriptionRows: number;
 }
 
 const sidePaneMinimumWidth = 90;
@@ -123,7 +133,6 @@ const Keys = (props: KeysProps): null => {
 
   const { openRequest, setOpenRequest } = props;
   const state = { ...props, confirmOpen: openRequest !== null };
-  const commands = props.catalog.filter((command) => isActive(command, state));
 
   const confirmOpen = () => {
     setOpenRequest(null);
@@ -151,6 +160,18 @@ const Keys = (props: KeysProps): null => {
     }
   };
 
+  const typeIntoPendingInput = (text: string): void => {
+    const snapshot = session.getSnapshot();
+    const filterPending = snapshot.filtersOpen && !props.filtersOpen;
+    const searchPending = snapshot.searchOpen && !props.searchOpen;
+
+    if (filterPending) {
+      session.send({ kind: 'editFilterDraft', text: snapshot.filterDraft + text });
+    } else if (searchPending) {
+      session.send({ kind: 'editSearch', text: snapshot.searchText + text });
+    }
+  };
+
   const run = (command: Command) => {
     const snapshot = session.getSnapshot();
 
@@ -173,17 +194,46 @@ const Keys = (props: KeysProps): null => {
     }
   };
 
+  // The scope comes from the live session, because keys in one burst arrive before React
+  // renders what the first key changed.
+  const commandFor = (key: string): Command | undefined => {
+    const { searchOpen, filtersOpen } = session.getSnapshot();
+    const live = { ...state, searchOpen, filtersOpen };
+
+    return props.catalog.find((command) => command.keys.includes(key) && isActive(command, live));
+  };
+
+  // A key no command takes reaches here. Before the input takes focus, it is typed here.
+  useKeyboard((event) => {
+    const printable = event.sequence.length === 1 && !event.ctrl && !event.meta;
+
+    if (printable) {
+      typeIntoPendingInput(event.sequence);
+    }
+  });
+
+  const keyStrings = [...new Set(props.catalog.flatMap((command) => command.keys))];
+
   useBindings(
     () => ({
-      bindings: commands.flatMap((command) =>
-        command.keys.map((key) => ({
-          key,
-          preventDefault: command.preventDefault ?? true,
-          cmd: () => {
-            run(command);
-          },
-        })),
-      ),
+      bindings: keyStrings.map((key) => ({
+        key,
+        preventDefault: false,
+        cmd: (context: CommandContext<Renderable, KeyEvent>) => {
+          const command = commandFor(key);
+
+          if (command === undefined) {
+            return;
+          }
+
+          run(command);
+
+          if (command.preventDefault ?? true) {
+            context.event.preventDefault();
+            context.event.stopPropagation();
+          }
+        },
+      })),
     }),
     [
       props.helpOpen,
@@ -191,8 +241,6 @@ const Keys = (props: KeysProps): null => {
       setOpenRequest,
       props.detailOpen,
       props.sideLayout,
-      props.searchOpen,
-      props.filtersOpen,
       props.composerBlind,
       props.catalog,
       session,
@@ -234,8 +282,12 @@ const SearchLine = (props: {
       palette={palette}
       focused={snapshot.searchOpen}
       suffix={suffix}
+      watch={session.subscribe}
+      current={() => session.getSnapshot().searchText}
       onInput={(text) => {
-        session.send({ kind: 'editSearch', text });
+        if (session.getSnapshot().searchOpen) {
+          session.send({ kind: 'editSearch', text });
+        }
       }}
     />
   );
@@ -256,33 +308,29 @@ const valueHints = new Map([
   ['title', 'words in the title'],
 ]);
 
-const hintOf = (snapshot: Snapshot, rows: FilterRow[]): string => {
+const keyHints = 'Enter apply · Tab edit · - exclude · Esc close';
+
+const hintOf = (snapshot: Snapshot): string => {
   const field = snapshot.filterDraft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
   const hasValue = snapshot.filterDraft.includes(':');
   const valueHint = hasValue ? valueHints.get(field) : undefined;
 
-  if (valueHint !== undefined) {
-    return valueHint;
-  }
-
-  const fields = rows.flatMap((row) => (row.kind === 'field' ? [row.field] : []));
-
-  return fields.join(' ');
+  return valueHint ?? keyHints;
 };
 
 const itemOf = (row: FilterRow): CandidateItem => {
   if (row.kind === 'error') {
-    return { label: row.message, count: null, marked: false, failed: true };
+    return { label: row.message, count: null, marked: false, failed: true, muted: false };
   }
 
   if (row.kind === 'typed') {
     const label = row.filters.map((filter) => formatFilter(filter)).join(' ');
 
-    return { label, count: row.count, marked: false, failed: false };
+    return { label, count: row.count, marked: false, failed: false, muted: false };
   }
 
   if (row.kind === 'field') {
-    return { label: `${row.field}:`, count: null, marked: false, failed: false };
+    return { label: `${row.field}:`, count: null, marked: false, failed: false, muted: false };
   }
 
   return {
@@ -290,21 +338,69 @@ const itemOf = (row: FilterRow): CandidateItem => {
     count: row.count,
     marked: row.kind === 'active',
     failed: false,
+    muted: false,
   };
+};
+
+const noMatchesItem: CandidateItem = {
+  label: 'No matches',
+  count: null,
+  marked: false,
+  failed: false,
+  muted: true,
+};
+
+const titleOf = (snapshot: Snapshot): string => {
+  const { filterEditing } = snapshot;
+
+  return filterEditing === null ? ' Filter ' : ` Filter · editing ${formatFilter(filterEditing)} `;
 };
 
 const filterBarRows = (snapshot: Snapshot): number => (snapshot.filters.length === 0 ? 0 : 1);
 
 const boxChromeRows = 3;
+const composerChromeWidth = 4;
 const statusRows = 1;
+
+const showsNoMatches = (snapshot: Snapshot, rows: FilterRow[]): boolean =>
+  rows.length === 0 && snapshot.filterDraft.trim() !== '' && !snapshot.filterDraft.includes(':');
+
+const draftFieldOf = (draft: string): string =>
+  draft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
+
+const rowDescriptionOf = (row: FilterRow | undefined): string | undefined => {
+  if (row?.kind === 'field') {
+    return fieldDescription(row.field);
+  }
+
+  if (row?.kind === 'candidate' || row?.kind === 'active') {
+    return filterDescription(row.filter);
+  }
+
+  const [first] = row?.kind === 'typed' ? row.filters : [];
+
+  return first === undefined ? undefined : filterDescription(first);
+};
+
+const descriptionOf = (snapshot: Snapshot, rows: FilterRow[]): string => {
+  const described = rowDescriptionOf(rows[filterCursorOf(snapshot)]);
+
+  if (described !== undefined || !snapshot.filterDraft.includes(':')) {
+    return described ?? '';
+  }
+
+  return fieldDescription(draftFieldOf(snapshot.filterDraft)) ?? '';
+};
 
 const composerLayoutOf = (snapshot: Snapshot, rowCount: number, height: number): ComposerLayout => {
   const taken = statusRows + boxChromeRows + searchLineRows(snapshot) + filterBarRows(snapshot);
   const room = Math.max(0, height - taken);
   const wanted = Math.min(composerListRows, rowCount);
   const hintRows = room > wanted ? 1 : 0;
+  const descriptionRows = room > wanted + hintRows ? 1 : 0;
+  const candidateRows = Math.min(wanted, room - hintRows - descriptionRows);
 
-  return { candidateRows: Math.min(wanted, room - hintRows), hintRows };
+  return { candidateRows, hintRows, descriptionRows };
 };
 
 const FilterComposer = (props: {
@@ -313,14 +409,16 @@ const FilterComposer = (props: {
   palette: Palette;
   rows: FilterRow[];
   layout: ComposerLayout;
+  width: number;
 }): ReactNode => {
-  const { session, snapshot, palette, rows, layout } = props;
+  const { session, snapshot, palette, rows, layout, width } = props;
 
   if (!snapshot.filtersOpen) {
     return null;
   }
 
-  const cursor = Math.max(0, Math.min(snapshot.filterCursor, rows.length - 1));
+  const cursor = filterCursorOf(snapshot);
+  const items = showsNoMatches(snapshot, rows) ? [noMatchesItem] : rows.map((row) => itemOf(row));
 
   return (
     <box
@@ -331,7 +429,7 @@ const FilterComposer = (props: {
       border
       borderStyle="rounded"
       borderColor={palette.key}
-      title=" Filter "
+      title={titleOf(snapshot)}
       backgroundColor={palette.overlayBackground}
       zIndex={5}
       flexDirection="column"
@@ -344,21 +442,33 @@ const FilterComposer = (props: {
         palette={palette}
         focused
         suffix={null}
+        watch={session.subscribe}
+        current={() => session.getSnapshot().filterDraft}
         onInput={(text) => {
-          session.send({ kind: 'editFilterDraft', text });
+          if (session.getSnapshot().filtersOpen) {
+            session.send({ kind: 'editFilterDraft', text });
+          }
         }}
       />
       {layout.hintRows === 0 ? null : (
         <box height={1} flexShrink={0}>
-          <text fg={palette.dim}>{hintOf(snapshot, rows)}</text>
+          <text fg={palette.dim}>{hintOf(snapshot)}</text>
         </box>
       )}
       <CandidateList
-        items={rows.map((row) => itemOf(row))}
+        items={items}
         cursor={cursor}
         height={layout.candidateRows}
+        width={width - composerChromeWidth}
         palette={palette}
       />
+      {layout.descriptionRows === 0 ? null : (
+        <box height={1} flexShrink={0}>
+          <text fg={palette.dim}>
+            {ellipsized(descriptionOf(snapshot, rows), width - composerChromeWidth)}
+          </text>
+        </box>
+      )}
     </box>
   );
 };
@@ -444,7 +554,10 @@ export const App = (props: AppProps): ReactNode => {
   }, [sideLayout]);
 
   const composerRows = snapshot.filtersOpen ? filterRowsOf(snapshot) : [];
-  const composerLayout = composerLayoutOf(snapshot, composerRows.length, height);
+
+  const listedRows = showsNoMatches(snapshot, composerRows) ? 1 : composerRows.length;
+
+  const composerLayout = composerLayoutOf(snapshot, listedRows, height);
   const composerBlind = composerRows.length > 0 && composerLayout.candidateRows === 0;
 
   const widestPane = Math.floor(width * sidePaneShare);
@@ -475,6 +588,7 @@ export const App = (props: AppProps): ReactNode => {
           palette={palette}
           rows={composerRows}
           layout={composerLayout}
+          width={width}
         />
         <Body
           snapshot={snapshot}

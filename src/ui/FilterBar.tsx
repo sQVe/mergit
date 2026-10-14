@@ -10,6 +10,8 @@ interface Chip {
 }
 
 const orSeparator = ' or ';
+const andSeparator = ' and ';
+const conjunctiveFields = new Set(['age', 'title']);
 const gapSeparator = '  ';
 
 const groupedByField = (filters: Filter[]): Filter[] => {
@@ -33,7 +35,8 @@ const chipsOf = (filters: Filter[]): Chip[] =>
     }
 
     const joined = previous.field === filter.field && !previous.negated && !filter.negated;
-    const separator = joined ? orSeparator : gapSeparator;
+    const joiner = conjunctiveFields.has(filter.field) ? andSeparator : orSeparator;
+    const separator = joined ? joiner : gapSeparator;
 
     return { text: formatFilter(filter), separator };
   });
