@@ -10,7 +10,12 @@ import type { ReactNode } from 'react';
 
 import { catalog } from '../commands.ts';
 import type { TerminalIntent } from '../commands.ts';
-import { createSession } from '../session/session.ts';
+import {
+  createSession,
+  describeFilterRow,
+  filterCursorOf,
+  filterRowsOf,
+} from '../session/session.ts';
 import type { SessionEffects } from '../session/session.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
 import type { NotificationThread } from '../work/work.ts';
@@ -87,7 +92,12 @@ const threadsEffects = (threads: NotificationThread[]): SessionEffects =>
 
 const setups: Setup[] = [];
 
+// Kitty encoding keeps Esc separate from the key after it.
+let kittyKeyboard = false;
+
 afterEach(() => {
+  kittyKeyboard = false;
+
   for (const setup of setups.splice(0)) {
     act(() => {
       setup.renderer.destroy();
@@ -168,7 +178,7 @@ const mount = async (
 
   const rendererOptions = clock === undefined ? { width, height } : { width, height, clock };
 
-  const setup = await act(() => testRender(node, rendererOptions));
+  const setup = await act(() => testRender(node, { ...rendererOptions, kittyKeyboard }));
 
   setups.push(setup);
 
@@ -2067,7 +2077,7 @@ const mountFilters = async (width = 60) => {
 
 const composerInputOf = (frame: string): string | undefined => {
   const lines = frame.split('\n');
-  const titleAt = lines.findIndex((line) => line.includes('─ Filter ─'));
+  const titleAt = lines.findIndex((line) => line.includes('─ Filter '));
   const line = lines[titleAt + 1];
 
   return titleAt === -1 ? undefined : line?.replace(/^│/, '').replace(/│$/, '').trim();
@@ -2137,15 +2147,18 @@ test('a field name that is an object key keeps the composer on screen and the li
   expect(constructorFrame).not.toContain('function');
 });
 
-test('an invalid age shows an error and Enter adds no chip', async () => {
+test('an invalid age shows an error after Enter and adds no chip', async () => {
   const { setup, press, settle } = await mountFilters();
 
   await press('f');
   await typeText(setup, settle, 'age:>3');
 
-  expect(setup.captureCharFrame()).toContain('age takes');
+  expect(setup.captureCharFrame()).not.toContain('age takes');
 
   await press('return');
+
+  expect(setup.captureCharFrame()).toContain('age takes');
+
   await press('escape');
 
   const frame = setup.captureCharFrame();
@@ -2160,6 +2173,7 @@ test('Tab on a chip edits it and Enter replaces it', async () => {
   const { setup, press, settle } = mounted;
 
   await addAuthorChip(mounted, 'author:mona');
+  await press('down');
   await press('tab');
 
   expect(composerInputOf(setup.captureCharFrame())).toBe('author:mona');
@@ -2183,6 +2197,7 @@ test('Esc during an edit keeps the old chip', async () => {
   const { setup, press, settle } = mounted;
 
   await addAuthorChip(mounted, 'author:mona');
+  await press('down');
   await press('tab');
   await pressCtrlU(setup, settle);
   await typeText(setup, settle, 'author:octo');
@@ -2283,6 +2298,7 @@ test('Esc during an edit cancels the edit and leaves the composer open', async (
   const { setup, press } = mounted;
 
   await addAuthorChip(mounted, 'author:mona');
+  await press('down');
   await press('tab');
   await press('escape');
   await press('j');
@@ -2340,6 +2356,8 @@ test('moving the cursor past the last shown candidate scrolls the list', async (
   await settle();
   await press('f');
   await typeText(setup, settle, 'author:');
+
+  await press('down');
 
   const selectedBackground = RGBA.fromHex(pickPalette('dark').selectedBackground).toString();
 
@@ -2477,7 +2495,7 @@ test('the composer box sits directly under the chip bar', async () => {
 });
 
 test('opening the composer leaves the thread rows below the box where they were', async () => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 30);
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 80, false, 30);
   const { setup, press, settle } = mounted;
 
   await press('r');
@@ -2509,6 +2527,7 @@ test('in a very short terminal Enter applies the row shown under the cursor or n
   await press('r');
   await settle();
   await press('f');
+  await press('down');
 
   const lines = setup.captureCharFrame().split('\n');
   const shown = lines.filter((line) => /^│\s+(✓ )?\S.*\d\s*│$/.test(line));
@@ -2535,4 +2554,430 @@ test('in a terminal too short for any candidate row Enter adds nothing', async (
   await press('escape');
 
   expect(setup.captureCharFrame().split('\n')[0]).not.toContain('kind:');
+});
+
+const burst = async (setup: Setup, keys: string[]) => {
+  await act(async () => {
+    for (const key of keys) {
+      if (key === 'escape') {
+        setup.mockInput.pressEscape();
+      } else if (key === 'return') {
+        setup.mockInput.pressEnter();
+      } else {
+        for (const character of key) {
+          setup.mockInput.pressKey(character);
+        }
+      }
+    }
+  });
+};
+
+test('keys sent in the same burst as f go to the draft and run no list command', async () => {
+  const { setup, settle, press, sent } = await mountFilters();
+
+  await press('r');
+  sent.length = 0;
+
+  await burst(setup, ['f', 'kind:pr']);
+  await settle();
+
+  const kinds = new Set(sent.map((intent) => (intent as { kind: string }).kind));
+
+  expect([...kinds].every((kind) => kind === 'openFilters' || kind === 'editFilterDraft')).toBe(
+    true,
+  );
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('kind:pr');
+});
+
+test('a supplementary character typed in the same burst as f stays in the draft', async () => {
+  const { setup, settle, press, session } = await mountFilters();
+
+  await press('r');
+  await burst(setup, ['f', 'title:🚀']);
+  await settle();
+
+  expect(session.getSnapshot().filterDraft).toBe('title:🚀');
+});
+
+test('keys sent in the same burst as / go to the search text and run no list command', async () => {
+  const { setup, settle, press, sent } = await mountFilters();
+
+  await press('r');
+  sent.length = 0;
+
+  await burst(setup, ['/', 'd']);
+  await settle();
+
+  const kinds = new Set(sent.map((intent) => (intent as { kind: string }).kind));
+
+  expect([...kinds].every((kind) => kind === 'openSearch' || kind === 'editSearch')).toBe(true);
+  expect(setup.captureCharFrame()).toContain('/d');
+});
+
+test('chips of age are joined by and, chips of repo by or', async () => {
+  const mounted = await mountFilters(100);
+  const { setup, press, settle } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, 'age:>7d age:<30d repo:acme/app repo:acme/web');
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow).toContain('age:>7d and age:<30d');
+  expect(chipRow).toContain('repo:acme/app or repo:acme/web');
+});
+
+test('a draft that matches no row shows a No matches row that Enter cannot apply', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, 'zzzqq');
+
+  expect(setup.captureCharFrame()).toContain('No matches');
+
+  await press('return');
+  await press('escape');
+
+  expect(setup.captureCharFrame().split('\n')[0]).not.toContain('zzzqq');
+});
+
+test('an empty draft shows the key hints, and a field with a colon shows its value form', async () => {
+  const { setup, press, settle } = await mountFilters(80);
+
+  await press('f');
+
+  expect(setup.captureCharFrame()).toContain('Enter apply · Tab edit · - exclude · Esc close');
+
+  await typeText(setup, settle, 'kind:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('pr, issue, release, discussion, commit, or ci');
+  expect(frame).not.toContain('Enter apply');
+});
+
+test('the box title names the chip being edited', async () => {
+  const mounted = await mountFilters();
+  const { setup, press } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await press('down');
+  await press('tab');
+
+  expect(setup.captureCharFrame()).toContain('Filter · editing author:mona');
+
+  await press('escape');
+
+  expect(setup.captureCharFrame()).not.toContain('editing');
+});
+
+test('a label wider than the box ends with an ellipsis and keeps the field prefix', async () => {
+  const login = 'a'.repeat(70);
+  const threads = [treeThread(1, 'Change 1', { repository: 'acme/app' })];
+  const facts = new Map([['1', { state: 'open' as const, author: login }]]);
+  const { setup, press, settle } = await mount('dark', factsEffects(threads, facts), 50);
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'author:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toMatch(/author:aaaa+…/);
+  expect(frame).not.toContain(login);
+});
+
+test.each([
+  ['f', 'composer'],
+  ['/', 'search'],
+] as const)('keys after %s keep shifted letters and spaces as typed', async (opening, input) => {
+  kittyKeyboard = true;
+  const { setup, settle, press } = await mountFilters();
+
+  await press('r');
+  await burst(setup, [opening, 'Fix a bug']);
+  await settle();
+
+  const frame = setup.captureCharFrame();
+
+  if (input === 'composer') {
+    expect(composerInputOf(frame)).toBe('Fix a bug');
+  } else {
+    expect(frame).toContain('/Fix a bug');
+  }
+});
+
+test('f, kind:pr, and Enter in one burst add the kind:pr chip', async () => {
+  kittyKeyboard = true;
+  const { setup, settle, press } = await mountFilters();
+
+  await press('r');
+  await burst(setup, ['f', 'kind:pr', 'return']);
+  await settle();
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame.split('\n')[0]).toContain('kind:pr');
+  expect(composerInputOf(frame)).toBe('');
+});
+
+test('f then Esc in one burst closes the composer', async () => {
+  kittyKeyboard = true;
+  const { setup, settle, press } = await mountFilters();
+
+  await press('r');
+  await burst(setup, ['f', 'escape']);
+  await settle();
+
+  expect(setup.captureCharFrame()).not.toContain('─ Filter ');
+});
+
+test('keys sent in the same burst as Esc on the composer change no filter', async () => {
+  kittyKeyboard = true;
+  const { setup, settle, press, session } = await mountFilters();
+
+  await press('r');
+  await press('f');
+  await burst(setup, ['escape', 'da']);
+  await settle();
+
+  expect(session.getSnapshot().filterDraft).toBe('');
+  expect(session.getSnapshot().filters).toEqual([]);
+});
+
+test('keys sent in the same burst as Enter on the search line leave the search text', async () => {
+  kittyKeyboard = true;
+  const { setup, settle, press, session } = await mountFilters();
+
+  await press('r');
+  await press('/');
+  await burst(setup, ['Alpha', 'return', 'da']);
+  await settle();
+
+  expect(session.getSnapshot().searchText).toBe('Alpha');
+});
+
+const innerOf = (line: string | undefined): string => (line ?? '').replace(/^│|│$/g, '').trim();
+
+const descriptionLineOf = (frame: string): string => {
+  const lines = frame.split('\n');
+  const bottom = lines.findIndex((line) => line.startsWith('╰'));
+
+  return (lines[bottom - 1] ?? '').replace(/^│/, '').replace(/│$/, '').trim();
+};
+
+const selectedDescriptionOf = (session: ReturnType<typeof createSession>): string => {
+  const snapshot = session.getSnapshot();
+
+  return describeFilterRow(snapshot, filterRowsOf(snapshot)[filterCursorOf(snapshot)]);
+};
+
+test('the last line of the box describes the selected row, or the field being typed', async () => {
+  const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
+  const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
+
+  const { setup, press, settle, session } = await mount(
+    'dark',
+    factsEffects(threads, facts),
+    90,
+    false,
+    30,
+  );
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'reason:ci');
+
+  const reasonLine = descriptionLineOf(setup.captureCharFrame());
+
+  const reasonField = describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'reason' });
+
+  expect(reasonLine).not.toBe('');
+  expect(reasonLine).toBe(selectedDescriptionOf(session));
+  expect(reasonLine).not.toBe(reasonField);
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'author:sQVe');
+
+  const authorLine = descriptionLineOf(setup.captureCharFrame());
+
+  expect(authorLine).toBe(selectedDescriptionOf(session));
+  expect(authorLine).toContain('sQVe');
+  expect(authorLine).toContain('1 in your inbox');
+  expect(authorLine).not.toBe(reasonLine);
+});
+
+test('a description that does not fit ends with an ellipsis', async () => {
+  const threads = [treeThread(1, 'Change 1', { reason: 'state_change', repository: 'acme/app' })];
+  const { setup, press, settle } = await mount('dark', threadsEffects(threads), 40, false, 30);
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'reason:state_change');
+
+  expect(descriptionLineOf(setup.captureCharFrame())).toMatch(/…$/);
+});
+
+test('a draft that is only a partial value shows no No matches row', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, 'age:>3');
+
+  expect(setup.captureCharFrame()).not.toContain('No matches');
+});
+
+test('text typed in the same burst after Enter starts a new draft', async () => {
+  const { setup, settle, press, session } = await mountFilters();
+
+  await press('f');
+  await burst(setup, ['kind:pr', 'return', 'author:octo']);
+  await settle();
+
+  expect(session.getSnapshot().filters).toEqual([{ field: 'kind', value: 'pr', negated: false }]);
+  expect(session.getSnapshot().filterDraft).toBe('author:octo');
+});
+
+test('text typed in the same burst after Ctrl-U on the search line replaces the old text', async () => {
+  const { setup, settle, press, session } = await mountFilters();
+
+  await press('/');
+  await burst(setup, ['abc']);
+
+  await act(async () => {
+    setup.mockInput.pressKey('u', { ctrl: true });
+    setup.mockInput.pressKey('x');
+  });
+
+  await settle();
+
+  expect(session.getSnapshot().searchText).toBe('x');
+});
+
+test('in a short terminal the description line stays and the key hint row goes', async () => {
+  const { setup, press, settle } = await mount(
+    'dark',
+    factsEffects(filterThreads, filterFacts),
+    90,
+    false,
+    7,
+  );
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'repo:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(descriptionLineOf(frame)).not.toBe('');
+  expect(frame).not.toContain('owner/name, one * allowed');
+});
+
+test('the input line uses the full inner width of the box', async () => {
+  const { setup, press, settle } = await mountFilters(100);
+
+  await press('f');
+  await typeText(setup, settle, 'x'.repeat(90));
+
+  expect(composerInputOf(setup.captureCharFrame())).toBe('x'.repeat(90));
+});
+
+test('with narrow width the chip bar shows the first chip before +N more', async () => {
+  const { setup, press, settle } = await mountFilters(30);
+
+  await press('f');
+  await typeText(setup, settle, `repo:acme/${'a'.repeat(40)} author:octo author:mona kind:pr`);
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow.startsWith('repo:acme/a')).toBe(true);
+  expect(chipRow).toContain('…');
+  expect(chipRow).toContain('more');
+});
+
+test('a plain-word draft that matches nothing points to the / search', async () => {
+  const { setup, press, settle } = await mountFilters(80);
+
+  await press('f');
+  await typeText(setup, settle, 'zzzqq');
+
+  expect(setup.captureCharFrame()).toContain('Use / to search titles');
+});
+
+test('after Enter removes a chip found by typing, a second Enter removes the next chip', async () => {
+  const mounted = await mountFilters(100);
+  const { setup, press, settle, session } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, 'author:octo');
+  await press('return');
+  await typeText(setup, settle, 'author:mona');
+  await press('return');
+  await typeText(setup, settle, 'author:octo');
+  await press('return');
+
+  expect(session.getSnapshot().filters).toEqual([
+    { field: 'author', value: 'mona', negated: false },
+  ]);
+
+  await press('return');
+
+  expect(session.getSnapshot().filters).toEqual([]);
+});
+
+test('a long description wraps over several lines and never over more than three', async () => {
+  const threads = [treeThread(1, 'Change 1', { reason: 'state_change', repository: 'acme/app' })];
+  const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
+  const { setup, press, settle } = await mount('dark', factsEffects(threads, facts), 50, false, 30);
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, '-reason:state_change');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const bottom = lines.findIndex((line) => line.startsWith('╰'));
+  expect(innerOf(lines[bottom - 3])).toMatch(/^Hides/);
+  expect(innerOf(lines[bottom - 2])).not.toBe('');
+  expect(innerOf(lines[bottom - 1])).toMatch(/…$/);
+  expect(innerOf(lines[bottom - 4])).not.toMatch(/Hides/);
+});
+
+test('author:@me shows its own text, and -kind:pr says it hides pull requests', async () => {
+  const { setup, press, settle, session } = await mountFilters(120);
+
+  await press('f');
+  await typeText(setup, settle, 'author:@me');
+
+  const meLine = descriptionLineOf(setup.captureCharFrame());
+
+  expect(meLine).not.toBe('');
+  expect(meLine).toBe(selectedDescriptionOf(session));
+  expect(meLine).not.toMatch(/\d+ in your inbox/);
+
+  const authorField = describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'author' });
+
+  expect(meLine).not.toBe(authorField);
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'kind:pr');
+
+  const positiveLine = descriptionLineOf(setup.captureCharFrame());
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, '-kind:pr');
+
+  const negatedLine = descriptionLineOf(setup.captureCharFrame());
+
+  expect(positiveLine).toContain('Pull requests');
+  expect(positiveLine).not.toMatch(/^Hides/);
+  expect(negatedLine).toMatch(/^Hides/);
+  expect(negatedLine).toContain(positiveLine);
 });

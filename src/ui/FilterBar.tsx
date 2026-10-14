@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { Filter } from '../session/session.ts';
 import { formatFilter } from '../session/session.ts';
+import { ellipsized } from './CandidateList.tsx';
 import type { Palette } from './palette.ts';
 
 interface Chip {
@@ -10,6 +11,8 @@ interface Chip {
 }
 
 const orSeparator = ' or ';
+const andSeparator = ' and ';
+const conjunctiveFields = new Set(['age', 'title']);
 const gapSeparator = '  ';
 
 const groupedByField = (filters: Filter[]): Filter[] => {
@@ -33,7 +36,8 @@ const chipsOf = (filters: Filter[]): Chip[] =>
     }
 
     const joined = previous.field === filter.field && !previous.negated && !filter.negated;
-    const separator = joined ? orSeparator : gapSeparator;
+    const joiner = conjunctiveFields.has(filter.field) ? andSeparator : orSeparator;
+    const separator = joined ? joiner : gapSeparator;
 
     return { text: formatFilter(filter), separator };
   });
@@ -53,7 +57,7 @@ const shownChips = (chips: Chip[], width: number): Chip[] => {
     }
   }
 
-  return [];
+  return chips.slice(0, 1);
 };
 
 export const FilterBar = (props: {
@@ -65,13 +69,14 @@ export const FilterBar = (props: {
   const chips = chipsOf(filters);
   const shown = shownChips(chips, width);
   const hidden = chips.length - shown.length;
+  const room = width - (hidden === 0 ? 0 : moreLabel(hidden).length);
 
   return (
     <box height={1} flexShrink={0} flexDirection="row">
-      {shown.map((chip) => (
+      {shown.map((chip, index) => (
         <box key={chip.text} flexDirection="row">
           {chip.separator === '' ? null : <text fg={palette.dim}>{chip.separator}</text>}
-          <text fg={palette.key}>{chip.text}</text>
+          <text fg={palette.key}>{index === 0 ? ellipsized(chip.text, room) : chip.text}</text>
         </box>
       ))}
       {hidden === 0 ? null : <text fg={palette.dim}>{moreLabel(hidden)}</text>}

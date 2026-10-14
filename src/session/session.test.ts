@@ -11,10 +11,12 @@ import type {
   SubjectLookup,
   Viewer,
 } from '../github/github.ts';
+import { filterFields } from '../query.ts';
 import type { BrowserPage, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
 import {
   createSession,
+  describeFilterRow,
   filterCursorOf,
   filterRowsOf,
   formatFilter,
@@ -3429,6 +3431,7 @@ test('applyFilterRow on an active filter removes it', async () => {
 
   expect(sortedThreadKeysOf(session)).toEqual(['thread:3']);
 
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
   session.send({ kind: 'applyFilterRow' });
 
   expect(session.getSnapshot().filters).toEqual([]);
@@ -3468,7 +3471,7 @@ test('editing age:>3d to age:>14d replaces the filter', async () => {
   session.send({ kind: 'openFilters' });
   addFilters(session, 'age:>3d');
   addFilters(session, 'repo:acme/app');
-  session.send({ kind: 'moveFilterCursor', direction: 'up' });
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
   session.send({ kind: 'takeFilterRow' });
 
   expect(session.getSnapshot().filterDraft).toBe('age:>3d');
@@ -3489,6 +3492,7 @@ test('closeFilters during an edit cancels the edit and keeps age:>3d', async () 
   await load(...filterThreads());
   session.send({ kind: 'openFilters' });
   addFilters(session, 'age:>3d');
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
   session.send({ kind: 'takeFilterRow' });
   session.send({ kind: 'editFilterDraft', text: 'age:>14d' });
   session.send({ kind: 'closeFilters' });
@@ -3665,9 +3669,10 @@ test('composer rows list active filters, then values, then fields when the draft
 
   expect(rows[0]).toBe('active repo:acme/app');
   expect(rows[1]).toMatch(/^candidate /);
-  expect(rows).toContain('field kind');
+  expect(rows).toContain('field repo');
+  expect(rows).not.toContain('field kind');
   expect(rows.at(-1)).toMatch(/^field /);
-  expect(filterCursorOf(session.getSnapshot())).toBe(0);
+  expect(filterCursorOf(session.getSnapshot())).toBe(-1);
 });
 
 test('composer rows start with the typed token and its count, then matching candidates', async () => {
@@ -3686,14 +3691,14 @@ test('composer rows start with the typed token and its count, then matching cand
 
   session.send({ kind: 'editFilterDraft', text: 'age:>3' });
 
-  expect(filterRowsOf(session.getSnapshot()).map(describeRow)).toEqual(['error']);
+  expect(filterRowsOf(session.getSnapshot()).map(describeRow)).toEqual([]);
 
   session.send({ kind: 'editFilterDraft', text: 'repo:acme/app' });
 
   const typed = filterRowsOf(session.getSnapshot()).map(describeRow);
 
-  expect(typed[0]).toBe('typed repo:acme/app 1');
-  expect(typed).toContain('active repo:acme/app 1');
+  expect(typed[0]).toBe('active repo:acme/app 1');
+  expect(typed.filter((row) => row.includes('repo:acme/app'))).toHaveLength(1);
   expect(filterCursorOf(session.getSnapshot())).toBe(0);
 });
 
@@ -3704,7 +3709,9 @@ test('takeFilterRow on a field puts the field name in the draft and moveFilterCu
   session.send({ kind: 'openFilters' });
   session.send({ kind: 'moveFilterCursor', direction: 'up' });
 
-  expect(filterCursorOf(session.getSnapshot())).toBe(0);
+  expect(filterCursorOf(session.getSnapshot())).toBe(
+    filterRowsOf(session.getSnapshot()).length - 1,
+  );
 
   session.send({ kind: 'editFilterDraft', text: 'rep' });
 
@@ -3814,6 +3821,7 @@ test('picking a completion during an edit replaces the edited filter', async () 
   await load(...filterThreads());
   session.send({ kind: 'openFilters' });
   addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
   session.send({ kind: 'takeFilterRow' });
   session.send({ kind: 'editFilterDraft', text: 'repo:' });
   moveCursorTo(session, 'candidate repo:hups-co/web 1');
@@ -3824,15 +3832,18 @@ test('picking a completion during an edit replaces the edited filter', async () 
   ]);
 });
 
-test('a filter that differs only by letter case is not added twice', async () => {
+test('a token that differs only by letter case from a chip is that chip, not a second one', async () => {
   const { session, load } = makeHarness();
 
   await load(...filterThreads());
   session.send({ kind: 'openFilters' });
   addFilters(session, 'repo:acme/app');
-  addFilters(session, 'repo:ACME/APP');
+  session.send({ kind: 'editFilterDraft', text: 'repo:ACME/APP' });
 
-  expect(session.getSnapshot().filters).toHaveLength(1);
+  const rows = filterRowsOf(session.getSnapshot());
+
+  expect(rows.filter((row) => row.kind === 'active')).toHaveLength(1);
+  expect(rows.some((row) => row.kind === 'typed')).toBe(false);
 });
 
 test('the typed token counts open threads over the whole inbox, ignoring search and filters', async () => {
@@ -3903,7 +3914,7 @@ test('loose text shows no error row, a bad token does, and a miss starts on the 
 
   expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'error')).toBe(false);
 
-  session.send({ kind: 'editFilterDraft', text: 'age:>3' });
+  session.send({ kind: 'editFilterDraft', text: 'foo:' });
 
   expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
 
@@ -3957,11 +3968,10 @@ test('a contiguous field match outranks separated initials in a long value', asy
 
   const summaries = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
 
-  expect(summaries[0]).toBe('candidate repo:acme/platform');
+  expect(summaries[0]).toBe('field repo');
 
-  expect(summaries.indexOf('candidate repo:acme/platform')).toBeLessThan(
-    summaries.indexOf('candidate org:react-event-processing-operator'),
-  );
+  expect(summaries).toContain('candidate repo:acme/platform');
+  expect(summaries).not.toContain('candidate org:react-event-processing-operator');
 });
 
 test('a contiguous field match outranks initials spread over short words', async () => {
@@ -3977,9 +3987,8 @@ test('a contiguous field match outranks initials spread over short words', async
 
   const summaries = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
 
-  expect(summaries.indexOf('candidate repo:acme/platform')).toBeLessThan(
-    summaries.indexOf('candidate org:red-env-prod-ops'),
-  );
+  expect(summaries).toContain('candidate repo:acme/platform');
+  expect(summaries).not.toContain('candidate org:red-env-prod-ops');
 });
 
 test('an emoji in the draft finds an active title chip that holds it', async () => {
@@ -4026,4 +4035,564 @@ test('filterRowsOf time grows linearly with the length of candidate values', asy
   const longTime = await medianRowsTime(200);
 
   expect(longTime / shortTime).toBeLessThan(6);
+});
+
+const loadWithAuthors = async () => {
+  const harness = makeHarness();
+  const threads = filterThreads();
+
+  await harness.load(...threads);
+  harness.lookups[0]?.resolve(threads.map((thread) => factsOf(thread, 'octo')));
+  await settle();
+  harness.session.send({ kind: 'openFilters' });
+
+  return harness;
+};
+
+test('Enter on the error row of foo: adds no chip', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'foo:' });
+
+  expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+
+  session.send({ kind: 'applyFilterRow' });
+  session.send({ kind: 'takeFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([]);
+  expect(session.getSnapshot().filterDraft).toBe('foo:');
+});
+
+test('with an empty draft Enter and Tab do nothing, and Down then Enter applies the first row', async () => {
+  const { session } = await loadWithAuthors();
+  const first = filterRowsOf(session.getSnapshot())[0];
+
+  session.send({ kind: 'applyFilterRow' });
+  session.send({ kind: 'takeFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([]);
+  expect(session.getSnapshot().filterDraft).toBe('');
+
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+
+  expect(first?.kind).toBe('candidate');
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toHaveLength(1);
+});
+
+test('with an empty draft Up selects the last row, and clearing the draft drops the selection', async () => {
+  const { session } = await loadWithAuthors();
+  const rows = filterRowsOf(session.getSnapshot());
+
+  session.send({ kind: 'moveFilterCursor', direction: 'up' });
+
+  expect(filterCursorOf(session.getSnapshot())).toBe(rows.length - 1);
+
+  session.send({ kind: 'editFilterDraft', text: 'kind' });
+  session.send({ kind: 'editFilterDraft', text: '' });
+
+  expect(filterCursorOf(session.getSnapshot())).toBe(-1);
+});
+
+test('typing age lists its field row first', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'age' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+
+  expect(rows[0]).toEqual({ kind: 'field', field: 'age' });
+});
+
+test('org:hups-co lists one row whose count is the number of matching threads', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'org:hups-co' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+  const orgRows = rows.filter((row) => describeRow(row).includes(' org:hups-co '));
+
+  expect(orgRows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ kind: 'typed', count: 2 });
+});
+
+test('the typed row counts only threads the filter is known to match', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'author:octo' });
+
+  expect(filterRowsOf(session.getSnapshot())[0]).toMatchObject({ kind: 'typed', count: 0 });
+});
+
+test.each(['author:', 'age:>3'])('%s shows no error row while it is typed', async (draft) => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: draft });
+
+  expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'error')).toBe(false);
+});
+
+test('author: starts on its first candidate and Enter adds it', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'author:' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+
+  expect(rows[filterCursorOf(session.getSnapshot())]).toMatchObject({ kind: 'candidate' });
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([
+    { field: 'author', value: 'octo', negated: false },
+  ]);
+});
+
+test('Enter on age:>3 with no row selected shows an error row and adds no chip', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'age:>3' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+  expect(session.getSnapshot().filters).toEqual([]);
+
+  session.send({ kind: 'editFilterDraft', text: 'age:>3d' });
+
+  expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'error')).toBe(false);
+});
+
+test('foo: shows an error row at once', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'foo:' });
+
+  expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+});
+
+test('field rows exist only for fields that take a typed value', async () => {
+  const { session } = await loadWithAuthors();
+
+  const fieldsOf = (): string[] =>
+    filterRowsOf(session.getSnapshot()).flatMap((row) => (row.kind === 'field' ? [row.field] : []));
+
+  for (const field of ['repo', 'org', 'author', 'reason', 'age']) {
+    expect(fieldsOf()).toContain(field);
+  }
+
+  for (const draft of ['new', 'unread', 'state', 'kind']) {
+    session.send({ kind: 'editFilterDraft', text: draft });
+
+    expect(fieldsOf()).not.toContain(draft);
+  }
+
+  session.send({ kind: 'editFilterDraft', text: 'age' });
+
+  expect(fieldsOf()).toContain('age');
+});
+
+test('state lists state: values before reason:state_change', async () => {
+  const harness = makeHarness();
+  const threads = [makeThread('1', { reason: 'state_change' }), makeThread('2')];
+
+  await harness.load(...threads);
+  harness.lookups[0]?.resolve(threads.map((thread) => factsOf(thread, 'octo')));
+  await settle();
+  harness.session.send({ kind: 'openFilters' });
+  harness.session.send({ kind: 'editFilterDraft', text: 'state' });
+
+  const rows = filterRowsOf(harness.session.getSnapshot()).map(rowSummaryOf);
+
+  expect(rows[0]).toBe('candidate state:open');
+
+  expect(rows).not.toContain('candidate reason:state_change');
+});
+
+test('typing an active chip token shows one marked row; Tab edits it and Enter removes it', async () => {
+  const { session } = await loadWithAuthors();
+
+  addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme/app' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+  const matching = rows.filter((row) => rowSummaryOf(row) === 'active repo:acme/app');
+
+  expect(matching).toHaveLength(1);
+  expect(rows.filter((row) => row.kind === 'typed')).toEqual([]);
+  expect(rows[filterCursorOf(session.getSnapshot())]).toBe(matching[0]);
+
+  session.send({ kind: 'takeFilterRow' });
+
+  expect(session.getSnapshot().filterEditing).toEqual({
+    field: 'repo',
+    value: 'acme/app',
+    negated: false,
+  });
+
+  session.send({ kind: 'closeFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme/app' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([]);
+});
+
+test('Enter on another active chip while editing replaces the edited chip with it', async () => {
+  const { session } = await loadWithAuthors();
+
+  addFilters(session, 'author:mona');
+  addFilters(session, 'author:octo');
+  session.send({ kind: 'editFilterDraft', text: 'author:mona' });
+  session.send({ kind: 'takeFilterRow' });
+  session.send({ kind: 'editFilterDraft', text: 'author:octo' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([
+    { field: 'author', value: 'octo', negated: false },
+  ]);
+});
+
+test('text inside an open quote is not a field name, but foo: still errors at once', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'title:"fix foo:' });
+
+  expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'error')).toBe(false);
+
+  session.send({ kind: 'editFilterDraft', text: 'foo:' });
+
+  expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+});
+
+test('a bare colon shows no error row while typed', async () => {
+  const { session } = await loadWithAuthors();
+
+  for (const draft of [':', '-:', ':x']) {
+    session.send({ kind: 'editFilterDraft', text: draft });
+
+    expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'error')).toBe(false);
+  }
+});
+
+test('boolean fields list their true value first whatever the counts', async () => {
+  const threads = ['1', '2', '3', '4'].map((id) => releaseOf(id));
+  const [first, second, third] = threads;
+  const seen = [first, second, third].map((thread) => [thread, thread?.updatedAt] as const);
+
+  const savedState = stateWithSeen(
+    seenFor(
+      octocat,
+      ...(seen as [[NotificationThread, string], ...[NotificationThread, string][]]),
+    ),
+  );
+
+  const { session, load } = makeHarness({ savedState });
+
+  await load(...threads);
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'new' });
+
+  const rows = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(rows.indexOf('candidate new:false')).toBeGreaterThan(-1);
+  expect(rows[0]).toBe('candidate new:true');
+
+  session.send({ kind: 'editFilterDraft', text: '' });
+
+  const all = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(all.indexOf('candidate new:true')).toBeLessThan(all.indexOf('candidate new:false'));
+});
+
+const fieldOfRow = (row: FilterRow): string | undefined => {
+  if (row.kind === 'field') {
+    return row.field;
+  }
+
+  return row.kind === 'candidate' || row.kind === 'active' ? row.filter.field : undefined;
+};
+
+test('a single term that starts a field name lists only that field, and several terms match across fields', async () => {
+  const harness = makeHarness();
+
+  const threads = [
+    makeThread('1', { reason: 'state_change', repository: 'rep-platform/app' }),
+    makeThread('2', { repository: 'hups-co/platform' }),
+  ];
+
+  await harness.load(...threads);
+  harness.lookups[0]?.resolve(threads.map((thread) => factsOf(thread, 'octo')));
+  await settle();
+  harness.session.send({ kind: 'openFilters' });
+
+  const { session } = harness;
+
+  for (const [draft, field] of [
+    ['age', 'age'],
+    ['state', 'state'],
+    ['rep', 'repo'],
+    ['unr', 'unread'],
+  ] as const) {
+    session.send({ kind: 'editFilterDraft', text: draft });
+
+    const fields = new Set(filterRowsOf(session.getSnapshot()).map(fieldOfRow));
+
+    expect([...fields]).toEqual([field]);
+  }
+
+  session.send({ kind: 'editFilterDraft', text: 'rep plat' });
+
+  const fields = new Set(filterRowsOf(session.getSnapshot()).map(fieldOfRow));
+
+  expect(fields.has('repo')).toBe(true);
+  expect(fields.has('org')).toBe(true);
+});
+
+test('after Enter removes an active chip the next Enter removes the chip now under the cursor', async () => {
+  const { session } = await loadWithAuthors();
+
+  addFilters(session, 'repo:acme/app');
+  addFilters(session, 'repo:hups-co/web');
+  addFilters(session, 'kind:pr');
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toHaveLength(2);
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toHaveLength(1);
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([]);
+});
+
+test('Enter on age:<0m adds no chip and shows an error row', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'age:<0m' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([]);
+  expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+});
+
+const loadInbox = async (
+  entries: { id: string; overrides?: Partial<NotificationThread>; author?: string }[],
+) => {
+  const harness = makeHarness();
+  const threads = entries.map(({ id, overrides }) => makeThread(id, overrides));
+
+  await harness.load(...threads);
+
+  harness.lookups[0]?.resolve(
+    threads.map((thread, index) => factsOf(thread, entries[index]?.author ?? 'octo')),
+  );
+
+  await settle();
+  harness.session.send({ kind: 'openFilters' });
+
+  return harness.session;
+};
+
+const descriptionOfDraft = (session: Awaited<ReturnType<typeof loadInbox>>, draft: string) => {
+  session.send({ kind: 'editFilterDraft', text: draft });
+
+  const snapshot = session.getSnapshot();
+  const row = filterRowsOf(snapshot)[filterCursorOf(snapshot)];
+
+  return row === undefined ? undefined : describeFilterRow(snapshot, row);
+};
+
+test('every known field and value has a description', async () => {
+  const session = await loadInbox([{ id: '1' }]);
+
+  for (const field of filterFields) {
+    const snapshot = session.getSnapshot();
+
+    expect(describeFilterRow(snapshot, { kind: 'field', field })).not.toBe('');
+  }
+
+  const drafts = [
+    'kind:pr',
+    'kind:issue',
+    'kind:release',
+    'kind:discussion',
+    'kind:commit',
+    'kind:ci',
+    'state:open',
+    'state:closed',
+    'state:merged',
+    'new:true',
+    'new:false',
+    'unread:true',
+    'unread:false',
+    'reason:mention',
+    'reason:review_requested',
+  ];
+
+  for (const draft of drafts) {
+    expect(descriptionOfDraft(session, draft)).toBeTruthy();
+  }
+});
+
+test('a repo row describes its threads with counts by kind, singular for one', async () => {
+  const session = await loadInbox([
+    { id: '1', overrides: { repository: 'acme/app' } },
+    { id: '2', overrides: { repository: 'acme/app', subjectType: 'Issue' } },
+    { id: '3', overrides: { repository: 'acme/app', subjectType: 'Issue' } },
+    { id: '4', overrides: { repository: 'acme/web' } },
+  ]);
+
+  const description = descriptionOfDraft(session, 'repo:acme/app') ?? '';
+
+  expect(description).toContain('acme/app');
+  expect(description).toMatch(/\b3 in your inbox/);
+  expect(description).toMatch(/\b1 pull request\b(?!s)/);
+  expect(description).toMatch(/\b2 issues\b/);
+  expect(description).not.toContain('release');
+});
+
+test('an org row gives its thread and repository counts', async () => {
+  const session = await loadInbox([
+    { id: '1', overrides: { repository: 'acme/app' } },
+    { id: '2', overrides: { repository: 'acme/web' } },
+    { id: '3', overrides: { repository: 'other/web' } },
+  ]);
+
+  const description = descriptionOfDraft(session, 'org:acme') ?? '';
+
+  expect(description).toContain('acme');
+  expect(description).toContain('2 in your inbox');
+  expect(description).toContain('2 repositories');
+});
+
+test('an author row adds the bot note for a bot login', async () => {
+  const session = await loadInbox([
+    { id: '1', author: 'renovate[bot]' },
+    { id: '2', author: 'octo' },
+  ]);
+
+  const bot = descriptionOfDraft(session, 'author:renovate[bot]') ?? '';
+  const human = descriptionOfDraft(session, 'author:octo') ?? '';
+
+  expect(bot).toContain('renovate[bot]');
+  expect(bot).toContain('1 in your inbox');
+  expect(bot).toContain('bot account');
+  expect(human).toContain('octo');
+  expect(human).toContain('1 in your inbox');
+  expect(human).not.toContain('bot');
+});
+
+test('a typed value with a star counts the threads it matches', async () => {
+  const session = await loadInbox([
+    { id: '1', overrides: { repository: 'acme/app' } },
+    { id: '2', overrides: { repository: 'acme/web' } },
+    { id: '3', overrides: { repository: 'other/web' } },
+  ]);
+
+  const repositories = descriptionOfDraft(session, 'repo:acme/*') ?? '';
+  const authors = descriptionOfDraft(session, 'author:oc*') ?? '';
+
+  expect(repositories).toContain('acme/*');
+  expect(repositories).toContain('2 in your inbox');
+  expect(authors).toContain('oc*');
+  expect(authors).toContain('3 in your inbox');
+});
+
+test('a typed row of several tokens describes every filter it adds', async () => {
+  const session = await loadInbox([{ id: '1', overrides: { repository: 'acme/app' } }]);
+
+  const description = descriptionOfDraft(session, 'repo:acme/app author:octo') ?? '';
+
+  expect(description).toMatch(/\b2 filters\b/);
+  expect(description).toContain('repo:acme/app');
+  expect(description).toContain('author:octo');
+});
+
+test('a typed row keeps the quotes and the minus of its filter labels', async () => {
+  const session = await loadInbox([{ id: '1' }]);
+
+  const description = descriptionOfDraft(session, '-kind:pr title:"hello, author:octo"') ?? '';
+
+  expect(description).toMatch(/\b2 filters\b/);
+  expect(description).toContain('-kind:pr');
+  expect(description).toContain('title:"hello, author:octo"');
+});
+
+test('a typed row of one token keeps the description of its filter', async () => {
+  const session = await loadInbox([{ id: '1', overrides: { repository: 'acme/app' } }]);
+
+  const description = descriptionOfDraft(session, 'repo:acme/app') ?? '';
+
+  expect(description).toContain('acme/app');
+  expect(description).not.toContain('Adds');
+});
+
+test('a repo value with no threads leaves out the kind list', async () => {
+  const session = await loadInbox([{ id: '1', overrides: { repository: 'acme/app' } }]);
+
+  const description = descriptionOfDraft(session, 'repo:x/y') ?? '';
+
+  expect(description).toContain('x/y');
+  expect(description).toContain('0 in your inbox');
+
+  for (const word of ['pull request', 'issue', 'release', 'discussion', 'commit', 'workflow run']) {
+    expect(description).not.toContain(word);
+  }
+});
+
+test('a negated row hides what its positive row describes, and an explicit value text wins over live text', async () => {
+  const session = await loadInbox([{ id: '1', author: 'octo' }]);
+
+  const positive = descriptionOfDraft(session, 'kind:pr') ?? '';
+  const negated = descriptionOfDraft(session, '-kind:pr') ?? '';
+  const me = descriptionOfDraft(session, 'author:@me') ?? '';
+
+  const liveAuthor = descriptionOfDraft(session, 'author:octo') ?? '';
+
+  expect(positive).toContain('Pull requests');
+  expect(positive).not.toMatch(/^Hides/);
+  expect(negated).toMatch(/^Hides/);
+  expect(negated).toContain(positive);
+  expect(me).not.toBe('');
+  expect(me).not.toBe(liveAuthor);
+  expect(me).not.toMatch(/\d+ in your inbox/);
+  expect(me).not.toBe(describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'author' }));
+  expect(descriptionOfDraft(session, 'author:@me')).toBe(me);
+});
+
+test('a negated row counts the threads it keeps, before and after it is applied', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1'),
+    makeThread('2'),
+    makeThread('3'),
+    makeThread('4', { subjectType: 'Issue' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: '-kind:pr' });
+
+  const before = filterRowsOf(session.getSnapshot()).map(describeRow);
+
+  session.send({ kind: 'applyFilterRow' });
+  session.send({ kind: 'editFilterDraft', text: '-kind:pr' });
+
+  const after = filterRowsOf(session.getSnapshot()).map(describeRow);
+
+  session.send({ kind: 'editFilterDraft', text: '-kind' });
+
+  const candidates = filterRowsOf(session.getSnapshot()).map(describeRow);
+
+  expect(before[0]).toBe('typed -kind:pr 1');
+  expect(before).not.toContain('candidate -kind:pr 3');
+  expect(after).toEqual(['active -kind:pr 1']);
+  expect(candidates).toContain('active -kind:pr 1');
+  expect(candidates).toContain('candidate -kind:issue 3');
 });

@@ -7,19 +7,76 @@ export interface CandidateItem {
   count: number | null;
   marked: boolean;
   failed: boolean;
+  muted: boolean;
 }
 
 const markerWidth = 2;
 
+const ellipsis = '…';
+
+export const ellipsized = (text: string, width: number): string => {
+  if (text.length <= width) {
+    return text;
+  }
+
+  return `${text.slice(0, Math.max(0, width - 1))}${ellipsis}`;
+};
+
+export const wrapText = (text: string, width: number, maxLines: number): string[] => {
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of text.split(' ').filter((part) => part !== '')) {
+    const joined = current === '' ? word : `${current} ${word}`;
+
+    if (joined.length <= width || current === '') {
+      current = joined;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+
+  if (current !== '') {
+    lines.push(current);
+  }
+
+  if (lines.length <= maxLines) {
+    return lines.map((line) => ellipsized(line, width));
+  }
+
+  const kept = lines.slice(0, maxLines);
+  const last = kept.at(-1) ?? '';
+
+  const cut = `${last.slice(0, Math.max(0, width - 1))}${ellipsis}`;
+
+  return [...kept.slice(0, -1), cut];
+};
+
+const fitted = (item: CandidateItem, width: number): string => {
+  const countWidth = item.count === null ? 0 : String(item.count).length + 1;
+
+  return ellipsized(item.label, width - markerWidth - countWidth);
+};
+
 const windowStart = (cursor: number, height: number): number => Math.max(0, cursor - height + 1);
+
+const textColorOf = (item: CandidateItem, palette: Palette): string => {
+  if (item.failed) {
+    return palette.error;
+  }
+
+  return item.muted ? palette.dim : palette.text;
+};
 
 export const CandidateList = (props: {
   items: CandidateItem[];
   cursor: number;
   height: number;
+  width: number;
   palette: Palette;
 }): ReactNode => {
-  const { items, cursor, height, palette } = props;
+  const { items, cursor, height, width, palette } = props;
   const start = windowStart(cursor, height);
 
   return (
@@ -38,8 +95,8 @@ export const CandidateList = (props: {
             <text fg={palette.newMarker} width={markerWidth}>
               {item.marked ? '✓' : ' '}
             </text>
-            <text fg={item.failed ? palette.error : palette.text} flexGrow={1}>
-              {item.label}
+            <text fg={textColorOf(item, palette)} flexGrow={1}>
+              {fitted(item, width)}
             </text>
             {item.count === null ? null : <text fg={palette.dim}>{` ${item.count}`}</text>}
           </box>

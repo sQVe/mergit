@@ -379,3 +379,30 @@ test('filterQuery refuses filters with invalid values', () => {
     expect(() => filterQuery([filter])).toThrow();
   }
 });
+
+test('positive age chips combine as a range and positive title chips need both words', () => {
+  const week = { thread: { updatedAt: '2026-01-02T12:00:00Z' } };
+  const day = { thread: { updatedAt: '2026-01-09T12:00:00Z' } };
+  const old = { thread: { updatedAt: '2025-11-01T12:00:00Z' } };
+
+  expect(runFilters('age:>7d age:<30d', week)).toBe(true);
+  expect(runFilters('age:>7d age:<30d', day)).toBe(false);
+  expect(runFilters('age:>7d age:<30d', old)).toBe(false);
+
+  const both = { thread: { title: 'fix auth bug' } };
+  const one = { thread: { title: 'fix parser' } };
+
+  expect(runFilters('title:fix title:auth', both)).toBe(true);
+  expect(runFilters('title:fix title:auth', one)).toBe(false);
+});
+
+test('positive repo chips still match either repo', () => {
+  expect(runFilters('repo:a/x repo:b/x', { thread: { repository: 'a/x' } })).toBe(true);
+  expect(runFilters('repo:a/x repo:b/x', { thread: { repository: 'b/x' } })).toBe(true);
+  expect(runFilters('repo:a/x repo:b/x', { thread: { repository: 'c/x' } })).toBe(false);
+});
+
+test('is:new parses to new:true and -is:new to -new:true', () => {
+  expect(filtersOf('is:new')).toEqual([{ field: 'new', value: 'true', negated: false }]);
+  expect(filtersOf('-is:new')).toEqual([{ field: 'new', value: 'true', negated: true }]);
+});

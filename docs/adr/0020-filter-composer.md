@@ -1,8 +1,10 @@
 # ADR 0020: Field filters from a composer, applied on Enter
 
 **Date**: 2026-10-14\
-**Status**: Accepted\
-**Supersedes**: the Filters section of
+**Status**: Accepted; the rule for chips of one field superseded by
+[ADR 0021: Chips of one field combine by how many values a thread holds](./0021-chip-logic-by-field.md)\
+**Supersedes**:
+the Filters section of
 [ADR 0019: Plain text search on `/`, field filters from a picker](./0019-search-and-field-filters.md)\
 **Related**:
 [ADR 0006: One command catalog as data](./0006-command-catalog.md)

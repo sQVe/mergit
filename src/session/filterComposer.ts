@@ -1,6 +1,12 @@
 import type { Filter, FilterField } from '../query.ts';
-import { filterCandidates, filterQuery, formatFilter, parseFilters } from '../query.ts';
-import { keepSelectionVisible, openThreads, threadsMatching } from './sessionState.ts';
+import {
+  filterCandidates,
+  filterFields,
+  filterQuery,
+  formatFilter,
+  parseFilters,
+} from '../query.ts';
+import { keepSelectionVisible, openThreads, threadsKnownMatching } from './sessionState.ts';
 import type { Snapshot } from './sessionState.ts';
 
 export type FilterRow =
@@ -12,6 +18,7 @@ export type FilterRow =
 
 interface Scored {
   row: FilterRow;
+  field: FilterField;
   score: number;
   count: number;
 }
@@ -32,6 +39,37 @@ const includesFilter = (filters: Filter[], filter: Filter): boolean =>
 const withoutDuplicates = (filters: Filter[]): Filter[] =>
   filters.filter((filter, index) => !includesFilter(filters.slice(0, index), filter));
 
+const knownNames = new Set([...filterFields, 'is']);
+
+const tokenStartsOf = (draft: string): string[] => {
+  const starts: string[] = [];
+  let quoted = false;
+  let atStart = true;
+
+  for (let index = 0; index < draft.length; index += 1) {
+    const character = draft.charAt(index);
+
+    if (atStart && !quoted && !/\s/.test(character)) {
+      starts.push(draft.slice(index));
+    }
+
+    if (character === '"') {
+      quoted = !quoted;
+    }
+
+    atStart = !quoted && /\s/.test(character);
+  }
+
+  return starts;
+};
+
+const namesUnknownField = (draft: string): boolean =>
+  tokenStartsOf(draft).some((start) => {
+    const name = /^-?([^\s:"]*):/.exec(start)?.[1];
+
+    return name !== undefined && name !== '' && !knownNames.has(name.toLowerCase());
+  });
+
 const typedRowsOf = (snapshot: Snapshot): FilterRow[] => {
   if (snapshot.filterDraft.trim() === '') {
     return [];
@@ -40,10 +78,15 @@ const typedRowsOf = (snapshot: Snapshot): FilterRow[] => {
   const parsed = parseFilters(snapshot.filterDraft);
 
   if (!parsed.ok) {
-    return snapshot.filterDraft.includes(':') ? [{ kind: 'error', message: parsed.error }] : [];
+    const shown =
+      snapshot.filterError ?? (namesUnknownField(snapshot.filterDraft) ? parsed.error : null);
+
+    return shown === null ? [] : [{ kind: 'error', message: shown }];
   }
 
-  const matching = threadsMatching(snapshot, openThreads(snapshot), filterQuery(parsed.filters));
+  const query = filterQuery(parsed.filters);
+  const open = openThreads(snapshot);
+  const matching = query === null ? open : threadsKnownMatching(snapshot, open, query);
 
   return [{ kind: 'typed', filters: parsed.filters, count: matching.length }];
 };
@@ -165,6 +208,50 @@ const termsOf = (draft: string): { negated: boolean; terms: string[][] } => {
 const byScoreThenCount = (left: Scored, right: Scored): number =>
   right.score - left.score || right.count - left.count;
 
+const isFieldPrefix = (field: string, terms: string[][]): boolean => {
+  const first = terms[0]?.join('') ?? '';
+
+  return first !== '' && field.startsWith(first);
+};
+
+const booleanFields = new Set<FilterField>(['new', 'unread']);
+
+const booleanFieldOf = (row: FilterRow): FilterField | undefined => {
+  const field = row.kind === 'candidate' || row.kind === 'active' ? row.filter.field : undefined;
+
+  return field !== undefined && booleanFields.has(field) ? field : undefined;
+};
+
+const isFalseValue = (row: FilterRow): boolean => {
+  const filter = row.kind === 'candidate' || row.kind === 'active' ? row.filter : undefined;
+
+  return filter?.value === 'false';
+};
+
+// Within each boolean field, the rows keep their slots but `true` takes the earlier one.
+const trueFirst = (rows: FilterRow[]): FilterRow[] => {
+  const result = [...rows];
+
+  for (const field of booleanFields) {
+    const slots = result.flatMap((row, index) => (booleanFieldOf(row) === field ? [index] : []));
+
+    const ordered = slots
+      .map((index) => result[index])
+      .filter((row): row is FilterRow => row !== undefined)
+      .toSorted((left, right) => Number(isFalseValue(left)) - Number(isFalseValue(right)));
+
+    slots.forEach((slot, position) => {
+      const row = ordered[position];
+
+      if (row !== undefined) {
+        result[slot] = row;
+      }
+    });
+  }
+
+  return result;
+};
+
 const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
   const { negated, terms } = termsOf(draft);
   const listAll = draft === '';
@@ -175,27 +262,38 @@ const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
     viewerLogin: snapshot.viewerLogin,
   });
 
+  // Each thread has one known value per field, so the field's known threads are the sum of its
+  // value counts, and a negated value keeps the rest. `@me` repeats the viewer's own login.
+  const knownByField = new Map<FilterField, number>();
+
+  for (const { field, value, count } of candidates.values) {
+    if (value !== '@me') {
+      knownByField.set(field, (knownByField.get(field) ?? 0) + count);
+    }
+  }
+
   const fields = candidates.fields.flatMap((field): Scored[] => {
     const score = draftScore(terms, field);
 
-    return score === null ? [] : [{ row: { kind: 'field', field }, score, count: 0 }];
+    return score === null ? [] : [{ row: { kind: 'field', field }, field, score, count: 0 }];
   });
 
-  const values = candidates.values.flatMap(({ field, value, count }): Scored[] => {
+  const values = candidates.values.flatMap(({ field, value, count: matched }): Scored[] => {
     const score = draftScore(terms, `${field}:${value}`);
 
     if (score === null) {
       return [];
     }
 
+    const count = negated ? (knownByField.get(field) ?? 0) - matched : matched;
     const filter = { field, value, negated };
     const active = snapshot.filters.find((candidate) => sameFilter(candidate, filter));
 
     if (active !== undefined) {
-      return [{ row: { kind: 'active', filter: active, count }, score, count }];
+      return [{ row: { kind: 'active', filter: active, count }, field, score, count }];
     }
 
-    return [{ row: { kind: 'candidate', filter, count }, score, count }];
+    return [{ row: { kind: 'candidate', filter, count }, field, score, count }];
   });
 
   const listed = values.flatMap(({ row }) => (row.kind === 'active' ? [row.filter] : []));
@@ -208,10 +306,8 @@ const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
       return [];
     }
 
-    return [{ row: { kind: 'active', filter, count: null }, score, count: 0 }];
+    return [{ row: { kind: 'active', filter, count: null }, field: filter.field, score, count: 0 }];
   });
-
-  const fieldRows = fields.toSorted(byScoreThenCount).map(({ row }) => row);
 
   if (listAll) {
     const active: FilterRow[] = snapshot.filters.map((filter) => ({
@@ -221,23 +317,68 @@ const candidateRowsOf = (snapshot: Snapshot, draft: string): FilterRow[] => {
     }));
 
     const rest = values.filter(({ row }) => row.kind !== 'active');
+    const fieldRows = fields.toSorted(byScoreThenCount).map(({ row }) => row);
 
-    return [...active, ...rest.toSorted(byScoreThenCount).map(({ row }) => row), ...fieldRows];
+    const valueRows = rest.toSorted(byScoreThenCount).map(({ row }) => row);
+
+    return [...active, ...trueFirst(valueRows), ...fieldRows];
   }
 
-  const valueRows = [...unlisted, ...values].toSorted(byScoreThenCount).map(({ row }) => row);
+  const leads = (scored: Scored): boolean => isFieldPrefix(scored.field, terms);
+  const sortedValues = [...unlisted, ...values].toSorted(byScoreThenCount);
+  const sortedFields = fields.toSorted(byScoreThenCount);
 
-  return [...valueRows, ...fieldRows];
+  const prefixOnly =
+    terms.length === 1 && filterFields.some((field) => isFieldPrefix(field, terms));
+
+  const ranked = [
+    ...sortedFields.filter(leads),
+    ...sortedValues.filter(leads),
+    ...(prefixOnly ? [] : sortedValues.filter((scored) => !leads(scored))),
+    ...(prefixOnly ? [] : sortedFields.filter((scored) => !leads(scored))),
+  ];
+
+  return trueFirst(ranked.map(({ row }) => row));
+};
+
+const twinOf = (row: FilterRow, typed: FilterRow): boolean => {
+  if (typed.kind !== 'typed' || typed.filters.length !== 1) {
+    return false;
+  }
+
+  const [only] = typed.filters;
+  const filter = row.kind === 'candidate' || row.kind === 'active' ? row.filter : undefined;
+
+  return only !== undefined && filter !== undefined && sameFilter(filter, only);
 };
 
 export const filterRowsOf = (snapshot: Snapshot): FilterRow[] => {
   const draft = snapshot.filterDraft.trim().toLowerCase();
+  const candidates = candidateRowsOf(snapshot, draft);
+  const [typed] = typedRowsOf(snapshot);
 
-  return [...typedRowsOf(snapshot), ...candidateRowsOf(snapshot, draft)];
+  if (typed === undefined) {
+    return candidates;
+  }
+
+  const activeTwin = candidates.find((row) => row.kind === 'active' && twinOf(row, typed));
+
+  if (activeTwin?.kind === 'active' && typed.kind === 'typed') {
+    const counted = { ...activeTwin, count: typed.count };
+
+    return [counted, ...candidates.filter((row) => row !== activeTwin)];
+  }
+
+  return [typed, ...candidates.filter((row) => !twinOf(row, typed))];
 };
 
-const clampedCursorOf = (snapshot: Snapshot, rows: FilterRow[]): number =>
-  Math.max(0, Math.min(snapshot.filterCursor, rows.length - 1));
+const clampedCursorOf = (snapshot: Snapshot, rows: FilterRow[]): number => {
+  if (snapshot.filterCursor < 0) {
+    return -1;
+  }
+
+  return Math.min(snapshot.filterCursor, rows.length - 1);
+};
 
 export const filterCursorOf = (snapshot: Snapshot): number =>
   clampedCursorOf(snapshot, filterRowsOf(snapshot));
@@ -252,13 +393,21 @@ const withFilters = (snapshot: Snapshot, filters: Filter[]): Snapshot =>
   keepSelectionVisible(snapshot, { ...snapshot, filters });
 
 const withDraft = (snapshot: Snapshot, filterDraft: string): Snapshot => {
-  const drafted = { ...snapshot, filterDraft, filterCursor: 0 };
-  const rows = filterRowsOf(drafted);
+  const cleared = { ...snapshot, filterDraft, filterError: null };
+
+  if (filterDraft.trim() === '') {
+    return { ...cleared, filterCursor: -1 };
+  }
+
+  const rows = filterRowsOf(cleared);
   const first = rows[0];
   const emptyTyped = first?.kind === 'typed' && first.count === 0;
-  const skipsFirst = first?.kind === 'error' || emptyTyped;
 
-  return skipsFirst ? { ...drafted, filterCursor: 1 } : drafted;
+  if (rows.length === 0) {
+    return { ...cleared, filterCursor: -1 };
+  }
+
+  return { ...cleared, filterCursor: emptyTyped && rows.length > 1 ? 1 : 0 };
 };
 
 const finishRow = (snapshot: Snapshot, filters: Filter[]): Snapshot => {
@@ -278,7 +427,13 @@ export const editFilterDraft = (snapshot: Snapshot, text: string): Snapshot =>
 
 export const moveFilterCursor = (snapshot: Snapshot, direction: 'up' | 'down'): Snapshot => {
   const rows = filterRowsOf(snapshot);
-  const next = clampedCursorOf(snapshot, rows) + (direction === 'down' ? 1 : -1);
+  const current = clampedCursorOf(snapshot, rows);
+
+  if (current === -1) {
+    return { ...snapshot, filterCursor: direction === 'down' ? 0 : rows.length - 1 };
+  }
+
+  const next = current + (direction === 'down' ? 1 : -1);
 
   return { ...snapshot, filterCursor: Math.max(0, Math.min(next, rows.length - 1)) };
 };
@@ -314,25 +469,48 @@ const replaceOrAdd = (snapshot: Snapshot, added: Filter[]): Filter[] => {
   return withoutDuplicates([...filters.slice(0, at), ...added, ...filters.slice(at + 1)]);
 };
 
+const withDraftError = (snapshot: Snapshot): Snapshot => {
+  const parsed = parseFilters(snapshot.filterDraft);
+
+  if (parsed.ok || snapshot.filterDraft.trim() === '') {
+    return snapshot;
+  }
+
+  return { ...snapshot, filterError: parsed.error, filterCursor: -1 };
+};
+
 export const applyFilterRow = (snapshot: Snapshot): Snapshot => {
   const row = rowUnderCursor(snapshot);
 
-  if (row?.kind === 'typed') {
+  if (row === undefined) {
+    return withDraftError(snapshot);
+  }
+
+  if (row.kind === 'typed') {
     return finishRow(snapshot, replaceOrAdd(snapshot, row.filters));
   }
 
-  if (row?.kind === 'candidate') {
+  if (row.kind === 'candidate') {
     return finishRow(snapshot, replaceOrAdd(snapshot, [row.filter]));
   }
 
-  if (row?.kind === 'active') {
-    return finishRow(
+  if (row.kind === 'active' && snapshot.filterEditing !== null) {
+    return finishRow(snapshot, replaceOrAdd(snapshot, [row.filter]));
+  }
+
+  if (row.kind === 'active') {
+    const removed = finishRow(
       snapshot,
       snapshot.filters.filter((filter) => !sameFilter(filter, row.filter)),
     );
+
+    const remaining = filterRowsOf(removed).length;
+    const stays = Math.min(clampedCursorOf(snapshot, filterRowsOf(snapshot)), remaining - 1);
+
+    return { ...removed, filterCursor: stays };
   }
 
-  if (row?.kind === 'field') {
+  if (row.kind === 'field') {
     return takeFilterRow(snapshot);
   }
 
