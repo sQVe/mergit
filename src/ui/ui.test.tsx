@@ -2102,6 +2102,28 @@ test('Enter on a candidate adds a chip and narrows the list', async () => {
   expect(frame).not.toContain('Beta change');
 });
 
+test('a field name that is an object key keeps the composer and list on screen', async () => {
+  const { setup, press, settle } = await mountFilters();
+
+  await press('f');
+  await typeText(setup, settle, '__proto__:');
+
+  const protoLines = setup.captureCharFrame().split('\n');
+
+  expect(protoLines.some((line) => line.startsWith('f__proto__:'))).toBe(true);
+  expect(protoLines.some((line) => line.includes('Alpha change'))).toBe(true);
+
+  const second = await mountFilters();
+
+  await second.press('f');
+  await typeText(second.setup, second.settle, 'constructor:');
+
+  const constructorFrame = second.setup.captureCharFrame();
+
+  expect(constructorFrame).toContain('fconstructor:');
+  expect(constructorFrame).not.toContain('function');
+});
+
 test('an invalid age shows an error and Enter adds no chip', async () => {
   const { setup, press, settle } = await mountFilters();
 

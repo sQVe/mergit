@@ -228,23 +228,23 @@ const SearchLine = (props: {
 
 const composerListRows = 8;
 
-const valueHints: Record<string, string> = {
-  kind: 'pr, issue, release, discussion, commit, or ci',
-  repo: 'owner/name, one * allowed',
-  org: 'owner, one * allowed',
-  author: 'login, one * allowed',
-  reason: 'a reason such as mention',
-  state: 'open, closed, or merged',
-  new: 'true or false',
-  unread: 'true or false',
-  age: '<N or >N with m h d w',
-  title: 'words in the title',
-};
+const valueHints = new Map([
+  ['kind', 'pr, issue, release, discussion, commit, or ci'],
+  ['repo', 'owner/name, one * allowed'],
+  ['org', 'owner, one * allowed'],
+  ['author', 'login, one * allowed'],
+  ['reason', 'a reason such as mention'],
+  ['state', 'open, closed, or merged'],
+  ['new', 'true or false'],
+  ['unread', 'true or false'],
+  ['age', '<N or >N with m h d w'],
+  ['title', 'words in the title'],
+]);
 
 const hintOf = (snapshot: Snapshot, rows: FilterRow[]): string => {
   const field = snapshot.filterDraft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
   const hasValue = snapshot.filterDraft.includes(':');
-  const valueHint = hasValue ? valueHints[field] : undefined;
+  const valueHint = hasValue ? valueHints.get(field) : undefined;
 
   if (valueHint !== undefined) {
     return valueHint;
