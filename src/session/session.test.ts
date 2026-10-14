@@ -3686,6 +3686,34 @@ test('takeFilterRow on a field puts the field name in the draft and moveFilterCu
   expect(session.getSnapshot().filters).toEqual([]);
 });
 
+test('completing a field name with Tab keeps a leading minus, so the filter excludes', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: '-age' });
+  session.send({ kind: 'takeFilterRow' });
+
+  expect(session.getSnapshot().filterDraft).toBe('-age:');
+
+  session.send({ kind: 'editFilterDraft', text: '-age:>3d' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([{ field: 'age', value: '>3d', negated: true }]);
+});
+
+test('completing a field name with Enter keeps a leading minus', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: '-ag' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filterDraft).toBe('-age:');
+  expect(session.getSnapshot().filters).toEqual([]);
+});
+
 const rowTexts = (session: ReturnType<typeof makeHarness>['session']) =>
   filterRowsOf(session.getSnapshot()).map(describeRow);
 

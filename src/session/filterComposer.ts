@@ -157,7 +157,9 @@ export const takeFilterRow = (snapshot: Snapshot): Snapshot => {
   const row = rowUnderCursor(snapshot);
 
   if (row?.kind === 'field') {
-    return withDraft(snapshot, `${row.field}:`);
+    const sign = snapshot.filterDraft.trimStart().startsWith('-') ? '-' : '';
+
+    return withDraft(snapshot, `${sign}${row.field}:`);
   }
 
   if (row?.kind === 'active') {
