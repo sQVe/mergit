@@ -3402,3 +3402,27 @@ test('a query that hides the selected row moves the selection to a visible row',
 
   expect(keys).toContain(session.getSnapshot().selectedRowKey ?? '');
 });
+
+test('a refresh under an age query moves the selection off a thread that aged out', async () => {
+  const { session, load, selectThread, advance, now } = makeHarness();
+  const first = makeThread('1', { updatedAt: '2026-02-01T11:00:00Z' });
+  const second = makeThread('2', { updatedAt: '2026-02-01T11:30:00Z' });
+
+  await load(first, second);
+  session.send({ kind: 'editQuery', text: 'age:<2h' });
+  selectThread(first);
+
+  expect(session.getSnapshot().selectedRowKey).toBe('thread:1');
+
+  advance(2 * 3_600_000);
+
+  const fresh = { ...second, updatedAt: now().toISOString() };
+
+  await load(first, fresh);
+
+  const visibleKeys = visibleRows(session.getSnapshot()).map((row) => row.key);
+
+  expect(visibleKeys).toContain('thread:2');
+  expect(visibleKeys).not.toContain('thread:1');
+  expect(visibleKeys).toContain(session.getSnapshot().selectedRowKey as string);
+});

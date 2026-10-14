@@ -107,6 +107,7 @@ const mount = async (
   effects: SessionEffects = idleEffects,
   width = 60,
   manualTime = false,
+  height = 24,
 ) => {
   let themeMode = initialMode;
   const themeListeners = new Set<() => void>();
@@ -165,8 +166,7 @@ const mount = async (
 
   const clock = manualTime ? new ManualClock() : undefined;
 
-  const rendererOptions =
-    clock === undefined ? { width, height: 24 } : { width, height: 24, clock };
+  const rendererOptions = clock === undefined ? { width, height } : { width, height, clock };
 
   const setup = await act(() => testRender(node, rendererOptions));
 
@@ -232,14 +232,12 @@ const mount = async (
 };
 
 test('? opens the overlay with every command label and ? closes it', async () => {
-  const { setup, press } = await mount();
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
 
   await press('?');
 
   const open = setup.captureCharFrame();
-  const listed = catalog.filter(
-    (command) => command.scope !== 'input' && command.scope !== 'confirm',
-  );
+  const listed = catalog.filter((command) => command.scope !== 'confirm');
 
   for (const command of listed) {
     expect(open).toContain(command.label);
@@ -251,7 +249,7 @@ test('? opens the overlay with every command label and ? closes it', async () =>
 
   const closed = setup.captureCharFrame();
 
-  for (const command of listed) {
+  for (const command of catalog) {
     expect(closed).not.toContain(command.label);
   }
 });
@@ -321,7 +319,7 @@ test('ctrl+c passes a quit terminal intent', async () => {
 });
 
 test('escape does nothing while the overlay is closed', async () => {
-  const { setup, press } = await mount();
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
 
   await press('escape');
 
@@ -329,7 +327,7 @@ test('escape does nothing while the overlay is closed', async () => {
 });
 
 test('the overlay lists the close help command from the catalog', async () => {
-  const { setup, press } = await mount();
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
 
   await press('?');
 
@@ -337,7 +335,13 @@ test('the overlay lists the close help command from the catalog', async () => {
 });
 
 test('a theme change keeps the overlay open, recolors it, and adds no subscriber', async () => {
-  const { setup, press, settle, changeTheme, subscriberCount } = await mount('dark');
+  const { setup, press, settle, changeTheme, subscriberCount } = await mount(
+    'dark',
+    idleEffects,
+    60,
+    false,
+    30,
+  );
 
   await press('?');
 
@@ -1942,4 +1946,64 @@ test('d on a group node under a query marks only its matching threads done', asy
   expect(marks).toEqual([
     { kind: 'markThreadsDone', threadIds: [toThreadId('2'), toThreadId('4')] },
   ]);
+});
+
+test('under a query with more matches than rows, the last selected row stays fully visible', async () => {
+  const many = Array.from({ length: 35 }, (_, index) =>
+    makeThread(index + 1, `Match thread ${String(index + 1).padStart(2, '0')}`),
+  );
+
+  const { setup, press, settle } = await mount('dark', threadsEffects(many));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'is:pr');
+  await press('return');
+  await press('G');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const rowIndex = lines.findIndex((line) => line.includes('Match thread 35'));
+  const queryIndex = lines.findIndex((line) => line.startsWith('/is:pr'));
+
+  expect(rowIndex).toBeGreaterThanOrEqual(0);
+  expect(rowIndex).toBeLessThan(queryIndex);
+  expect(lines[rowIndex]).toContain('3h');
+});
+
+test('ctrl+c quits while the query line is open and q still types', async () => {
+  const { setup, press, settle, terminalIntents } = await mount(
+    'dark',
+    threadsEffects(queryThreads),
+  );
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'q');
+
+  expect(terminalIntents).toEqual([]);
+
+  await act(async () => {
+    setup.mockInput.pressKey('c', { ctrl: true });
+  });
+
+  await settle();
+
+  expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
+  expect(setup.captureCharFrame()).toContain('/q');
+});
+
+test('the help overlay lists the query line keys and still shows Close help', async () => {
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+
+  for (const id of ['submitInput', 'cancelInput', 'clearInput']) {
+    const command = catalog.find((candidate) => candidate.id === id);
+
+    expect(frame).toContain(command?.label ?? 'missing');
+  }
+
+  expect(frame).toContain('Close help');
 });

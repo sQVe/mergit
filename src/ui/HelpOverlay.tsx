@@ -8,8 +8,7 @@ export const HelpOverlay = (props: {
   palette: Palette;
 }): ReactNode => {
   const { palette } = props;
-  const hidden = new Set<Command['scope']>(['input', 'confirm']);
-  const commands = props.catalog.filter((command) => !hidden.has(command.scope));
+  const commands = props.catalog.filter((command) => command.scope !== 'confirm');
 
   return (
     <box
@@ -30,6 +29,7 @@ export const HelpOverlay = (props: {
         <box key={command.id} flexDirection="row" gap={2}>
           <text fg={palette.key}>{command.keys.join(' ')}</text>
           <text fg={palette.text}>{command.label}</text>
+          {command.scope === 'input' ? <text fg={palette.dim}>(query line)</text> : null}
         </box>
       ))}
     </box>

@@ -206,6 +206,14 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'keepQuery' } }),
   },
   {
+    id: 'quitFromInput',
+    label: 'Quit',
+    scope: 'input',
+    keys: ['ctrl+c'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'terminal', action: 'quit' }),
+  },
+  {
     id: 'cancelInput',
     label: 'Restore the previous filter',
     scope: 'input',

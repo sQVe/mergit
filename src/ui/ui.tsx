@@ -168,6 +168,14 @@ const Keys = (props: KeysProps): null => {
   return null;
 };
 
+const queryLineRows = (snapshot: Snapshot): number => {
+  if (!snapshot.queryOpen && snapshot.appliedQuery === null) {
+    return 0;
+  }
+
+  return snapshot.queryError === null ? 1 : 2;
+};
+
 const QueryLine = (props: {
   session: Session;
   snapshot: Snapshot;
@@ -241,7 +249,12 @@ const Body = (props: {
 
   return (
     <box flexDirection="row" flexGrow={1}>
-      <ThreadList snapshot={snapshot} palette={palette} width={width - paneWidth} />
+      <ThreadList
+        snapshot={snapshot}
+        palette={palette}
+        width={width - paneWidth}
+        reservedRows={queryLineRows(snapshot)}
+      />
       {paneWidth > 0 ? (
         <DetailPane
           row={selectedRow}

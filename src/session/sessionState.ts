@@ -232,7 +232,7 @@ export const applyThreads = (
     [...snapshot.subjectFacts].filter(([threadId]) => unchangedIds.has(threadId)),
   );
 
-  const updated = { ...snapshot, threads, subjectFacts };
+  const updated = { ...snapshot, threads, subjectFacts, refreshedAt: now, savedAt: null };
 
   return {
     ...updated,
@@ -245,8 +245,6 @@ export const applyThreads = (
     errorMessage: null,
     notice: null,
     hasLoaded: true,
-    refreshedAt: now,
-    savedAt: null,
     feedBusy: false,
     pausedUntil: null,
   };
@@ -260,13 +258,12 @@ export const showSavedThreads = (
 ): Snapshot => {
   const threads = selectOpenThreads(saved, doneRecords);
 
-  const loaded = { ...start, threads };
+  const loaded = { ...start, threads, savedAt };
 
   return {
     ...loaded,
     selectedRowKey: visibleRows(loaded)[0]?.key ?? null,
     hasLoaded: true,
-    savedAt,
   };
 };
 
