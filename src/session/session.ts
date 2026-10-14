@@ -25,7 +25,8 @@ import {
   openFilters,
   takeFilterRow,
 } from './filterComposer.ts';
-import type { Snapshot, Toast, UnsavedChange } from './sessionState.ts';
+import { createMessageToast } from './messageToast.ts';
+import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import {
   applyFailure,
   applyThreads,
@@ -154,8 +155,6 @@ type StateIntent = Exclude<
   | { kind: 'moveFilterCursor'; direction: 'up' | 'down' }
 >;
 
-const toastMilliseconds = 4000;
-
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',
   done: 'Done thread',
@@ -225,7 +224,6 @@ export const createSession = (effects: SessionEffects): Session => {
 
   let stopped = false;
   const openController = new AbortController();
-  let cancelToastTimer: (() => void) | null = null;
   let unsavedChanges = new Set<UnsavedChange>();
   const sentThreadIds = new Set<ThreadId>();
 
@@ -368,20 +366,11 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const showToast = (
-    content: Omit<Toast, 'durationMilliseconds'>,
-    durationMilliseconds = toastMilliseconds,
-  ) => {
-    const toast = { ...content, durationMilliseconds };
-
-    cancelToastTimer?.();
-    update({ ...snapshot, toast });
-
-    cancelToastTimer = effects.setTimer(toast.durationMilliseconds, () => {
-      cancelToastTimer = null;
-      update({ ...snapshot, toast: null });
-    });
-  };
+  const toaster = createMessageToast({
+    setTimer: effects.setTimer,
+    getSnapshot: () => snapshot,
+    update,
+  });
 
   const reportStateWrite = (outcome: StateWriteOutcome) => {
     if (stopped) {
@@ -396,7 +385,7 @@ export const createSession = (effects: SessionEffects): Session => {
 
     const names = [...unsavedChanges].map((change) => unsavedLabels[change]);
 
-    showToast({
+    toaster.show({
       title: `${names.join(' and ')} not saved`,
       lines: [outcome.reason, outcome.path],
       tone: 'error',
@@ -546,7 +535,7 @@ export const createSession = (effects: SessionEffects): Session => {
           ? `Could not mark ${first.thread.title} done`
           : `Could not mark ${failed.length} of ${total} threads done`;
 
-      showToast({ title, lines: [failureMessage(first.failure)], tone: 'error' });
+      toaster.show({ title, lines: [failureMessage(first.failure)], tone: 'error' });
     },
   });
 
@@ -565,7 +554,7 @@ export const createSession = (effects: SessionEffects): Session => {
     const title =
       threads.length === 1 ? `Marked ${first.title} done` : `Marked ${threads.length} threads done`;
 
-    showToast(
+    toaster.show(
       { title, lines: ['You can undo for 5 seconds'], tone: 'info' },
       undoWindowMilliseconds,
     );
@@ -607,9 +596,9 @@ export const createSession = (effects: SessionEffects): Session => {
         ),
       );
 
-      showToast({ title, lines: [], tone: 'info' });
+      toaster.show({ title, lines: [], tone: 'info' });
     } else if (outcome.kind === 'tooLate') {
-      showToast({
+      toaster.show({
         title: 'The last done cannot be undone',
         lines: [],
         tone: 'info',
@@ -647,7 +636,7 @@ export const createSession = (effects: SessionEffects): Session => {
         ? 'Could not open the page in the browser'
         : `Could not open ${failures.length} of ${pages.length} pages in the browser`;
 
-    showToast({ title, lines: [first.message], tone: 'error' });
+    toaster.show({ title, lines: [first.message], tone: 'error' });
   };
 
   snapshot = withMarkers(snapshot);
@@ -692,8 +681,7 @@ export const createSession = (effects: SessionEffects): Session => {
     refresh.abort();
     subjectLookup.abort();
     refresh.cancelTimer();
-    cancelToastTimer?.();
-    cancelToastTimer = null;
+    toaster.cancel();
     listeners.clear();
 
     return doneQueue.stop(deadline);
