@@ -21,7 +21,7 @@ export type Query =
   | { type: 'unread'; value: boolean }
   | { type: 'age'; operator: AgeOperator; milliseconds: number };
 
-interface QueryError {
+export interface QueryError {
   message: string;
   position: number;
 }
@@ -32,7 +32,7 @@ export interface QueryContext {
   facts: SubjectFacts | undefined;
   isNew: boolean;
   viewerLogin: string | null;
-  now: Date;
+  now: Date | null;
 }
 
 type Token =
@@ -477,7 +477,7 @@ const evaluateAge = (
 ): Truth => {
   const updated = Date.parse(thread.updatedAt);
 
-  if (Number.isNaN(updated)) {
+  if (Number.isNaN(updated) || context.now === null) {
     return 'unknown';
   }
 

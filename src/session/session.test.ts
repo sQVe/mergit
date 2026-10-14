@@ -13,7 +13,7 @@ import type {
 } from '../github/github.ts';
 import type { BrowserPage, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
-import { createSession, visibleRows } from './session.ts';
+import { createSession, matchCountOf, visibleRows } from './session.ts';
 import type { SavedSnapshot, SavedState, SessionEffects } from './session.ts';
 
 type Call =
@@ -3202,4 +3202,203 @@ test('no open starts after stop and no toast shows', async () => {
 
   expect(opens.started).toEqual([repoPage('acme/a')]);
   expect(harness.session.getSnapshot().toast).toBeNull();
+});
+
+const queryThreads = () => [
+  makeThread('1', {
+    reason: 'review_requested',
+    subjectType: 'PullRequest',
+    repository: 'acme/app',
+  }),
+  makeThread('2', {
+    reason: 'review_requested',
+    subjectType: 'PullRequest',
+    repository: 'acme/lib',
+  }),
+  makeThread('3', { reason: 'review_requested', subjectType: 'Issue', repository: 'acme/tools' }),
+  makeThread('4', { reason: 'mention', subjectType: 'Issue', repository: 'acme/app' }),
+];
+
+const threadKeysOf = (session: ReturnType<typeof makeHarness>['session']) =>
+  rowKeysOf(session).filter((key) => key.startsWith('thread:'));
+
+const nodeRowsOf = (session: ReturnType<typeof makeHarness>['session']) =>
+  visibleRows(session.getSnapshot()).filter((row) => row.kind === 'node');
+
+test('a query leaves no rows for groups and repos without matching threads and counts matches', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+
+  const allNodes = nodeRowsOf(session).length;
+
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+
+  expect(threadKeysOf(session)).toEqual(['thread:1', 'thread:2']);
+
+  const nodes = nodeRowsOf(session);
+
+  expect(nodes.length).toBeLessThan(allNodes);
+
+  for (const node of nodes) {
+    expect(node.threads.every((thread) => thread.subjectType === 'PullRequest')).toBe(true);
+  }
+
+  expect(nodes.some((node) => node.title.includes('mention'))).toBe(false);
+  expect(nodes.some((node) => node.title.includes('acme/tools'))).toBe(false);
+  expect(matchCountOf(session.getSnapshot())).toBe(2);
+});
+
+test('the match count skips threads hidden by done', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+  session.send({ kind: 'markThreadsDone', threadIds: [toThreadId('1')] });
+
+  expect(matchCountOf(session.getSnapshot())).toBe(1);
+});
+
+test('a thread with no subject facts still shows under state:merged', async () => {
+  const { session, load, lookups } = makeHarness();
+  const threads = queryThreads();
+
+  await load(...threads);
+  session.send({ kind: 'editQuery', text: 'state:merged' });
+
+  expect(threadKeysOf(session)).toEqual(['thread:1', 'thread:2', 'thread:3', 'thread:4']);
+
+  lookups[0]?.resolve([factsOf(threads[0] as NotificationThread)]);
+  await settle();
+
+  expect(threadKeysOf(session)).toEqual(['thread:2', 'thread:3', 'thread:4']);
+});
+
+test('editQuery with a parse error keeps the earlier rows and stores the error position', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+  session.send({ kind: 'editQuery', text: 'is:pr repo:' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.queryText).toBe('is:pr repo:');
+  expect(snapshot.queryError?.position).toBe('is:pr repo:'.length);
+  expect(threadKeysOf(session)).toEqual(['thread:1', 'thread:2']);
+
+  session.send({ kind: 'editQuery', text: 'is:issue' });
+
+  expect(session.getSnapshot().queryError).toBeNull();
+  expect(threadKeysOf(session)).toEqual(['thread:3', 'thread:4']);
+});
+
+test('markThreadsDone with a node row marks only its matching threads under a query', async () => {
+  const harness = makeHarness();
+  const { session, load } = harness;
+
+  await load(...queryThreads());
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+
+  const node = nodeRowsOf(session).find((row) => row.threads.length === 2);
+
+  expect(node?.threads.map((thread) => thread.id)).toEqual([toThreadId('1'), toThreadId('2')]);
+
+  const timersBefore = harness.timers.length;
+
+  session.send({
+    kind: 'markThreadsDone',
+    threadIds: node?.threads.map((thread) => thread.id) ?? [],
+  });
+
+  session.send({ kind: 'clearQuery' });
+
+  expect(threadKeysOf(session)).toEqual(['thread:3', 'thread:4']);
+
+  await fireDoneTimerAt(harness, timersBefore);
+  harness.sends[0]?.resolve(sentOk);
+  await settle();
+
+  expect(harness.sends.map((send) => send.threadId)).toEqual([toThreadId('1'), toThreadId('2')]);
+
+  harness.sends[1]?.resolve(sentOk);
+  await settle();
+
+  expect(harness.sends).toHaveLength(2);
+});
+
+test('openQuery opens the line and keepQuery closes it with the query applied', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+  session.send({ kind: 'openQuery' });
+
+  expect(session.getSnapshot().queryOpen).toBe(true);
+
+  session.send({ kind: 'editQuery', text: 'is:issue' });
+  session.send({ kind: 'keepQuery' });
+
+  expect(session.getSnapshot().queryOpen).toBe(false);
+  expect(session.getSnapshot().queryText).toBe('is:issue');
+  expect(threadKeysOf(session)).toEqual(['thread:3', 'thread:4']);
+});
+
+test('keepQuery changes nothing while the text has a parse error', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+  session.send({ kind: 'openQuery' });
+  session.send({ kind: 'editQuery', text: 'repo:' });
+
+  const before = session.getSnapshot();
+
+  session.send({ kind: 'keepQuery' });
+
+  expect(session.getSnapshot()).toBe(before);
+  expect(before.queryOpen).toBe(true);
+});
+
+test('restoreQuery closes the line and brings back the earlier text and query', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+  session.send({ kind: 'openQuery' });
+  session.send({ kind: 'editQuery', text: 'repo:' });
+  session.send({ kind: 'restoreQuery' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.queryOpen).toBe(false);
+  expect(snapshot.queryText).toBe('is:pr');
+  expect(snapshot.queryError).toBeNull();
+  expect(threadKeysOf(session)).toEqual(['thread:1', 'thread:2']);
+});
+
+test('clearQuery clears the text, the error, and the applied query', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...queryThreads());
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+  session.send({ kind: 'editQuery', text: 'is:pr repo:' });
+  session.send({ kind: 'clearQuery' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.queryText).toBe('');
+  expect(snapshot.queryError).toBeNull();
+  expect(threadKeysOf(session)).toEqual(['thread:1', 'thread:2', 'thread:3', 'thread:4']);
+});
+
+test('a query that hides the selected row moves the selection to a visible row', async () => {
+  const { session, load, selectThread } = makeHarness();
+  const threads = queryThreads();
+
+  await load(...threads);
+  selectThread(threads[3] as NotificationThread);
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+
+  const keys = rowKeysOf(session);
+
+  expect(keys).toContain(session.getSnapshot().selectedRowKey ?? '');
 });

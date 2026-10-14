@@ -26,10 +26,16 @@ import {
   applyThreads,
   clearAccount,
   clearFailure,
+  clearQuery,
+  editQuery,
   failureMessage,
   hideThreads,
   initialSnapshot,
   isViewerActor,
+  keepQuery,
+  keepSelectionVisible,
+  openQuery,
+  restoreQuery,
   markFeedBusy,
   cycleGrouping,
   jumpTopLevel,
@@ -46,7 +52,7 @@ import {
 } from './sessionState.ts';
 
 export type { Snapshot } from './sessionState.ts';
-export { visibleRows } from './sessionState.ts';
+export { matchCountOf, visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
@@ -59,6 +65,11 @@ export type ApplicationIntent =
   | { kind: 'toggleFold' }
   | { kind: 'toggleAllFolds' }
   | { kind: 'cycleGrouping' }
+  | { kind: 'openQuery' }
+  | { kind: 'editQuery'; text: string }
+  | { kind: 'keepQuery' }
+  | { kind: 'restoreQuery' }
+  | { kind: 'clearQuery' }
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
@@ -127,6 +138,7 @@ type StateIntent = Exclude<
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
+  | { kind: 'editQuery'; text: string }
 >;
 
 const minimumPollSeconds = 60;
@@ -180,6 +192,10 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   toggleFold,
   toggleAllFolds,
   cycleGrouping,
+  openQuery,
+  keepQuery,
+  restoreQuery,
+  clearQuery,
 };
 
 const copyAccountRecords = (
@@ -317,11 +333,19 @@ export const createSession = (effects: SessionEffects): Session => {
       pendingThreadIds,
     });
 
-    const unchanged =
+    const sameNewIds =
       newThreadIds.size === candidate.newThreadIds.size &&
       [...newThreadIds].every((threadId) => candidate.newThreadIds.has(threadId));
 
-    return unchanged ? candidate : { ...candidate, newThreadIds };
+    if (sameNewIds && candidate.viewerLogin === currentLogin) {
+      return candidate;
+    }
+
+    return keepSelectionVisible(candidate, {
+      ...candidate,
+      newThreadIds,
+      viewerLogin: currentLogin,
+    });
   };
 
   const update = (candidate: Snapshot) => {
@@ -959,6 +983,8 @@ export const createSession = (effects: SessionEffects): Session => {
       undoDone();
     } else if (intent.kind === 'openInBrowser') {
       openQueue = openQueue.then(() => openInBrowser(intent.pages)).catch(() => undefined);
+    } else if (intent.kind === 'editQuery') {
+      update(editQuery(snapshot, intent.text));
     } else {
       update(transitions[intent.kind](snapshot));
 
