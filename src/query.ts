@@ -26,7 +26,9 @@ export interface QueryError {
   position: number;
 }
 
-export type ParseResult = { ok: true; query: Query } | { ok: false; error: QueryError };
+export type ParseResult =
+  | { ok: true; query: Query }
+  | { ok: false; error: QueryError; fallback: Query | null };
 
 export interface QueryContext {
   facts: SubjectFacts | undefined;
@@ -421,11 +423,11 @@ const parseExpression: ParseInner = (cursor) => {
   return succeed(terms.length === 1 && only !== undefined ? only : { type: 'or', terms });
 };
 
-export const parse = (text: string): ParseResult => {
+const parseText = (text: string): Parsed<Query> => {
   const cursor: Cursor = { tokens: tokenize(text), index: 0 };
 
   if (cursor.tokens.length === 0) {
-    return { ok: true, query: { type: 'and', terms: [] } };
+    return succeed({ type: 'and', terms: [] });
   }
 
   const parsed = parseExpression(cursor);
@@ -440,7 +442,36 @@ export const parse = (text: string): ParseResult => {
     return fail('Unmatched closing parenthesis.', rest.position);
   }
 
-  return { ok: true, query: parsed.value };
+  return parsed;
+};
+
+const errorTermStart = (text: string, errorPosition: number): number => {
+  const tokens = tokenize(text).filter((token) => token.position <= errorPosition);
+
+  return tokens.at(-1)?.position ?? 0;
+};
+
+// The text is shorter on every step, so the recursion ends.
+export const parse = (text: string): ParseResult => {
+  const parsed = parseText(text);
+
+  if (parsed.ok) {
+    return { ok: true, query: parsed.value };
+  }
+
+  const before = text.slice(0, errorTermStart(text, parsed.error.position));
+
+  if (before.trim() === '') {
+    return { ok: false, error: parsed.error, fallback: null };
+  }
+
+  const earlier = parse(before);
+
+  return {
+    ok: false,
+    error: parsed.error,
+    fallback: earlier.ok ? earlier.query : earlier.fallback,
+  };
 };
 
 const negate = (value: Truth): Truth => (value === 'unknown' ? 'unknown' : !value);

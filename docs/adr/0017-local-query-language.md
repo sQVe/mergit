@@ -31,8 +31,9 @@ The language is short and familiar, with one syntax for the query line and saved
   qualifier means OR.
 - `@me` is the viewer. `is:` is an alias for `kind:`, `state:`, and `new:`.
 - A value must be complete. Zeta offers completion, but never matches a prefix.
-- Half-typed input keeps the last valid result. An invalid query shows its error at a position and
-  never shows an empty list in its place.
+- Half-typed input shows the result of the query without its unfinished term, so the partial words
+  typed on the way to a field never decide the list. An invalid query shows its error at a position
+  and never shows an empty list in its place.
 - Each term is true, false, or unknown. A thread shows when the whole query is true or unknown, so
   only a known fact can hide it.
 

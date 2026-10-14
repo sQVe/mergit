@@ -528,7 +528,12 @@ export const editQuery = (snapshot: Snapshot, text: string): Snapshot => {
   const parsed = parse(text);
 
   if (!parsed.ok) {
-    return { ...snapshot, queryText: text, queryError: parsed.error };
+    return keepSelectionVisible(snapshot, {
+      ...snapshot,
+      queryText: text,
+      queryError: parsed.error,
+      appliedQuery: parsed.fallback,
+    });
   }
 
   const isBlank = text.trim() === '';

@@ -1847,20 +1847,19 @@ test('typing is:pr -repo:sqve/zeta after / shows only pull requests outside that
   expect(frame).toContain('2 matches');
 });
 
-test('repo: after a valid query keeps the last result and marks the error position', async () => {
-  // Every title holds "repo", so the partial words typed on the way keep matching.
-  const titled = queryThreads.map((thread) => ({ ...thread, title: `${thread.title} repo` }));
-  const { setup, press, settle } = await mount('dark', threadsEffects(titled));
+test('repo: after a valid query shows the valid query rows and marks the error position', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
 
   await press('r');
   await press('/');
-  await typeText(setup, settle, 'is:pr repo:');
+  await typeText(setup, settle, 'is:pr');
+  await typeText(setup, settle, ' repo:');
 
   const lines = setup.captureCharFrame().split('\n');
   const frame = lines.join('\n');
 
-  expect(frame).toContain('Zeta pull request repo');
-  expect(frame).toContain('Web pull request repo');
+  expect(frame).toContain('Zeta pull request');
+  expect(frame).toContain('Web pull request');
   expect(frame).not.toContain('App issue');
   expect(frame).toContain('3 matches');
   expect(frame).toContain('Missing value for repo:.');

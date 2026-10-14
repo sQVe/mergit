@@ -216,3 +216,66 @@ test('age needs an operator, a number, and a unit', () => {
   expect(failure('age:>7').position).toBe(4);
   expect(failure('age:>d').position).toBe(4);
 });
+
+const fallbackOf = (text: string) => {
+  const result = parse(text);
+
+  if (result.ok) {
+    throw new Error(`Expected "${text}" to fail`);
+  }
+
+  return result.fallback;
+};
+
+const evaluateAll = (query: NonNullable<ReturnType<typeof fallbackOf>>) =>
+  [
+    makeThread({ subjectType: 'PullRequest', repository: 'sqve/zeta' }),
+    makeThread({ subjectType: 'PullRequest', repository: 'sqve/other' }),
+    makeThread({ subjectType: 'Issue', repository: 'sqve/other' }),
+    makeThread({ title: 'a', subjectType: 'Issue', repository: 'sqve/zeta' }),
+    makeThread({ title: 'b', subjectType: 'Issue', repository: 'sqve/zeta' }),
+  ].map((thread) =>
+    evaluate(query, thread, { facts: undefined, isNew: false, viewerLogin: null, now }),
+  );
+
+test('a parse error falls back to the query without the unfinished term', () => {
+  const cases: [string, string][] = [
+    ['is:pr -repo:sqve/zeta repo:', 'is:pr -repo:sqve/zeta'],
+    ['is:pr (', 'is:pr'],
+    ['a (b c:', 'a'],
+  ];
+
+  for (const [text, expected] of cases) {
+    const fallback = fallbackOf(text);
+    const result = parse(expected);
+
+    if (fallback === null || !result.ok) {
+      throw new Error(`Expected a fallback for "${text}"`);
+    }
+
+    expect(evaluateAll(fallback)).toEqual(evaluateAll(result.query));
+  }
+
+  expect(evaluateAll(fallbackOf('is:pr -repo:sqve/zeta repo:') as never)).toEqual([
+    false,
+    true,
+    false,
+    false,
+    false,
+  ]);
+});
+
+test('a parse error with no complete term before it falls back to no filter', () => {
+  expect(fallbackOf('kind:p')).toBeNull();
+  expect(fallbackOf('repo:')).toBeNull();
+});
+
+test('the fallback leaves the error message and position as they were', () => {
+  expect(failure('is:pr -repo:sqve/zeta repo:')).toEqual({
+    message: 'Missing value for repo:.',
+    position: 27,
+  });
+
+  expect(failure('is:pr (').position).toBe(6);
+  expect(failure('a (b c:').position).toBe(5);
+});

@@ -3444,3 +3444,27 @@ test('a refresh under an age query moves the selection off a thread that aged ou
   expect(visibleKeys).not.toContain('thread:1');
   expect(visibleKeys).toContain(session.getSnapshot().selectedRowKey as string);
 });
+
+test('typing a field after a valid query shows the valid query rows while the field is unfinished', async () => {
+  const { session, load } = makeHarness();
+  const threads = queryThreads();
+
+  threads[0] = makeThread('1', { ...threads[0], title: 'repo fix' });
+
+  await load(...threads);
+  session.send({ kind: 'editQuery', text: 'is:pr' });
+
+  const expected = threadKeysOf(session);
+  const typed = 'is:pr repo:';
+
+  for (let length = 'is:pr'.length + 1; length <= typed.length; length += 1) {
+    session.send({ kind: 'editQuery', text: typed.slice(0, length) });
+  }
+
+  const snapshot = session.getSnapshot();
+
+  expect(expected).toEqual(['thread:1', 'thread:2']);
+  expect(threadKeysOf(session)).toEqual(expected);
+  expect(snapshot.queryError?.position).toBe(typed.length);
+  expect(matchCountOf(snapshot)).toBe(2);
+});
