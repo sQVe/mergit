@@ -257,7 +257,6 @@ export const makeHarness = (
       throw new Error(`no pending ${kind} call`);
     }
 
-    // SAFETY: findIndex above matched call.kind against kind.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the kind was matched above
     return call as Extract<Call, { kind: Kind }>;
   };
