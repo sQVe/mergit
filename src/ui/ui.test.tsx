@@ -198,6 +198,8 @@ const mount = async (
         setup.mockInput.pressEscape();
       } else if (key === 'return') {
         setup.mockInput.pressEnter();
+      } else if (key === 'backspace') {
+        setup.mockInput.pressBackspace();
       } else {
         setup.mockInput.pressKey(key);
       }
@@ -1814,6 +1816,13 @@ const queryThreads = [
   }),
 ];
 
+const searchThreads = [
+  ...queryThreads,
+  treeThread(5, 'Fix yjs sync', { repository: 'acme/editor' }),
+  treeThread(6, 'Update docs', { repository: 'acme/yjs' }),
+  treeThread(7, 'Document repo: syntax', { repository: 'acme/docs' }),
+];
+
 const typeText = async (setup: Setup, settle: () => Promise<void>, text: string) => {
   await act(async () => {
     await setup.mockInput.typeText(text);
@@ -1830,53 +1839,77 @@ const pressCtrlU = async (setup: Setup, settle: () => Promise<void>) => {
   await settle();
 };
 
-test('typing is:pr -repo:sqve/zeta after / shows only pull requests outside that repo', async () => {
+test('Backspace deletes characters in the search line, and on an empty line closes it', async () => {
   const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
 
   await press('r');
   await press('/');
-  await typeText(setup, settle, 'is:pr -repo:sqve/zeta');
+  await typeText(setup, settle, 'ab');
+  await press('backspace');
+
+  expect(setup.captureCharFrame()).toContain('/a');
+  expect(setup.captureCharFrame()).not.toContain('/ab');
+
+  await press('backspace');
+
+  const emptied = setup.captureCharFrame();
+
+  expect(emptied).toContain('/');
+  expect(emptied).toContain('4 matches');
+
+  await press('backspace');
+
+  const closed = setup.captureCharFrame();
+
+  expect(closed).not.toContain('matches');
+
+  for (const title of ['Zeta pull request', 'App pull request', 'Web pull request', 'App issue']) {
+    expect(closed).toContain(title);
+  }
+});
+
+test('typing yjs after / shows only threads with yjs in the title or repository', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(searchThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'yjs');
 
   const frame = setup.captureCharFrame();
 
-  expect(frame).toContain('App pull request');
-  expect(frame).toContain('Web pull request');
+  expect(frame).toContain('Fix yjs sync');
+  expect(frame).toContain('Update docs');
+  expect(frame).toContain('acme/yjs');
   expect(frame).not.toContain('Zeta pull request');
   expect(frame).not.toContain('App issue');
-  expect(frame).toContain('/is:pr -repo:sqve/zeta');
+  expect(frame).not.toContain('acme/web');
+  expect(frame).toContain('/yjs');
   expect(frame).toContain('2 matches');
 });
 
-test('repo: after a valid query shows the valid query rows and marks the error position', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+test('repo: after / matches the text repo: and shows no error row', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(searchThreads));
 
   await press('r');
   await press('/');
-  await typeText(setup, settle, 'is:pr');
-  await typeText(setup, settle, ' repo:');
+  await typeText(setup, settle, 'repo:');
 
-  const lines = setup.captureCharFrame().split('\n');
-  const frame = lines.join('\n');
+  const frame = setup.captureCharFrame();
 
-  expect(frame).toContain('Zeta pull request');
-  expect(frame).toContain('Web pull request');
-  expect(frame).not.toContain('App issue');
-  expect(frame).toContain('3 matches');
-  expect(frame).toContain('Missing value for repo:.');
-
-  const queryLine = lines.findIndex((line) => line.startsWith('/is:pr repo:'));
-  const marker = lines[queryLine + 1] ?? '';
-
-  expect(queryLine).toBeGreaterThanOrEqual(0);
-  expect(marker.indexOf('^')).toBe((lines[queryLine]?.indexOf('repo:') ?? -2) + 5);
+  expect(frame).toContain('Document repo: syntax');
+  expect(frame).not.toContain('Zeta pull request');
+  expect(frame).toContain('/repo:');
+  expect(frame).toContain('1 match');
+  expect(frame).not.toContain('^');
+  expect(frame).not.toContain('Missing value');
 });
 
-test('Enter keeps the query, Esc while editing restores the old one, Ctrl-U clears the line, and Esc in the list clears', async () => {
+test('Enter keeps the text, Esc while editing restores the old one, Ctrl-U clears the line, and Esc in the list clears', async () => {
   const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
 
   await press('r');
   await press('/');
-  await typeText(setup, settle, 'is:issue');
+  await typeText(setup, settle, 'issue');
   await press('return');
 
   const kept = setup.captureCharFrame();
@@ -1891,8 +1924,8 @@ test('Enter keeps the query, Esc while editing restores the old one, Ctrl-U clea
 
   const restored = setup.captureCharFrame();
 
-  expect(restored).toContain('/is:issue');
-  expect(restored).not.toContain('/is:issue acme');
+  expect(restored).toContain('/issue');
+  expect(restored).not.toContain('/issue acme');
   expect(restored).toContain('App issue');
 
   await press('/');
@@ -1901,21 +1934,21 @@ test('Enter keeps the query, Esc while editing restores the old one, Ctrl-U clea
   const cleared = setup.captureCharFrame();
 
   expect(cleared).toContain('Zeta pull request');
-  expect(cleared).not.toContain('/is:issue');
+  expect(cleared).not.toContain('/issue');
 
   await press('return');
   await press('/');
-  await typeText(setup, settle, 'is:issue');
+  await typeText(setup, settle, 'issue');
   await press('return');
   await press('escape');
 
   const listCleared = setup.captureCharFrame();
 
   expect(listCleared).toContain('Zeta pull request');
-  expect(listCleared).not.toContain('/is:issue');
+  expect(listCleared).not.toContain('/issue');
 });
 
-test('q typed in the open query line goes into the text and does not quit', async () => {
+test('q typed in the open search line goes into the text and does not quit', async () => {
   const { setup, press, settle, terminalIntents } = await mount(
     'dark',
     threadsEffects(queryThreads),
@@ -1929,12 +1962,12 @@ test('q typed in the open query line goes into the text and does not quit', asyn
   expect(setup.captureCharFrame()).toContain('/q');
 });
 
-test('d on a group node under a query marks only its matching threads done', async () => {
+test('d on a group node under a search marks only its matching threads done', async () => {
   const { setup, press, settle, sent } = await mount('dark', threadsEffects(queryThreads));
 
   await press('r');
   await press('/');
-  await typeText(setup, settle, 'repo:acme/app');
+  await typeText(setup, settle, 'acme/app');
   await press('return');
   await press('g');
 
@@ -1947,7 +1980,7 @@ test('d on a group node under a query marks only its matching threads done', asy
   ]);
 });
 
-test('under a query with more matches than rows, the last selected row stays fully visible', async () => {
+test('under a search with more matches than rows, the last selected row stays fully visible', async () => {
   const many = Array.from({ length: 35 }, (_, index) =>
     makeThread(index + 1, `Match thread ${String(index + 1).padStart(2, '0')}`),
   );
@@ -1956,58 +1989,20 @@ test('under a query with more matches than rows, the last selected row stays ful
 
   await press('r');
   await press('/');
-  await typeText(setup, settle, 'is:pr');
+  await typeText(setup, settle, 'Match');
   await press('return');
   await press('G');
 
   const lines = setup.captureCharFrame().split('\n');
   const rowIndex = lines.findIndex((line) => line.includes('Match thread 35'));
-  const queryIndex = lines.findIndex((line) => line.startsWith('/is:pr'));
+  const queryIndex = lines.findIndex((line) => line.startsWith('/Match'));
 
   expect(rowIndex).toBeGreaterThanOrEqual(0);
   expect(rowIndex).toBeLessThan(queryIndex);
   expect(lines[rowIndex]).toContain('3h');
 });
 
-test('a query error longer than the width keeps the last selected row visible', async () => {
-  const many = Array.from({ length: 35 }, (_, index) =>
-    makeThread(index + 1, `Match thread ${String(index + 1).padStart(2, '0')}`),
-  );
-
-  const { setup, press, settle } = await mount('dark', threadsEffects(many));
-
-  await press('r');
-  await press('/');
-  await typeText(setup, settle, 'is:pr');
-  await press('return');
-  await press('G');
-  await press('/');
-  await typeText(setup, settle, ' Match Match Match Match (');
-
-  const lines = setup.captureCharFrame().split('\n');
-  const rowIndex = lines.findIndex((line) => line.includes('Match thread 35'));
-  const queryIndex = lines.findIndex((line) => line.startsWith('/is:pr'));
-
-  expect(rowIndex).toBeGreaterThanOrEqual(0);
-  expect(rowIndex).toBeLessThan(queryIndex);
-  expect(lines[queryIndex + 1]).toContain('^');
-});
-
-test('an error past the width still shows its message and position', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
-  const values = Array.from({ length: 5 }, () => 'acme/app').join(',');
-
-  await press('r');
-  await press('/');
-  await typeText(setup, settle, `repo:${values},sqve/zeta,acme/web repo:`);
-
-  const frame = setup.captureCharFrame();
-
-  expect(frame).toContain('Missing value for repo:');
-  expect(frame).toContain('column 75');
-});
-
-test('ctrl+c quits while the query line is open and q still types', async () => {
+test('ctrl+c quits while the search line is open and q still types', async () => {
   const { setup, press, settle, terminalIntents } = await mount(
     'dark',
     threadsEffects(queryThreads),
@@ -2029,14 +2024,14 @@ test('ctrl+c quits while the query line is open and q still types', async () => 
   expect(setup.captureCharFrame()).toContain('/q');
 });
 
-test('the help overlay lists the query line keys and still shows Close help', async () => {
+test('the help overlay lists the search line keys and still shows Close help', async () => {
   const { setup, press } = await mount(null, idleEffects, 60, false, 30);
 
   await press('?');
 
   const frame = setup.captureCharFrame();
 
-  for (const id of ['submitInput', 'cancelInput', 'clearInput']) {
+  for (const id of ['submitInput', 'cancelInput', 'clearInput', 'closeEmptyInput']) {
     const command = catalog.find((candidate) => candidate.id === id);
 
     expect(frame).toContain(command?.label ?? 'missing');

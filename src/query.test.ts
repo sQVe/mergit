@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { evaluate, parse } from './query.ts';
+import { evaluate, searchQuery } from './query.ts';
+import type { Query } from './query.ts';
 import type { NotificationThread, SubjectFacts } from './work/work.ts';
 import { toThreadId } from './work/work.ts';
 
@@ -26,30 +27,13 @@ const makeThread = (overrides: Partial<NotificationThread> = {}): NotificationTh
   ...overrides,
 });
 
-const run = (text: string, overrides: Overrides = {}) => {
-  const result = parse(text);
-
-  if (!result.ok) {
-    throw new Error(`Expected "${text}" to parse: ${result.error.message}`);
-  }
-
-  return evaluate(result.query, makeThread(overrides.thread), {
+const run = (query: Query, overrides: Overrides = {}) =>
+  evaluate(query, makeThread(overrides.thread), {
     facts: overrides.facts,
     isNew: overrides.isNew ?? false,
     viewerLogin: overrides.viewerLogin ?? null,
     now,
   });
-};
-
-const failure = (text: string) => {
-  const result = parse(text);
-
-  if (result.ok) {
-    throw new Error(`Expected "${text}" to fail`);
-  }
-
-  return result.error;
-};
 
 const facts = (overrides: Partial<SubjectFacts> = {}): SubjectFacts => ({
   state: 'open',
@@ -58,224 +42,124 @@ const facts = (overrides: Partial<SubjectFacts> = {}): SubjectFacts => ({
   ...overrides,
 });
 
-test('is:pr -repo:sqve/zeta is true only for pull requests outside sqve/zeta', () => {
-  const text = 'is:pr -repo:sqve/zeta';
+const text = (value: string): Query => ({ type: 'text', value });
 
-  expect(run(text, { thread: { repository: 'sqve/other' } })).toBe(true);
-  expect(run(text, { thread: { repository: 'sqve/zeta' } })).toBe(false);
-  expect(run(text, { thread: { repository: 'sqve/other', subjectType: 'Issue' } })).toBe(false);
+const not = (term: Query): Query => ({ type: 'not', term });
+
+const repoZeta: Query = { type: 'repo', value: 'sqve/zeta' };
+
+const pullRequest: Query = { type: 'kind', subjectType: 'PullRequest' };
+
+const merged: Query = { type: 'state', value: 'merged' };
+
+test('a pull request outside sqve/zeta is true only for pull requests in other repositories', () => {
+  const query: Query = { type: 'and', terms: [pullRequest, not(repoZeta)] };
+
+  expect(run(query, { thread: { repository: 'sqve/other' } })).toBe(true);
+  expect(run(query, { thread: { repository: 'sqve/zeta' } })).toBe(false);
+  expect(run(query, { thread: { repository: 'sqve/other', subjectType: 'Issue' } })).toBe(false);
 });
 
-test('state:merged and its negation are unknown without facts', () => {
-  expect(run('state:merged')).toBe('unknown');
-  expect(run('-state:merged')).toBe('unknown');
-  expect(run('state:merged', { facts: facts({ state: 'merged' }) })).toBe(true);
-  expect(run('-state:merged', { facts: facts({ state: 'merged' }) })).toBe(false);
-  expect(run('state:merged', { facts: facts({ state: 'open' }) })).toBe(false);
+test('text matches the title or the repository', () => {
+  expect(run(text('parser'))).toBe(true);
+  expect(run(text('sqve/other'))).toBe(true);
+  expect(run(text('missing'))).toBe(false);
 });
 
-test('parse reports the position just after the colon for an empty value', () => {
-  const error = failure('repo:');
-
-  expect(error.position).toBe(5);
-  expect(failure('is:pr -org:').position).toBe(11);
+test('kind matches the subject type', () => {
+  expect(run(pullRequest)).toBe(true);
+  expect(run(pullRequest, { thread: { subjectType: 'Issue' } })).toBe(false);
 });
 
-test('a value must be complete, so kind:p fails at the value', () => {
-  expect(failure('kind:p').position).toBe(5);
-  expect(failure('state:ope').position).toBe(6);
-  expect(failure('is:merg').position).toBe(3);
+test('repo and org compare exactly, ignoring case', () => {
+  const thread = { repository: 'Sqve/Zeta' };
+
+  expect(run(repoZeta, { thread })).toBe(true);
+  expect(run({ type: 'repo', value: 'sqve/zet' }, { thread })).toBe(false);
+  expect(run({ type: 'org', value: 'sqve' }, { thread })).toBe(true);
+  expect(run({ type: 'org', value: 'sq' }, { thread })).toBe(false);
 });
 
-test('parse reports an unknown field at its start', () => {
-  expect(failure('is:pr color:red').position).toBe(6);
+test('reason compares exactly, ignoring case', () => {
+  expect(run({ type: 'reason', value: 'review_requested' })).toBe(true);
+  expect(run({ type: 'reason', value: 'mention' })).toBe(false);
 });
 
-test('parse reports parenthesis and OR errors with a position', () => {
-  expect(failure('(is:pr').position).toBe(0);
-  expect(failure('is:pr)').position).toBe(5);
-  expect(failure('is:pr ()').position).toBe(6);
-  expect(failure('OR is:pr').position).toBe(0);
-  expect(failure('is:pr OR').position).toBe(6);
-  expect(failure('is:pr OR )').position).toBe(6);
-  expect(failure('kind:pr,').position).toBe(8);
-});
-
-test('a parenthesis at the end of the text fails at that parenthesis', () => {
-  const unclosed = failure('(is:pr');
-
-  expect(failure('is:pr (')).toEqual({ ...unclosed, position: 6 });
-});
-
-test('parse does not throw and gives each error its own message', () => {
-  const messages = ['foo:bar', 'repo:', 'kind:x', '(a', 'a)', '()', 'OR a'].map(
-    (text) => failure(text).message,
-  );
-
-  expect(new Set(messages).size).toBe(messages.length);
-});
-
-test('empty and whitespace-only text matches every thread', () => {
-  expect(run('')).toBe(true);
-  expect(run('   ')).toBe(true);
-});
-
-test('plain words match the title or the repository, ignoring case', () => {
-  expect(run('PARSER')).toBe(true);
-  expect(run('sqve/oth')).toBe(true);
-  expect(run('parser other')).toBe(true);
-  expect(run('missing')).toBe(false);
-  expect(run('-parser')).toBe(false);
-});
-
-test('a space means AND and AND binds tighter than OR', () => {
-  expect(run('is:issue OR is:pr unread:true')).toBe(true);
-  expect(run('is:issue OR is:pr unread:false')).toBe(false);
-  expect(run('is:pr OR is:issue')).toBe(true);
-  expect(run('is:release OR is:issue')).toBe(false);
-});
-
-test('parentheses group terms', () => {
-  expect(run('(is:issue OR is:pr) unread:false')).toBe(false);
-  expect(run('(is:issue OR is:pr) unread:true')).toBe(true);
-  expect(run('-(is:issue OR is:pr)')).toBe(false);
-});
-
-test('a comma inside a value means OR, and a negation excludes all of them', () => {
-  expect(run('kind:issue,pr')).toBe(true);
-  expect(run('kind:issue,release')).toBe(false);
-  expect(run('-kind:pr,issue')).toBe(false);
-  expect(run('-kind:release,issue')).toBe(true);
-});
-
-test('unknown stays unknown through AND, OR, and NOT', () => {
-  expect(run('state:merged is:pr')).toBe('unknown');
-  expect(run('state:merged is:issue')).toBe(false);
-  expect(run('state:merged OR is:pr')).toBe(true);
-  expect(run('state:merged OR is:issue')).toBe('unknown');
-  expect(run('-(state:merged OR is:issue)')).toBe('unknown');
-});
-
-test('kind values map to subject types', () => {
-  const types = {
-    pr: 'PullRequest',
-    issue: 'Issue',
-    release: 'Release',
-    discussion: 'Discussion',
-    commit: 'Commit',
-    ci: 'CheckSuite',
-  };
-
-  for (const [value, subjectType] of Object.entries(types)) {
-    expect(run(`kind:${value.toUpperCase()}`, { thread: { subjectType } })).toBe(true);
-    expect(run(`kind:${value}`, { thread: { subjectType: 'Other' } })).toBe(false);
-  }
+test('state is unknown without facts and compares with known facts', () => {
+  expect(run(merged)).toBe('unknown');
+  expect(run(not(merged))).toBe('unknown');
+  expect(run(merged, { facts: facts({ state: 'merged' }) })).toBe(true);
+  expect(run(not(merged), { facts: facts({ state: 'merged' }) })).toBe(false);
+  expect(run(merged, { facts: facts({ state: 'open' }) })).toBe(false);
 });
 
 test('author matches a login and @me matches the viewer', () => {
-  expect(run('author:octocat', { facts: facts() })).toBe(true);
-  expect(run('author:hubot', { facts: facts() })).toBe(false);
-  expect(run('author:@me', { facts: facts(), viewerLogin: 'octocat' })).toBe(true);
-  expect(run('author:@me', { facts: facts(), viewerLogin: 'hubot' })).toBe(false);
-  expect(run('author:@me', { facts: facts(), viewerLogin: null })).toBe('unknown');
-  expect(run('author:octocat')).toBe('unknown');
-  expect(run('author:octocat', { facts: facts({ author: null }) })).toBe('unknown');
+  const known = { facts: facts({ author: 'Octocat' }), viewerLogin: 'octocat' };
+
+  expect(run({ type: 'author', value: 'octocat' }, known)).toBe(true);
+  expect(run({ type: 'author', value: 'other' }, known)).toBe(false);
+  expect(run({ type: 'author', value: '@me' }, known)).toBe(true);
+  expect(run({ type: 'author', value: '@me' }, { facts: facts() })).toBe('unknown');
+  expect(run({ type: 'author', value: 'octocat' })).toBe('unknown');
+
+  expect(run({ type: 'author', value: 'octocat' }, { facts: facts({ author: null }) })).toBe(
+    'unknown',
+  );
 });
 
-test('is:new and is:unread compare with the new flag and the unread flag', () => {
-  expect(run('is:new', { isNew: true })).toBe(true);
-  expect(run('is:new', { isNew: false })).toBe(false);
-  expect(run('new:false', { isNew: false })).toBe(true);
-  expect(run('is:unread', { thread: { unread: true } })).toBe(true);
-  expect(run('is:unread', { thread: { unread: false } })).toBe(false);
-  expect(run('is:read', { thread: { unread: false } })).toBe(true);
-});
-
-test('org and reason compare exactly, ignoring case', () => {
-  expect(run('org:sqve')).toBe(true);
-  expect(run('org:SQVE')).toBe(true);
-  expect(run('org:sq')).toBe(false);
-  expect(run('reason:review_requested')).toBe(true);
-  expect(run('reason:mention')).toBe(false);
+test('new and unread compare with the new flag and the unread flag', () => {
+  expect(run({ type: 'new', value: true }, { isNew: true })).toBe(true);
+  expect(run({ type: 'new', value: true })).toBe(false);
+  expect(run({ type: 'unread', value: true })).toBe(true);
+  expect(run({ type: 'unread', value: true }, { thread: { unread: false } })).toBe(false);
 });
 
 test('age compares the time since the last update with now', () => {
-  const old = { updatedAt: '2026-01-01T12:00:00Z' };
-  const recent = { updatedAt: '2026-01-10T11:00:00Z' };
+  const olderThanTwoHours: Query = { type: 'age', operator: '>', milliseconds: 7_200_000 };
+  const newerThanTwoHours: Query = { type: 'age', operator: '<', milliseconds: 7_200_000 };
 
-  expect(run('age:>7d', { thread: old })).toBe(true);
-  expect(run('age:>7d', { thread: recent })).toBe(false);
-  expect(run('age:<2h', { thread: recent })).toBe(true);
-  expect(run('age:<2h', { thread: old })).toBe(false);
-  expect(run('age:>1w', { thread: old })).toBe(true);
-  expect(run('age:>30m', { thread: recent })).toBe(true);
+  expect(run(newerThanTwoHours)).toBe(true);
+  expect(run(olderThanTwoHours)).toBe(false);
+  expect(run(olderThanTwoHours, { thread: { updatedAt: '2026-01-10T09:00:00Z' } })).toBe(true);
+  expect(run(olderThanTwoHours, { thread: { updatedAt: 'not a date' } })).toBe('unknown');
 });
 
-test('age needs an operator, a number, and a unit', () => {
-  expect(failure('age:7d').position).toBe(4);
-  expect(failure('age:>7').position).toBe(4);
-  expect(failure('age:>d').position).toBe(4);
+test('AND is false with one false term, unknown with an unknown term, and true otherwise', () => {
+  expect(run({ type: 'and', terms: [pullRequest, text('parser')] })).toBe(true);
+  expect(run({ type: 'and', terms: [pullRequest, text('missing')] })).toBe(false);
+  expect(run({ type: 'and', terms: [pullRequest, merged] })).toBe('unknown');
+  expect(run({ type: 'and', terms: [text('missing'), merged] })).toBe(false);
 });
 
-const fallbackOf = (text: string) => {
-  const result = parse(text);
-
-  if (result.ok) {
-    throw new Error(`Expected "${text}" to fail`);
-  }
-
-  return result.fallback;
-};
-
-const evaluateAll = (query: NonNullable<ReturnType<typeof fallbackOf>>) =>
-  [
-    makeThread({ subjectType: 'PullRequest', repository: 'sqve/zeta' }),
-    makeThread({ subjectType: 'PullRequest', repository: 'sqve/other' }),
-    makeThread({ subjectType: 'Issue', repository: 'sqve/other' }),
-    makeThread({ title: 'a', subjectType: 'Issue', repository: 'sqve/zeta' }),
-    makeThread({ title: 'b', subjectType: 'Issue', repository: 'sqve/zeta' }),
-  ].map((thread) =>
-    evaluate(query, thread, { facts: undefined, isNew: false, viewerLogin: null, now }),
-  );
-
-test('a parse error falls back to the query without the unfinished term', () => {
-  const cases: [string, string][] = [
-    ['is:pr -repo:sqve/zeta repo:', 'is:pr -repo:sqve/zeta'],
-    ['is:pr (', 'is:pr'],
-    ['a (b c:', 'a'],
-  ];
-
-  for (const [text, expected] of cases) {
-    const fallback = fallbackOf(text);
-    const result = parse(expected);
-
-    if (fallback === null || !result.ok) {
-      throw new Error(`Expected a fallback for "${text}"`);
-    }
-
-    expect(evaluateAll(fallback)).toEqual(evaluateAll(result.query));
-  }
-
-  expect(evaluateAll(fallbackOf('is:pr -repo:sqve/zeta repo:') as never)).toEqual([
-    false,
-    true,
-    false,
-    false,
-    false,
-  ]);
+test('OR is true with one true term, unknown with an unknown term, and false otherwise', () => {
+  expect(run({ type: 'or', terms: [text('missing'), text('parser')] })).toBe(true);
+  expect(run({ type: 'or', terms: [text('missing'), text('absent')] })).toBe(false);
+  expect(run({ type: 'or', terms: [text('missing'), merged] })).toBe('unknown');
+  expect(run({ type: 'or', terms: [text('parser'), merged] })).toBe(true);
 });
 
-test('a parse error with no complete term before it falls back to no filter', () => {
-  expect(fallbackOf('kind:p')).toBeNull();
-  expect(fallbackOf('repo:')).toBeNull();
+test('negation flips known values and keeps unknown', () => {
+  expect(run(not(text('parser')))).toBe(false);
+  expect(run(not(text('missing')))).toBe(true);
+  expect(run(not(merged))).toBe('unknown');
 });
 
-test('the fallback leaves the error message and position as they were', () => {
-  expect(failure('is:pr -repo:sqve/zeta repo:')).toEqual({
-    message: 'Missing value for repo:.',
-    position: 27,
-  });
+test('searchQuery gives no query for blank text', () => {
+  expect(searchQuery('')).toBeNull();
+  expect(searchQuery('  \t ')).toBeNull();
+});
 
-  expect(failure('is:pr (').position).toBe(6);
-  expect(failure('a (b c:').position).toBe(5);
+test('searchQuery requires every word in the title or repository, ignoring case', () => {
+  const query = searchQuery(' PARSER  Sqve/other ');
+
+  expect(query).not.toBeNull();
+  expect(run(query ?? text(''))).toBe(true);
+  expect(run(searchQuery('parser missing') ?? text(''))).toBe(false);
+});
+
+test('searchQuery treats field syntax as plain text', () => {
+  const query = searchQuery('repo:') ?? text('');
+
+  expect(run(query)).toBe(false);
+  expect(run(query, { thread: { title: 'Explain repo: syntax' } })).toBe(true);
 });

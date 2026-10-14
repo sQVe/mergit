@@ -29,7 +29,7 @@ export const HelpOverlay = (props: {
         <box key={command.id} flexDirection="row" gap={2}>
           <text fg={palette.key}>{command.keys.join(' ')}</text>
           <text fg={palette.text}>{command.label}</text>
-          {command.scope === 'input' ? <text fg={palette.dim}>(query line)</text> : null}
+          {command.scope === 'input' ? <text fg={palette.dim}>(search line)</text> : null}
         </box>
       ))}
     </box>

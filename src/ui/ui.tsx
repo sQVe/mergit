@@ -17,14 +17,11 @@ import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
 import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
-import { truncate } from './threadRow.ts';
 import { Toast } from './Toast.tsx';
 
 type UiIntent = Extract<Intent, { kind: 'ui' }>;
 
 type ThemeMode = 'light' | 'dark' | null;
-
-type QueryError = NonNullable<Snapshot['queryError']>;
 
 export interface ThemeSource {
   getThemeMode: () => ThemeMode;
@@ -51,7 +48,7 @@ interface KeysProps extends AppProps {
   detailOpen: boolean;
   setDetailOpen: (open: boolean) => void;
   sideLayout: boolean;
-  queryOpen: boolean;
+  searchOpen: boolean;
 }
 
 const sidePaneMinimumWidth = 90;
@@ -60,11 +57,11 @@ const sidePaneShare = 0.36;
 
 const isActive = (
   command: Command,
-  state: { helpOpen: boolean; confirmOpen: boolean; detailOpen: boolean; queryOpen: boolean },
+  state: { helpOpen: boolean; confirmOpen: boolean; detailOpen: boolean; searchOpen: boolean },
 ): boolean => {
-  const { helpOpen, confirmOpen, detailOpen, queryOpen } = state;
+  const { helpOpen, confirmOpen, detailOpen, searchOpen } = state;
 
-  if (queryOpen) {
+  if (searchOpen) {
     return command.scope === 'input';
   }
 
@@ -147,6 +144,7 @@ const Keys = (props: KeysProps): null => {
       bindings: commands.flatMap((command) =>
         command.keys.map((key) => ({
           key,
+          preventDefault: command.preventDefault ?? true,
           cmd: () => {
             run(command);
           },
@@ -159,7 +157,7 @@ const Keys = (props: KeysProps): null => {
       setOpenRequest,
       props.detailOpen,
       props.sideLayout,
-      props.queryOpen,
+      props.searchOpen,
       props.catalog,
       session,
       onTerminalIntent,
@@ -171,55 +169,39 @@ const Keys = (props: KeysProps): null => {
   return null;
 };
 
-const queryLineRows = (snapshot: Snapshot): number => {
-  if (!snapshot.queryOpen && snapshot.appliedQuery === null) {
+const searchLineRows = (snapshot: Snapshot): number => {
+  if (!snapshot.searchOpen && snapshot.searchText === '') {
     return 0;
   }
 
-  return snapshot.queryError === null ? 1 : 2;
+  return 1;
 };
 
-// The caret lines up with the text only while the input does not scroll.
-const errorRowText = (error: QueryError, textFits: boolean): string =>
-  textFits
-    ? `${' '.repeat(error.position + 1)}^ ${error.message}`
-    : `column ${error.position + 1}: ${error.message}`;
-
-const QueryLine = (props: {
+const SearchLine = (props: {
   session: Session;
   snapshot: Snapshot;
   palette: Palette;
-  width: number;
 }): ReactNode => {
   const { session, snapshot, palette } = props;
-  const { queryError } = snapshot;
 
-  if (!snapshot.queryOpen && snapshot.appliedQuery === null) {
+  if (!snapshot.searchOpen && snapshot.searchText === '') {
     return null;
   }
 
   const count = matchCountOf(snapshot);
   const suffix = `${count} ${count === 1 ? 'match' : 'matches'}`;
-  const inputWidth = props.width - 1 - suffix.length;
-  const textFits = snapshot.queryText.length < inputWidth;
 
   return (
-    <box flexDirection="column" flexShrink={0}>
-      <InputLine
-        prompt="/"
-        value={snapshot.queryText}
-        palette={palette}
-        focused={snapshot.queryOpen}
-        suffix={suffix}
-        onInput={(text) => {
-          session.send({ kind: 'editQuery', text });
-        }}
-      />
-      {queryError === null ? null : (
-        // queryLineRows reserves one row for the error, so it must never wrap.
-        <text fg={palette.error}>{truncate(errorRowText(queryError, textFits), props.width)}</text>
-      )}
-    </box>
+    <InputLine
+      prompt="/"
+      value={snapshot.searchText}
+      palette={palette}
+      focused={snapshot.searchOpen}
+      suffix={suffix}
+      onInput={(text) => {
+        session.send({ kind: 'editSearch', text });
+      }}
+    />
   );
 };
 
@@ -264,7 +246,7 @@ const Body = (props: {
         snapshot={snapshot}
         palette={palette}
         width={width - paneWidth}
-        reservedRows={queryLineRows(snapshot)}
+        reservedRows={searchLineRows(snapshot)}
       />
       {paneWidth > 0 ? (
         <DetailPane
@@ -318,7 +300,7 @@ export const App = (props: AppProps): ReactNode => {
         detailOpen={fullDetail}
         setDetailOpen={setDetailOpen}
         sideLayout={sideLayout}
-        queryOpen={snapshot.queryOpen}
+        searchOpen={snapshot.searchOpen}
       />
       <box flexDirection="column" flexGrow={1}>
         <Body
@@ -328,7 +310,7 @@ export const App = (props: AppProps): ReactNode => {
           paneWidth={paneWidth}
           fullDetail={fullDetail}
         />
-        <QueryLine session={props.session} snapshot={snapshot} palette={palette} width={width} />
+        <SearchLine session={props.session} snapshot={snapshot} palette={palette} />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />

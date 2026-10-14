@@ -26,16 +26,16 @@ import {
   applyThreads,
   clearAccount,
   clearFailure,
-  clearQuery,
-  editQuery,
+  clearSearch,
+  editSearch,
   failureMessage,
   hideThreads,
   initialSnapshot,
   isViewerActor,
-  keepQuery,
+  keepSearch,
   keepSelectionVisible,
-  openQuery,
-  restoreQuery,
+  openSearch,
+  restoreSearch,
   markFeedBusy,
   cycleGrouping,
   jumpTopLevel,
@@ -65,11 +65,11 @@ export type ApplicationIntent =
   | { kind: 'toggleFold' }
   | { kind: 'toggleAllFolds' }
   | { kind: 'cycleGrouping' }
-  | { kind: 'openQuery' }
-  | { kind: 'editQuery'; text: string }
-  | { kind: 'keepQuery' }
-  | { kind: 'restoreQuery' }
-  | { kind: 'clearQuery' }
+  | { kind: 'openSearch' }
+  | { kind: 'editSearch'; text: string }
+  | { kind: 'keepSearch' }
+  | { kind: 'restoreSearch' }
+  | { kind: 'clearSearch' }
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
@@ -138,7 +138,7 @@ type StateIntent = Exclude<
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
-  | { kind: 'editQuery'; text: string }
+  | { kind: 'editSearch'; text: string }
 >;
 
 const minimumPollSeconds = 60;
@@ -192,10 +192,10 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   toggleFold,
   toggleAllFolds,
   cycleGrouping,
-  openQuery,
-  keepQuery,
-  restoreQuery,
-  clearQuery,
+  openSearch,
+  keepSearch,
+  restoreSearch,
+  clearSearch,
 };
 
 const copyAccountRecords = (
@@ -983,8 +983,8 @@ export const createSession = (effects: SessionEffects): Session => {
       undoDone();
     } else if (intent.kind === 'openInBrowser') {
       openQueue = openQueue.then(() => openInBrowser(intent.pages)).catch(() => undefined);
-    } else if (intent.kind === 'editQuery') {
-      update(editQuery(snapshot, intent.text));
+    } else if (intent.kind === 'editSearch') {
+      update(editSearch(snapshot, intent.text));
     } else {
       update(transitions[intent.kind](snapshot));
 

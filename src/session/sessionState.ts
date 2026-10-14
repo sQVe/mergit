@@ -1,7 +1,6 @@
 import type { GitHubFailure, SubjectLookup } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
-import { evaluate, parse } from '../query.ts';
-import type { Query, QueryError } from '../query.ts';
+import { evaluate, searchQuery } from '../query.ts';
 import type {
   Grouping,
   NodeRow,
@@ -43,11 +42,9 @@ export interface Snapshot {
   stateWarning: string | null;
   toast: Toast | null;
   viewerLogin: ViewerLogin | null;
-  queryText: string;
-  queryOpen: boolean;
-  queryTextBefore: string;
-  appliedQuery: Query | null;
-  queryError: QueryError | null;
+  searchText: string;
+  searchOpen: boolean;
+  searchTextBefore: string;
 }
 
 export interface NewThreadInput {
@@ -81,11 +78,9 @@ export const initialSnapshot: Snapshot = {
   stateWarning: null,
   toast: null,
   viewerLogin: null,
-  queryText: '',
-  queryOpen: false,
-  queryTextBefore: '',
-  appliedQuery: null,
-  queryError: null,
+  searchText: '',
+  searchOpen: false,
+  searchTextBefore: '',
 };
 
 export const isViewerActor = (facts: SubjectFacts | undefined, viewerLogin: string): boolean =>
@@ -117,29 +112,30 @@ export const newThreadIdsOf = (input: NewThreadInput): ReadonlySet<ThreadId> => 
 const openThreads = (snapshot: Snapshot): NotificationThread[] =>
   snapshot.threads.filter((thread) => !snapshot.hiddenThreadIds.has(thread.id));
 
-const queryAllows = (snapshot: Snapshot, thread: NotificationThread): boolean => {
-  if (snapshot.appliedQuery === null) {
-    return true;
+const searchedThreads = (snapshot: Snapshot): NotificationThread[] => {
+  const threads = openThreads(snapshot);
+  const query = searchQuery(snapshot.searchText);
+
+  if (query === null) {
+    return threads;
   }
 
-  const result = evaluate(snapshot.appliedQuery, thread, {
-    facts: snapshot.subjectFacts.get(thread.id),
-    isNew: snapshot.newThreadIds.has(thread.id),
-    viewerLogin: snapshot.viewerLogin,
-    now: snapshot.savedAt ?? snapshot.refreshedAt,
+  return threads.filter((thread) => {
+    const result = evaluate(query, thread, {
+      facts: snapshot.subjectFacts.get(thread.id),
+      isNew: snapshot.newThreadIds.has(thread.id),
+      viewerLogin: snapshot.viewerLogin,
+      now: snapshot.savedAt ?? snapshot.refreshedAt,
+    });
+
+    return result !== false;
   });
-
-  return result !== false;
 };
 
-export const matchCountOf = (snapshot: Snapshot): number =>
-  openThreads(snapshot).filter((thread) => queryAllows(snapshot, thread)).length;
+export const matchCountOf = (snapshot: Snapshot): number => searchedThreads(snapshot).length;
 
-export const visibleRows = (snapshot: Snapshot): TreeRow[] => {
-  const shown = openThreads(snapshot).filter((thread) => queryAllows(snapshot, thread));
-
-  return treeRows(shown, snapshot.grouping, snapshot.foldedNodes[snapshot.grouping]);
-};
+export const visibleRows = (snapshot: Snapshot): TreeRow[] =>
+  treeRows(searchedThreads(snapshot), snapshot.grouping, snapshot.foldedNodes[snapshot.grouping]);
 
 const topLevelRowOf = (rows: TreeRow[], index: number): NodeRow | undefined => {
   for (let candidate = index; candidate >= 0; candidate -= 1) {
@@ -518,47 +514,21 @@ export const releaseThreads = (snapshot: Snapshot, threadIds: ReadonlySet<Thread
   return { ...snapshot, hiddenThreadIds };
 };
 
-export const openQuery = (snapshot: Snapshot): Snapshot => ({
+export const openSearch = (snapshot: Snapshot): Snapshot => ({
   ...snapshot,
-  queryOpen: true,
-  queryTextBefore: snapshot.queryText,
+  searchOpen: true,
+  searchTextBefore: snapshot.searchText,
 });
 
-export const editQuery = (snapshot: Snapshot, text: string): Snapshot => {
-  const parsed = parse(text);
+export const editSearch = (snapshot: Snapshot, text: string): Snapshot =>
+  keepSelectionVisible(snapshot, { ...snapshot, searchText: text });
 
-  if (!parsed.ok) {
-    return keepSelectionVisible(snapshot, {
-      ...snapshot,
-      queryText: text,
-      queryError: parsed.error,
-      appliedQuery: parsed.fallback,
-    });
-  }
+export const keepSearch = (snapshot: Snapshot): Snapshot => ({ ...snapshot, searchOpen: false });
 
-  const isBlank = text.trim() === '';
+export const restoreSearch = (snapshot: Snapshot): Snapshot => {
+  const restored = editSearch(snapshot, snapshot.searchTextBefore);
 
-  return keepSelectionVisible(snapshot, {
-    ...snapshot,
-    queryText: text,
-    queryError: null,
-    appliedQuery: isBlank ? null : parsed.query,
-  });
+  return { ...restored, searchOpen: false };
 };
 
-export const keepQuery = (snapshot: Snapshot): Snapshot =>
-  snapshot.queryError === null ? { ...snapshot, queryOpen: false } : snapshot;
-
-export const restoreQuery = (snapshot: Snapshot): Snapshot => {
-  const restored = editQuery(snapshot, snapshot.queryTextBefore);
-
-  return { ...restored, queryOpen: false };
-};
-
-export const clearQuery = (snapshot: Snapshot): Snapshot =>
-  keepSelectionVisible(snapshot, {
-    ...snapshot,
-    queryText: '',
-    queryError: null,
-    appliedQuery: null,
-  });
+export const clearSearch = (snapshot: Snapshot): Snapshot => editSearch(snapshot, '');

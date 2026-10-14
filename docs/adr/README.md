@@ -40,5 +40,7 @@ line that links to the replacement.
 - [0014: Results for expected failures, exceptions for bugs, and checked boundaries](./0014-coding-conventions.md)
 - [0015: Notifications first, with a batched subject lookup](./0015-notifications-first.md)
 - [0016: A SQLite snapshot with a checked full refresh](./0016-snapshot-and-full-refresh.md)
-- [0017: GitHub-style qualifiers, evaluated locally](./0017-local-query-language.md)
+- [0017: GitHub-style qualifiers, evaluated locally](./0017-local-query-language.md), superseded by
+  0019
 - [0018: Local state for two Zeta processes](./0018-local-state-and-config.md)
+- [0019: Plain text search on `/`, field filters from a picker](./0019-search-and-field-filters.md)

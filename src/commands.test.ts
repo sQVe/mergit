@@ -261,29 +261,31 @@ test('o on a group node over 3 repos opens at once, and over 4 repos opens the d
   expect(four?.kind === 'ui' && four.action === 'askOpen' ? four.pages : []).toHaveLength(4);
 });
 
-test('the input commands act on the query line and clearQuery is disabled without a query', () => {
+test('the input commands act on the search line and clearSearch is disabled without a search', () => {
   const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
 
-  expect(byId['openQuery']?.keys).toEqual(['/']);
+  expect(byId['openSearch']?.keys).toEqual(['/']);
 
   expect(byId['submitInput']?.intent(snapshot)).toEqual({
     kind: 'application',
-    intent: { kind: 'keepQuery' },
+    intent: { kind: 'keepSearch' },
   });
 
   expect(byId['cancelInput']?.intent(snapshot)).toEqual({
     kind: 'application',
-    intent: { kind: 'restoreQuery' },
+    intent: { kind: 'restoreSearch' },
   });
 
   expect(byId['clearInput']?.intent(snapshot)).toEqual({
     kind: 'application',
-    intent: { kind: 'editQuery', text: '' },
+    intent: { kind: 'editSearch', text: '' },
   });
 
-  expect(byId['clearQuery']?.disabledReason(snapshot)).toBeDefined();
+  expect(byId['closeEmptyInput']?.keys).toEqual(['backspace']);
+  expect(byId['closeEmptyInput']?.preventDefault).toBe(false);
+  expect(byId['closeEmptyInput']?.disabledReason(snapshot)).toBeUndefined();
+  expect(byId['closeEmptyInput']?.disabledReason({ ...snapshot, searchText: 'a' })).toBeDefined();
+  expect(byId['clearSearch']?.disabledReason(snapshot)).toBeDefined();
 
-  expect(
-    byId['clearQuery']?.disabledReason({ ...snapshot, appliedQuery: { type: 'text', value: 'a' } }),
-  ).toBeUndefined();
+  expect(byId['clearSearch']?.disabledReason({ ...snapshot, searchText: 'a' })).toBeUndefined();
 });

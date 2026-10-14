@@ -19,6 +19,8 @@ export interface Command {
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   intent: (snapshot: Snapshot) => Intent;
+  // False lets the key reach the focused input after the command runs.
+  preventDefault?: boolean;
 }
 
 const confirmAfterRepositories = 3;
@@ -181,29 +183,28 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'undoDone' } }),
   },
   {
-    id: 'openQuery',
-    label: 'Filter the list',
+    id: 'openSearch',
+    label: 'Search the list',
     scope: 'list',
     keys: ['/'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'openQuery' } }),
+    intent: () => ({ kind: 'application', intent: { kind: 'openSearch' } }),
   },
   {
-    id: 'clearQuery',
-    label: 'Clear the filter',
+    id: 'clearSearch',
+    label: 'Clear the search',
     scope: 'list',
     keys: ['escape'],
-    disabledReason: (snapshot) =>
-      snapshot.appliedQuery === null ? 'No filter is active.' : undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'clearQuery' } }),
+    disabledReason: (snapshot) => (snapshot.searchText === '' ? 'No search is active.' : undefined),
+    intent: () => ({ kind: 'application', intent: { kind: 'clearSearch' } }),
   },
   {
     id: 'submitInput',
-    label: 'Keep the filter',
+    label: 'Keep the search',
     scope: 'input',
     keys: ['return'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'keepQuery' } }),
+    intent: () => ({ kind: 'application', intent: { kind: 'keepSearch' } }),
   },
   {
     id: 'quitFromInput',
@@ -215,11 +216,11 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'cancelInput',
-    label: 'Restore the previous filter',
+    label: 'Restore the previous search',
     scope: 'input',
     keys: ['escape'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'restoreQuery' } }),
+    intent: () => ({ kind: 'application', intent: { kind: 'restoreSearch' } }),
   },
   {
     id: 'clearInput',
@@ -227,7 +228,17 @@ export const catalog: readonly Command[] = [
     scope: 'input',
     keys: ['ctrl+u'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'editQuery', text: '' } }),
+    intent: () => ({ kind: 'application', intent: { kind: 'editSearch', text: '' } }),
+  },
+  {
+    id: 'closeEmptyInput',
+    label: 'Close the empty line',
+    scope: 'input',
+    keys: ['backspace'],
+    preventDefault: false,
+    disabledReason: (snapshot) =>
+      snapshot.searchText === '' ? undefined : 'The line has text to delete.',
+    intent: () => ({ kind: 'application', intent: { kind: 'keepSearch' } }),
   },
   {
     id: 'closeDetail',
