@@ -1,6 +1,5 @@
 import type { OpenResult } from '../actions.ts';
 import type {
-  GitHubFailure,
   GitHubResult,
   NotificationFeed,
   NotificationFeedRead,
@@ -11,14 +10,11 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
-import type {
-  BrowserPage,
-  Grouping,
-  NotificationThread,
-  ThreadId,
-  ViewerLogin,
-} from '../work/work.ts';
+import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../work/work.ts';
+import { createAccountSwitch } from './accountSwitch.ts';
 import { createDoneQueue, undoWindowMilliseconds } from './done.ts';
+import { createFeedRefresh } from './feedRefresh.ts';
+import type { SettledRefresh } from './feedRefresh.ts';
 import {
   applyFilterRow,
   clearFilters,
@@ -32,10 +28,8 @@ import {
 import type { Snapshot, Toast, UnsavedChange } from './sessionState.ts';
 import {
   applyFailure,
-  applySubjectLookups,
   applyThreads,
   clearAccount,
-  clearFailure,
   clearSearch,
   editSearch,
   failureMessage,
@@ -58,8 +52,8 @@ import {
   toggleAllFolds,
   toggleFold,
   showSavedThreads,
-  startRefresh,
 } from './sessionState.ts';
+import { createSubjectLookup } from './subjectLookup.ts';
 
 export type { Snapshot } from './sessionState.ts';
 export { filterCursorOf, filterRowsOf } from './filterComposer.ts';
@@ -138,12 +132,6 @@ export interface SessionEffects {
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
 }
 
-type FullRefreshOutcome =
-  | { kind: 'loaded'; read: NotificationFeedRead; viewer: Viewer }
-  | { kind: 'busy' }
-  | { kind: 'aborted' }
-  | { kind: 'failed'; failure: GitHubFailure };
-
 type StateWriteOutcome = { ok: true } | { ok: false; reason: string; path: string };
 
 export interface Session {
@@ -166,45 +154,12 @@ type StateIntent = Exclude<
   | { kind: 'moveFilterCursor'; direction: 'up' | 'down' }
 >;
 
-const minimumPollSeconds = 60;
-const millisecondsPerSecond = 1000;
-const secondsPerMinute = 60;
-const fullRefreshAfterMinutes = 10;
-
-const fullRefreshAfterMilliseconds =
-  fullRefreshAfterMinutes * secondsPerMinute * millisecondsPerSecond;
-
-const maximumRetries = 3;
 const toastMilliseconds = 4000;
 
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',
   done: 'Done thread',
   seen: 'Seen thread',
-};
-
-const guard = async <Value>(
-  read: () => Promise<GitHubResult<Value>>,
-): Promise<GitHubResult<Value>> => {
-  try {
-    return await read();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    return {
-      ok: false,
-      failure: { kind: 'requestFailed', status: null, message },
-    };
-  }
-};
-
-const isSubject = (thread: NotificationThread) =>
-  thread.subjectType === 'PullRequest' || thread.subjectType === 'Issue';
-
-const subjectVersionsOf = (saved: SavedSnapshot | null | undefined) => {
-  const threads = saved?.threads.filter(isSubject) ?? [];
-
-  return new Map(threads.map((thread) => [thread.id, thread.updatedAt]));
 };
 
 const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot> = {
@@ -241,13 +196,16 @@ export const createSession = (effects: SessionEffects): Session => {
   const accountRecords = copyAccountRecords(effects.savedState?.done);
   const seenRecords = copyAccountRecords(effects.savedState?.seen);
 
-  let currentLogin: ViewerLogin | null = savedSnapshot?.viewer.login ?? null;
+  const accountSwitch = createAccountSwitch(savedSnapshot);
   const noRecords: ReadonlyMap<ThreadId, string> = new Map();
 
-  const currentRecords = (): ReadonlyMap<ThreadId, string> =>
-    currentLogin === null
+  const currentRecords = (): ReadonlyMap<ThreadId, string> => {
+    const login = accountSwitch.currentLogin();
+
+    return login === null
       ? noRecords
-      : (accountRecords.get(`${effects.host}/${currentLogin}`) ?? noRecords);
+      : (accountRecords.get(`${effects.host}/${login}`) ?? noRecords);
+  };
 
   const startSnapshot: Snapshot = {
     ...initialSnapshot,
@@ -265,24 +223,27 @@ export const createSession = (effects: SessionEffects): Session => {
           savedSnapshot.savedAt,
         );
 
-  let viewerLogin: ViewerLogin | null = null;
-  let lastViewer: Viewer | null = savedSnapshot?.viewer ?? null;
   let stopped = false;
-  let generation = 0;
-  let controller: AbortController | null = null;
   const openController = new AbortController();
-  let followUpPending = false;
-  let feed: NotificationFeed | null = savedSnapshot?.feed ?? null;
-  let cancelTimer: (() => void) | null = null;
   let cancelToastTimer: (() => void) | null = null;
   let unsavedChanges = new Set<UnsavedChange>();
-  let pollSeconds = minimumPollSeconds;
-  let lastFullRefreshAt = 0;
-  let lookupController: AbortController | null = null;
-  const lookedUp = new Map<ThreadId, string>();
   const sentThreadIds = new Set<ThreadId>();
-  const pendingLookups = subjectVersionsOf(savedSnapshot);
-  let startupLookupsPending = pendingLookups.size > 0;
+
+  // A refresh outcome publishes through `finish`, and a lookup answer publishes through `update`, which reads the lookup's pending threads.
+  const later: {
+    update?: (candidate: Snapshot) => void;
+    finish?: (outcome: SettledRefresh, now: Date) => void;
+  } = {};
+
+  const subjectLookup = createSubjectLookup({
+    saved: savedSnapshot,
+    lookUpSubjects: effects.lookUpSubjects,
+    getSnapshot: () => snapshot,
+    update: (candidate) => {
+      later.update?.(candidate);
+    },
+    isStopped: () => stopped,
+  });
 
   const getSnapshot = () => snapshot;
 
@@ -309,11 +270,13 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const currentSeen = (): Map<ThreadId, string> | undefined =>
-    currentLogin === null ? undefined : seenRecords.get(`${effects.host}/${currentLogin}`);
+    accountSwitch.currentLogin() === null
+      ? undefined
+      : seenRecords.get(`${effects.host}/${accountSwitch.currentLogin()}`);
 
   const recordSeen = (candidate: Snapshot, left: NotificationThread | undefined): boolean => {
     const seen = currentSeen();
-    const login = currentLogin;
+    const login = accountSwitch.currentLogin();
 
     if (seen === undefined || login === null) {
       return false;
@@ -350,17 +313,13 @@ export const createSession = (effects: SessionEffects): Session => {
       saveStateQuietly('seen', candidate.grouping);
     }
 
-    const pendingThreadIds = new Set(
-      candidate.threads
-        .filter((thread) => pendingLookups.get(thread.id) === thread.updatedAt)
-        .map((thread) => thread.id),
-    );
+    const pendingThreadIds = subjectLookup.pendingThreadIdsOf(candidate.threads);
 
     const newThreadIds = newThreadIdsOf({
       threads: candidate.threads,
       seen: currentSeen(),
       subjectFacts: candidate.subjectFacts,
-      viewerLogin: currentLogin ?? '',
+      viewerLogin: accountSwitch.currentLogin() ?? '',
       pendingThreadIds,
     });
 
@@ -368,14 +327,14 @@ export const createSession = (effects: SessionEffects): Session => {
       newThreadIds.size === candidate.newThreadIds.size &&
       [...newThreadIds].every((threadId) => candidate.newThreadIds.has(threadId));
 
-    if (sameNewIds && candidate.viewerLogin === currentLogin) {
+    if (sameNewIds && candidate.viewerLogin === accountSwitch.currentLogin()) {
       return candidate;
     }
 
     return keepSelectionVisible(candidate, {
       ...candidate,
       newThreadIds,
-      viewerLogin: currentLogin,
+      viewerLogin: accountSwitch.currentLogin(),
     });
   };
 
@@ -393,151 +352,11 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
-  const rememberInterval = (seconds: number | null) => {
-    if (seconds !== null) {
-      pollSeconds = Math.max(seconds, minimumPollSeconds);
-    }
-  };
-
-  const checkedRead = async (
-    request: NotificationFeedRequest,
-    signal: AbortSignal,
-    retriesLeft: number,
-    viewer: Viewer,
-  ): Promise<FullRefreshOutcome> => {
-    const read = await guard(() => effects.readFeed(request, signal));
-
-    if (!read.ok) {
-      return { kind: 'failed', failure: read.failure };
-    }
-
-    if (signal.aborted) {
-      return { kind: 'aborted' };
-    }
-
-    rememberInterval(read.value.pollInterval);
-
-    const verification = await guard(() => effects.verifyFeed(read.value.feed, signal));
-
-    if (!verification.ok) {
-      return { kind: 'failed', failure: verification.failure };
-    }
-
-    rememberInterval(verification.value.pollInterval);
-
-    if (verification.value.kind === 'stable') {
-      return { kind: 'loaded', read: read.value, viewer };
-    }
-
-    if (retriesLeft === 0) {
-      return { kind: 'busy' };
-    }
-
-    return checkedRead({ previous: read.value.feed }, signal, retriesLeft - 1, viewer);
-  };
-
-  // The feed from a saved snapshot only serves an account that matches the saved login.
-  const acceptViewer = (viewer: Viewer, request: NotificationFeedRequest) => {
-    const firstRead = viewerLogin === null;
-
-    const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
-
-    // Clear before the login changes, so the thread the cursor leaves is seen by its own account.
-    if (accountChanged) {
-      feed = null;
-      lookupController?.abort();
-      lookupController = null;
-      lookedUp.clear();
-      pendingLookups.clear();
-      update(clearAccount(snapshot));
-    }
-
-    viewerLogin = viewer.login;
-    currentLogin = viewer.login;
-    lastViewer = viewer;
-
-    if (accountChanged) {
-      return { ...request, previous: null };
-    }
-
-    if (firstRead && savedSnapshot !== null) {
-      return { ...request, previous: feed };
-    }
-
-    return request;
-  };
-
-  const fullRefresh = async (
-    request: NotificationFeedRequest,
-    signal: AbortSignal,
-  ): Promise<FullRefreshOutcome> => {
-    const viewer = await guard(() => effects.readViewer(lastViewer, signal));
-
-    if (!viewer.ok) {
-      return { kind: 'failed', failure: viewer.failure };
-    }
-
-    if (signal.aborted) {
-      return { kind: 'aborted' };
-    }
-
-    return checkedRead(acceptViewer(viewer.value, request), signal, maximumRetries, viewer.value);
-  };
-
-  const begin = () => {
-    cancelTimer?.();
-    cancelTimer = null;
-    generation += 1;
-    controller = new AbortController();
-
-    return { own: generation, signal: controller.signal };
-  };
-
-  const isCurrent = (own: number) => !stopped && own === generation;
-
-  // A refresh ends by scheduling a poll or starting a follow-up, and both start another refresh.
-  const later: {
-    startFullRefresh?: (request: NotificationFeedRequest) => void;
-    onTimer?: () => void;
-  } = {};
-
-  const schedule = (delayMilliseconds: number) => {
-    cancelTimer = effects.setTimer(delayMilliseconds, () => later.onTimer?.());
-  };
-
-  const pauseRemaining = () => {
-    const { pausedUntil } = snapshot;
-
-    if (pausedUntil === null) {
-      return 0;
-    }
-
-    return Math.max(pausedUntil.getTime() - effects.now().getTime(), 0);
-  };
-
-  const endOperation = () => {
-    controller = null;
-
-    const paused = pauseRemaining();
-
-    if (paused > 0) {
-      followUpPending = false;
-      schedule(paused);
-
-      return;
-    }
-
-    if (followUpPending) {
-      followUpPending = false;
-      later.startFullRefresh?.({ previous: null });
-
-      return;
-    }
-
-    schedule(pollSeconds * millisecondsPerSecond);
-  };
+  later.update = update;
 
   const saveQuietly = (viewer: Viewer, savedAt: Date) => {
+    const feed = refresh.storedFeed();
+
     if (feed === null) {
       return;
     }
@@ -584,85 +403,14 @@ export const createSession = (effects: SessionEffects): Session => {
     });
   };
 
-  const pruneLookedUp = (threads: NotificationThread[]) => {
-    const currentIds = new Set(threads.map((thread) => thread.id));
-
-    for (const threadId of lookedUp.keys()) {
-      if (!currentIds.has(threadId)) {
-        lookedUp.delete(threadId);
-      }
-    }
-  };
-
-  const forgetPending = (sent: NotificationThread[]) => {
-    for (const thread of sent) {
-      if (pendingLookups.get(thread.id) === thread.updatedAt) {
-        pendingLookups.delete(thread.id);
-      }
-    }
-  };
-
-  const acceptLookups = (sent: NotificationThread[], lookups: SubjectLookup[]) => {
-    forgetPending(sent);
-
-    const current = new Map(snapshot.threads.map((thread) => [thread.id, thread.updatedAt]));
-
-    const fresh = lookups.filter((lookup) => current.get(lookup.threadId) === lookup.updatedAt);
-
-    for (const lookup of fresh) {
-      lookedUp.set(lookup.threadId, lookup.updatedAt);
-    }
-
-    update(applySubjectLookups(snapshot, fresh));
-  };
-
-  const startLookup = (threads: NotificationThread[]) => {
-    pruneLookedUp(threads);
-    pendingLookups.clear();
-    startupLookupsPending = false;
-
-    const unknown = threads.filter(
-      (thread) => isSubject(thread) && lookedUp.get(thread.id) !== thread.updatedAt,
-    );
-
-    lookupController?.abort();
-    lookupController = null;
-
-    if (unknown.length === 0) {
-      return;
-    }
-
-    const own = new AbortController();
-
-    lookupController = own;
-
-    for (const thread of unknown) {
-      pendingLookups.set(thread.id, thread.updatedAt);
-    }
-
-    // A lookup that fails leaves its threads new by updated_at alone, and the next loaded refresh
-    // sends them again.
-    Promise.resolve()
-      .then(() => effects.lookUpSubjects(unknown, own.signal))
-      .then((lookups) => {
-        if (!own.signal.aborted && !stopped) {
-          acceptLookups(unknown, lookups);
-        }
-      })
-      .catch(() => {
-        if (!own.signal.aborted && !stopped) {
-          forgetPending(unknown);
-          update(snapshot);
-        }
-      });
-  };
-
   const pruneDoneRecords = (fetched: NotificationThread[]) => {
-    if (currentLogin === null) {
+    const login = accountSwitch.currentLogin();
+
+    if (login === null) {
       return;
     }
 
-    const records = accountRecords.get(`${effects.host}/${currentLogin}`);
+    const records = accountRecords.get(`${effects.host}/${login}`);
     const fetchedIds = new Set(fetched.map((thread) => thread.id));
     let changed = false;
 
@@ -679,11 +427,13 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const pruneSeenRecords = (fetched: NotificationThread[]) => {
-    if (currentLogin === null) {
+    const login = accountSwitch.currentLogin();
+
+    if (login === null) {
       return;
     }
 
-    const account = `${effects.host}/${currentLogin}`;
+    const account = `${effects.host}/${login}`;
     const seen = seenRecords.get(account);
 
     if (seen === undefined) {
@@ -714,149 +464,50 @@ export const createSession = (effects: SessionEffects): Session => {
     sentThreadIds.clear();
   };
 
-  const releaseStartupLookups = () => {
-    if (startupLookupsPending) {
-      pendingLookups.clear();
-      startupLookupsPending = false;
-    }
-  };
-
-  const finishFullRefresh = (outcome: FullRefreshOutcome) => {
-    if (outcome.kind === 'aborted') {
-      return;
-    }
-
-    const now = effects.now();
-
-    lastFullRefreshAt = now.getTime();
-
+  const finishFullRefresh = (outcome: SettledRefresh, now: Date) => {
     if (outcome.kind === 'loaded') {
-      feed = outcome.read.feed;
       pruneDoneRecords(outcome.read.threads);
       const next = applyThreads(snapshot, outcome.read.threads, currentRecords(), now);
 
-      startLookup(next.threads);
+      subjectLookup.start(next.threads);
       update(next);
       // After the update, so a selected thread that left the feed is not saved again as seen.
       pruneSeenRecords(outcome.read.threads);
       releaseSentThreads();
       saveQuietly(outcome.viewer, now);
     } else if (outcome.kind === 'busy') {
-      releaseStartupLookups();
+      subjectLookup.releaseStartup();
       update(markFeedBusy(snapshot));
     } else {
-      releaseStartupLookups();
+      subjectLookup.releaseStartup();
       update(applyFailure(snapshot, outcome.failure, now));
     }
 
-    endOperation();
+    refresh.endOperation();
   };
 
-  const runFullRefresh = (own: number, signal: AbortSignal, request: NotificationFeedRequest) => {
-    update(startRefresh(snapshot));
+  later.finish = finishFullRefresh;
 
-    // A listener that throws must not stop the session.
-    fullRefresh(request, signal)
-      .then((outcome) => {
-        if (isCurrent(own)) {
-          finishFullRefresh(outcome);
-        }
-      })
-      .catch(() => undefined);
-  };
-
-  later.startFullRefresh = (request) => {
-    const { own, signal } = begin();
-
-    runFullRefresh(own, signal, request);
-  };
-
-  const handlePoll = (
-    own: number,
-    signal: AbortSignal,
-    stored: NotificationFeed,
-    result: GitHubResult<NotificationPoll>,
-  ) => {
-    if (!result.ok) {
-      update(applyFailure(snapshot, result.failure, effects.now()));
-      endOperation();
-
-      return;
-    }
-
-    rememberInterval(result.value.pollInterval);
-
-    if (result.value.kind === 'unchanged') {
-      update(clearFailure(snapshot));
-      endOperation();
-
-      return;
-    }
-
-    runFullRefresh(own, signal, {
-      previous: stored,
-      firstPage: result.value.page,
-    });
-  };
-
-  const startPoll = (stored: NotificationFeed) => {
-    const { own, signal } = begin();
-
-    guard(() => effects.pollFeed(stored, signal))
-      .then((result) => {
-        if (isCurrent(own)) {
-          handlePoll(own, signal, stored, result);
-        }
-      })
-      .catch(() => undefined);
-  };
-
-  const fullRefreshIsDue = () =>
-    snapshot.feedBusy ||
-    effects.now().getTime() - lastFullRefreshAt >= fullRefreshAfterMilliseconds;
-
-  later.onTimer = () => {
-    cancelTimer = null;
-
-    if (stopped || controller !== null) {
-      return;
-    }
-
-    const paused = pauseRemaining();
-
-    if (paused > 0) {
-      schedule(paused);
-
-      return;
-    }
-
-    const stored = feed;
-    const viewerUnknown = viewerLogin === null;
-
-    const needsFullRefresh = snapshot.pausedUntil !== null || viewerUnknown || fullRefreshIsDue();
-
-    if (stored === null || needsFullRefresh) {
-      later.startFullRefresh?.({ previous: stored });
-
-      return;
-    }
-
-    startPoll(stored);
-  };
-
-  const requestRefresh = () => {
-    if (pauseRemaining() > 0) {
-      return;
-    }
-
-    if (controller !== null) {
-      followUpPending = true;
-
-      return;
-    }
-
-    later.startFullRefresh?.({ previous: null });
-  };
+  const refresh = createFeedRefresh({
+    savedFeed: savedSnapshot?.feed ?? null,
+    readViewer: effects.readViewer,
+    pollFeed: effects.pollFeed,
+    readFeed: effects.readFeed,
+    verifyFeed: effects.verifyFeed,
+    now: effects.now,
+    setTimer: effects.setTimer,
+    accountSwitch,
+    clearAccount: () => {
+      subjectLookup.clear();
+      update(clearAccount(snapshot));
+    },
+    getSnapshot: () => snapshot,
+    update,
+    isStopped: () => stopped,
+    finish: (outcome, now) => {
+      later.finish?.(outcome, now);
+    },
+  });
 
   const recordDone = (thread: NotificationThread, key: string) => {
     const records = accountRecords.get(key) ?? new Map<ThreadId, string>();
@@ -875,7 +526,7 @@ export const createSession = (effects: SessionEffects): Session => {
     },
     onEntrySent: () => {
       if (!stopped) {
-        requestRefresh();
+        refresh.request();
       }
     },
     onFailed: (failed, total) => {
@@ -902,11 +553,13 @@ export const createSession = (effects: SessionEffects): Session => {
   const markThreads = (threads: readonly NotificationThread[]) => {
     const [first] = threads;
 
-    if (first === undefined || currentLogin === null) {
+    const login = accountSwitch.currentLogin();
+
+    if (first === undefined || login === null) {
       return;
     }
 
-    doneQueue.add(threads, `${effects.host}/${currentLogin}`);
+    doneQueue.add(threads, `${effects.host}/${login}`);
     update(hideThreads(snapshot, new Set(threads.map((thread) => thread.id))));
 
     const title =
@@ -1005,7 +658,7 @@ export const createSession = (effects: SessionEffects): Session => {
     }
 
     if (intent.kind === 'refresh') {
-      requestRefresh();
+      refresh.request();
     } else if (intent.kind === 'markDone') {
       markDone();
     } else if (intent.kind === 'markThreadsDone') {
@@ -1036,12 +689,9 @@ export const createSession = (effects: SessionEffects): Session => {
 
     stopped = true;
     openController.abort();
-    controller?.abort();
-    controller = null;
-    lookupController?.abort();
-    lookupController = null;
-    cancelTimer?.();
-    cancelTimer = null;
+    refresh.abort();
+    subjectLookup.abort();
+    refresh.cancelTimer();
     cancelToastTimer?.();
     cancelToastTimer = null;
     listeners.clear();
