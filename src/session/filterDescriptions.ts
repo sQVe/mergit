@@ -1,5 +1,5 @@
 import type { Filter } from '../query.ts';
-import { filterQuery } from '../query.ts';
+import { filterQuery, formatFilter } from '../query.ts';
 import type { FilterRow } from './filterComposer.ts';
 import { openThreads, threadsKnownMatching } from './sessionState.ts';
 import type { Snapshot } from './sessionState.ts';
@@ -185,10 +185,26 @@ const rowFilterOf = (row: FilterRow): Filter | undefined => {
   return row.kind === 'typed' ? row.filters[0] : undefined;
 };
 
+const multipleFiltersTextOf = (row: FilterRow | undefined): string | undefined => {
+  if (row?.kind !== 'typed' || row.filters.length < 2) {
+    return undefined;
+  }
+
+  const labels = row.filters.map(formatFilter).join(', ');
+
+  return `Adds ${row.filters.length} filters: ${labels}`;
+};
+
 const draftFieldOf = (draft: string): string =>
   draft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
 
 export const describeFilterRow = (snapshot: Snapshot, row: FilterRow | undefined): string => {
+  const multiple = multipleFiltersTextOf(row);
+
+  if (multiple !== undefined) {
+    return multiple;
+  }
+
   if (row?.kind === 'field') {
     return fieldTextOf(row.field) ?? '';
   }

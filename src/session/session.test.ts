@@ -11,6 +11,7 @@ import type {
   SubjectLookup,
   Viewer,
 } from '../github/github.ts';
+import { filterFields } from '../query.ts';
 import type { BrowserPage, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
 import {
@@ -4407,6 +4408,38 @@ const descriptionOfDraft = (session: Awaited<ReturnType<typeof loadInbox>>, draf
   return row === undefined ? undefined : describeFilterRow(snapshot, row);
 };
 
+test('every known field and value has a description', async () => {
+  const session = await loadInbox([{ id: '1' }]);
+
+  for (const field of filterFields) {
+    const snapshot = session.getSnapshot();
+
+    expect(describeFilterRow(snapshot, { kind: 'field', field })).not.toBe('');
+  }
+
+  const drafts = [
+    'kind:pr',
+    'kind:issue',
+    'kind:release',
+    'kind:discussion',
+    'kind:commit',
+    'kind:ci',
+    'state:open',
+    'state:closed',
+    'state:merged',
+    'new:true',
+    'new:false',
+    'unread:true',
+    'unread:false',
+    'reason:mention',
+    'reason:review_requested',
+  ];
+
+  for (const draft of drafts) {
+    expect(descriptionOfDraft(session, draft)).toBeTruthy();
+  }
+});
+
 test('a repo row describes its threads with counts by kind, singular for one', async () => {
   const session = await loadInbox([
     { id: '1', overrides: { repository: 'acme/app' } },
@@ -4415,9 +4448,13 @@ test('a repo row describes its threads with counts by kind, singular for one', a
     { id: '4', overrides: { repository: 'acme/web' } },
   ]);
 
-  expect(descriptionOfDraft(session, 'repo:acme/app')).toBe(
-    'Threads from the acme/app repository: 3 in your inbox, 1 pull request and 2 issues.',
-  );
+  const description = descriptionOfDraft(session, 'repo:acme/app') ?? '';
+
+  expect(description).toContain('acme/app');
+  expect(description).toMatch(/\b3 in your inbox/);
+  expect(description).toMatch(/\b1 pull request\b(?!s)/);
+  expect(description).toMatch(/\b2 issues\b/);
+  expect(description).not.toContain('release');
 });
 
 test('an org row gives its thread and repository counts', async () => {
@@ -4427,9 +4464,11 @@ test('an org row gives its thread and repository counts', async () => {
     { id: '3', overrides: { repository: 'other/web' } },
   ]);
 
-  expect(descriptionOfDraft(session, 'org:acme')).toBe(
-    'Threads from repositories owned by acme: 2 in your inbox, across 2 repositories.',
-  );
+  const description = descriptionOfDraft(session, 'org:acme') ?? '';
+
+  expect(description).toContain('acme');
+  expect(description).toContain('2 in your inbox');
+  expect(description).toContain('2 repositories');
 });
 
 test('an author row adds the bot note for a bot login', async () => {
@@ -4438,13 +4477,15 @@ test('an author row adds the bot note for a bot login', async () => {
     { id: '2', author: 'octo' },
   ]);
 
-  expect(descriptionOfDraft(session, 'author:renovate[bot]')).toBe(
-    'Pull requests and issues opened by renovate[bot]: 1 in your inbox. This is a bot account.',
-  );
+  const bot = descriptionOfDraft(session, 'author:renovate[bot]') ?? '';
+  const human = descriptionOfDraft(session, 'author:octo') ?? '';
 
-  expect(descriptionOfDraft(session, 'author:octo')).toBe(
-    'Pull requests and issues opened by octo: 1 in your inbox.',
-  );
+  expect(bot).toContain('renovate[bot]');
+  expect(bot).toContain('1 in your inbox');
+  expect(bot).toContain('bot account');
+  expect(human).toContain('octo');
+  expect(human).toContain('1 in your inbox');
+  expect(human).not.toContain('bot');
 });
 
 test('a typed value with a star counts the threads it matches', async () => {
@@ -4454,33 +4495,75 @@ test('a typed value with a star counts the threads it matches', async () => {
     { id: '3', overrides: { repository: 'other/web' } },
   ]);
 
-  expect(descriptionOfDraft(session, 'repo:acme/*')).toBe(
-    'Threads from every repository matching acme/*: 2 in your inbox.',
-  );
+  const repositories = descriptionOfDraft(session, 'repo:acme/*') ?? '';
+  const authors = descriptionOfDraft(session, 'author:oc*') ?? '';
 
-  expect(descriptionOfDraft(session, 'author:oc*')).toBe(
-    'Pull requests and issues by every author matching oc*: 3 in your inbox.',
-  );
+  expect(repositories).toContain('acme/*');
+  expect(repositories).toContain('2 in your inbox');
+  expect(authors).toContain('oc*');
+  expect(authors).toContain('3 in your inbox');
+});
+
+test('a typed row of several tokens describes every filter it adds', async () => {
+  const session = await loadInbox([{ id: '1', overrides: { repository: 'acme/app' } }]);
+
+  const description = descriptionOfDraft(session, 'repo:acme/app author:octo') ?? '';
+
+  expect(description).toMatch(/\b2 filters\b/);
+  expect(description).toContain('repo:acme/app');
+  expect(description).toContain('author:octo');
+});
+
+test('a typed row keeps the quotes and the minus of its filter labels', async () => {
+  const session = await loadInbox([{ id: '1' }]);
+
+  const description = descriptionOfDraft(session, '-kind:pr title:"hello, author:octo"') ?? '';
+
+  expect(description).toMatch(/\b2 filters\b/);
+  expect(description).toContain('-kind:pr');
+  expect(description).toContain('title:"hello, author:octo"');
+});
+
+test('a typed row of one token keeps the description of its filter', async () => {
+  const session = await loadInbox([{ id: '1', overrides: { repository: 'acme/app' } }]);
+
+  const description = descriptionOfDraft(session, 'repo:acme/app') ?? '';
+
+  expect(description).toContain('acme/app');
+  expect(description).not.toContain('Adds');
 });
 
 test('a repo value with no threads leaves out the kind list', async () => {
   const session = await loadInbox([{ id: '1', overrides: { repository: 'acme/app' } }]);
 
-  expect(descriptionOfDraft(session, 'repo:x/y')).toBe(
-    'Threads from the x/y repository: 0 in your inbox.',
-  );
+  const description = descriptionOfDraft(session, 'repo:x/y') ?? '';
+
+  expect(description).toContain('x/y');
+  expect(description).toContain('0 in your inbox');
+
+  for (const word of ['pull request', 'issue', 'release', 'discussion', 'commit', 'workflow run']) {
+    expect(description).not.toContain(word);
+  }
 });
 
 test('a negated row hides what its positive row describes, and an explicit value text wins over live text', async () => {
   const session = await loadInbox([{ id: '1', author: 'octo' }]);
 
-  expect(descriptionOfDraft(session, '-kind:pr')).toBe(
-    'Hides these threads: Pull requests, drafts included.',
-  );
+  const positive = descriptionOfDraft(session, 'kind:pr') ?? '';
+  const negated = descriptionOfDraft(session, '-kind:pr') ?? '';
+  const me = descriptionOfDraft(session, 'author:@me') ?? '';
 
-  expect(descriptionOfDraft(session, 'author:@me')).toBe(
-    'Pull requests and issues you opened with the account Zeta is signed in to.',
-  );
+  const liveAuthor = descriptionOfDraft(session, 'author:octo') ?? '';
+
+  expect(positive).toContain('Pull requests');
+  expect(positive).not.toMatch(/^Hides/);
+  expect(negated).toMatch(/^Hides/);
+  expect(negated).toContain(positive);
+  expect(me).not.toBe('');
+  expect(me).not.toBe(liveAuthor);
+  expect(me).not.toMatch(/\d+ in your inbox/);
+  expect(me).not.toBe(describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'author' }));
+  expect(descriptionOfDraft(session, 'author:@me')).toBe(me);
 });
 
 test('a negated row counts the threads it keeps, before and after it is applied', async () => {

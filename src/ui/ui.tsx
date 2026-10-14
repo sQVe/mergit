@@ -205,7 +205,8 @@ const Keys = (props: KeysProps): null => {
 
   // A key no command takes reaches here. Before the input takes focus, it is typed here.
   useKeyboard((event) => {
-    const printable = event.sequence.length === 1 && !event.ctrl && !event.meta;
+    const isOneVisibleCodePoint = /^[^\p{Cc}]$/u.test(event.sequence);
+    const printable = isOneVisibleCodePoint && !event.ctrl && !event.meta;
 
     if (printable) {
       typeIntoPendingInput(event.sequence);

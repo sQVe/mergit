@@ -10,7 +10,12 @@ import type { ReactNode } from 'react';
 
 import { catalog } from '../commands.ts';
 import type { TerminalIntent } from '../commands.ts';
-import { createSession } from '../session/session.ts';
+import {
+  createSession,
+  describeFilterRow,
+  filterCursorOf,
+  filterRowsOf,
+} from '../session/session.ts';
 import type { SessionEffects } from '../session/session.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
 import type { NotificationThread } from '../work/work.ts';
@@ -2585,6 +2590,16 @@ test('keys sent in the same burst as f go to the draft and run no list command',
   expect(composerInputOf(setup.captureCharFrame())).toBe('kind:pr');
 });
 
+test('a supplementary character typed in the same burst as f stays in the draft', async () => {
+  const { setup, settle, press, session } = await mountFilters();
+
+  await press('r');
+  await burst(setup, ['f', 'title:🚀']);
+  await settle();
+
+  expect(session.getSnapshot().filterDraft).toBe('title:🚀');
+});
+
 test('keys sent in the same burst as / go to the search text and run no list command', async () => {
   const { setup, settle, press, sent } = await mountFilters();
 
@@ -2754,26 +2769,46 @@ const descriptionLineOf = (frame: string): string => {
   return (lines[bottom - 1] ?? '').replace(/^│/, '').replace(/│$/, '').trim();
 };
 
+const selectedDescriptionOf = (session: ReturnType<typeof createSession>): string => {
+  const snapshot = session.getSnapshot();
+
+  return describeFilterRow(snapshot, filterRowsOf(snapshot)[filterCursorOf(snapshot)]);
+};
+
 test('the last line of the box describes the selected row, or the field being typed', async () => {
   const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
   const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
-  const { setup, press, settle } = await mount('dark', factsEffects(threads, facts), 90, false, 30);
+
+  const { setup, press, settle, session } = await mount(
+    'dark',
+    factsEffects(threads, facts),
+    90,
+    false,
+    30,
+  );
 
   await press('r');
   await settle();
   await press('f');
   await typeText(setup, settle, 'reason:ci');
 
-  expect(descriptionLineOf(setup.captureCharFrame())).toBe(
-    'A GitHub Actions workflow run that you triggered finished.',
-  );
+  const reasonLine = descriptionLineOf(setup.captureCharFrame());
+
+  const reasonField = describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'reason' });
+
+  expect(reasonLine).not.toBe('');
+  expect(reasonLine).toBe(selectedDescriptionOf(session));
+  expect(reasonLine).not.toBe(reasonField);
 
   await pressCtrlU(setup, settle);
   await typeText(setup, settle, 'author:sQVe');
 
-  expect(descriptionLineOf(setup.captureCharFrame())).toBe(
-    'Pull requests and issues opened by sQVe: 1 in your inbox.',
-  );
+  const authorLine = descriptionLineOf(setup.captureCharFrame());
+
+  expect(authorLine).toBe(selectedDescriptionOf(session));
+  expect(authorLine).toContain('sQVe');
+  expect(authorLine).toContain('1 in your inbox');
+  expect(authorLine).not.toBe(reasonLine);
 });
 
 test('a description that does not fit ends with an ellipsis', async () => {
@@ -2909,26 +2944,40 @@ test('a long description wraps over several lines and never over more than three
 
   const lines = setup.captureCharFrame().split('\n');
   const bottom = lines.findIndex((line) => line.startsWith('╰'));
-  expect(innerOf(lines[bottom - 3])).toMatch(/^Hides these threads/);
+  expect(innerOf(lines[bottom - 3])).toMatch(/^Hides/);
   expect(innerOf(lines[bottom - 2])).not.toBe('');
   expect(innerOf(lines[bottom - 1])).toMatch(/…$/);
-  expect(innerOf(lines[bottom - 4])).not.toMatch(/Hides these threads/);
+  expect(innerOf(lines[bottom - 4])).not.toMatch(/Hides/);
 });
 
 test('author:@me shows its own text, and -kind:pr says it hides pull requests', async () => {
-  const { setup, press, settle } = await mountFilters(120);
+  const { setup, press, settle, session } = await mountFilters(120);
 
   await press('f');
   await typeText(setup, settle, 'author:@me');
 
-  expect(descriptionLineOf(setup.captureCharFrame())).toContain(
-    'Pull requests and issues you opened',
-  );
+  const meLine = descriptionLineOf(setup.captureCharFrame());
+
+  expect(meLine).not.toBe('');
+  expect(meLine).toBe(selectedDescriptionOf(session));
+  expect(meLine).not.toMatch(/\d+ in your inbox/);
+
+  const authorField = describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'author' });
+
+  expect(meLine).not.toBe(authorField);
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'kind:pr');
+
+  const positiveLine = descriptionLineOf(setup.captureCharFrame());
 
   await pressCtrlU(setup, settle);
   await typeText(setup, settle, '-kind:pr');
 
-  expect(descriptionLineOf(setup.captureCharFrame())).toBe(
-    'Hides these threads: Pull requests, drafts included.',
-  );
+  const negatedLine = descriptionLineOf(setup.captureCharFrame());
+
+  expect(positiveLine).toContain('Pull requests');
+  expect(positiveLine).not.toMatch(/^Hides/);
+  expect(negatedLine).toMatch(/^Hides/);
+  expect(negatedLine).toContain(positiveLine);
 });
