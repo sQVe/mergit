@@ -285,7 +285,6 @@ const rowFilterOf = (row: FilterRow): Filter | undefined => {
 const draftFieldOf = (draft: string): string =>
   draft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
 
-// The text for the row under the cursor, or for the field being typed when no row has one.
 export const describeFilterRow = (snapshot: Snapshot, row: FilterRow | undefined): string => {
   const examples = inboxExamples(snapshot);
 

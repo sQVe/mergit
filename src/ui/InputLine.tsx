@@ -11,7 +11,6 @@ export const InputLine = (props: {
   focused: boolean;
   suffix: string | null;
   onInput: (value: string) => void;
-  // Reads the live session text and returns an unsubscribe function for its changes.
   watch: (apply: () => void) => () => void;
   current: () => string;
 }): ReactNode => {
