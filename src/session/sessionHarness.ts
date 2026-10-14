@@ -11,7 +11,7 @@ import type {
 } from '../github/github.ts';
 import type { BrowserPage, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
-import { createSession } from './session.ts';
+import { createSession, visibleRows } from './session.ts';
 import type { SavedSnapshot, SavedState, Session, SessionEffects } from './session.ts';
 
 type Call =
@@ -431,3 +431,23 @@ export const doneFor = (
   login: ViewerLogin,
   ...threads: NotificationThread[]
 ): Map<string, Map<ThreadId, string>> => new Map([[accountKeyOf(login), doneOf(...threads)]]);
+
+export const sentOk: GitHubResult<null> = { ok: true, value: null };
+
+export const rowKeysOf = (session: ReturnType<typeof makeHarness>['session']): string[] =>
+  visibleRows(session.getSnapshot()).map((row) => row.key);
+
+export const fireDoneTimerAt = async (
+  harness: ReturnType<typeof makeHarness>,
+  index: number,
+): Promise<void> => {
+  const timer = harness.timers[index];
+
+  if (timer?.active !== true) {
+    return;
+  }
+
+  timer.active = false;
+  timer.callback();
+  await settle();
+};

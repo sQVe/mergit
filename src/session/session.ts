@@ -9,10 +9,9 @@ import type {
   SubjectLookup,
   Viewer,
 } from '../github/github.ts';
-import { invariant } from '../invariant.ts';
 import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../work/work.ts';
 import { createAccountSwitch } from './accountSwitch.ts';
-import { createDoneQueue, undoWindowMilliseconds } from './done.ts';
+import { copyAccountRecords, createDoneActions } from './doneActions.ts';
 import { createFeedRefresh } from './feedRefresh.ts';
 import type { SettledRefresh } from './feedRefresh.ts';
 import {
@@ -34,8 +33,6 @@ import {
   clearAccount,
   clearSearch,
   editSearch,
-  failureMessage,
-  hideThreads,
   initialSnapshot,
   keepSearch,
   openSearch,
@@ -44,10 +41,7 @@ import {
   cycleGrouping,
   jumpTopLevel,
   moveSelection,
-  releaseThreads,
   selectEdge,
-  selectedThreadOf,
-  showThreads,
   toggleAllFolds,
   toggleFold,
   showSavedThreads,
@@ -181,27 +175,40 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   clearFilters,
 };
 
-const copyAccountRecords = (
-  accounts: ReadonlyMap<string, ReadonlyMap<ThreadId, string>> = new Map(),
-): Map<string, Map<ThreadId, string>> =>
-  new Map([...accounts].map(([account, records]) => [account, new Map(records)]));
-
 export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
 
-  const accountRecords = copyAccountRecords(effects.savedState?.done);
-
   const accountSwitch = createAccountSwitch(savedSnapshot);
-  const noRecords: ReadonlyMap<ThreadId, string> = new Map();
 
-  const currentRecords = (): ReadonlyMap<ThreadId, string> => {
-    const login = accountSwitch.currentLogin();
+  // A refresh outcome publishes through `finish`, and a lookup answer publishes through `update`, which reads the lookup's pending threads.
+  const later: {
+    update?: (candidate: Snapshot) => void;
+    saveState?: (change: UnsavedChange) => void;
+    finish?: (outcome: SettledRefresh, now: Date) => void;
+  } = {};
 
-    return login === null
-      ? noRecords
-      : (accountRecords.get(`${effects.host}/${login}`) ?? noRecords);
-  };
+  const doneActions = createDoneActions({
+    host: effects.host,
+    saved: effects.savedState?.done,
+    setTimer: effects.setTimer,
+    markThreadDone: effects.markThreadDone,
+    currentLogin: accountSwitch.currentLogin,
+    getSnapshot: () => snapshot,
+    update: (candidate) => {
+      later.update?.(candidate);
+    },
+    showToast: (content, durationMilliseconds) => {
+      toaster.show(content, durationMilliseconds);
+    },
+    saveState: (change) => {
+      later.saveState?.(change);
+    },
+    requestRefresh: () => {
+      refresh.request();
+    },
+    isStopped: () => stopped,
+  });
 
   const startSnapshot: Snapshot = {
     ...initialSnapshot,
@@ -215,20 +222,13 @@ export const createSession = (effects: SessionEffects): Session => {
       : showSavedThreads(
           startSnapshot,
           savedSnapshot.threads,
-          currentRecords(),
+          doneActions.currentRecords(),
           savedSnapshot.savedAt,
         );
 
   let stopped = false;
   const openController = new AbortController();
   let unsavedChanges = new Set<UnsavedChange>();
-  const sentThreadIds = new Set<ThreadId>();
-
-  // A refresh outcome publishes through `finish`, and a lookup answer publishes through `update`, which reads the lookup's pending threads.
-  const later: {
-    update?: (candidate: Snapshot) => void;
-    finish?: (outcome: SettledRefresh, now: Date) => void;
-  } = {};
 
   const subjectLookup = createSubjectLookup({
     saved: savedSnapshot,
@@ -258,7 +258,7 @@ export const createSession = (effects: SessionEffects): Session => {
     unsavedChanges.add(change);
 
     try {
-      effects.saveState({ grouping, done: accountRecords, seen: marker.records });
+      effects.saveState({ grouping, done: doneActions.records, seen: marker.records });
     } catch {
       // A failed save must not stop the session.
     }
@@ -290,6 +290,10 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   later.update = update;
+
+  later.saveState = (change) => {
+    saveStateQuietly(change);
+  };
 
   const saveQuietly = (viewer: Viewer, savedAt: Date) => {
     const feed = refresh.storedFeed();
@@ -331,44 +335,16 @@ export const createSession = (effects: SessionEffects): Session => {
     });
   };
 
-  const pruneDoneRecords = (fetched: NotificationThread[]) => {
-    const login = accountSwitch.currentLogin();
-
-    if (login === null) {
-      return;
-    }
-
-    const records = accountRecords.get(`${effects.host}/${login}`);
-    const fetchedIds = new Set(fetched.map((thread) => thread.id));
-    let changed = false;
-
-    for (const threadId of records?.keys() ?? []) {
-      if (!fetchedIds.has(threadId)) {
-        records?.delete(threadId);
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      saveStateQuietly('done');
-    }
-  };
-
-  const releaseSentThreads = () => {
-    update(releaseThreads(snapshot, sentThreadIds));
-    sentThreadIds.clear();
-  };
-
   const finishFullRefresh = (outcome: SettledRefresh, now: Date) => {
     if (outcome.kind === 'loaded') {
-      pruneDoneRecords(outcome.read.threads);
-      const next = applyThreads(snapshot, outcome.read.threads, currentRecords(), now);
+      doneActions.prune(outcome.read.threads);
+      const next = applyThreads(snapshot, outcome.read.threads, doneActions.currentRecords(), now);
 
       subjectLookup.start(next.threads);
       update(next);
       // After the update, so a selected thread that left the feed is not saved again as seen.
       marker.prune(outcome.read.threads);
-      releaseSentThreads();
+      doneActions.releaseSent();
       saveQuietly(outcome.viewer, now);
     } else if (outcome.kind === 'busy') {
       subjectLookup.releaseStartup();
@@ -403,114 +379,6 @@ export const createSession = (effects: SessionEffects): Session => {
       later.finish?.(outcome, now);
     },
   });
-
-  const recordDone = (thread: NotificationThread, key: string) => {
-    const records = accountRecords.get(key) ?? new Map<ThreadId, string>();
-
-    records.set(thread.id, thread.updatedAt);
-    accountRecords.set(key, records);
-  };
-
-  const doneQueue = createDoneQueue({
-    setTimer: effects.setTimer,
-    markThreadDone: effects.markThreadDone,
-    onSent: (thread, account) => {
-      recordDone(thread, account);
-      sentThreadIds.add(thread.id);
-      saveStateQuietly('done');
-    },
-    onEntrySent: () => {
-      if (!stopped) {
-        refresh.request();
-      }
-    },
-    onFailed: (failed, total) => {
-      const [first] = failed;
-
-      invariant(first !== undefined, 'a failed action has a failed thread');
-
-      update(
-        showThreads(
-          snapshot,
-          failed.map((entry) => entry.thread.id),
-        ),
-      );
-
-      const title =
-        total === 1
-          ? `Could not mark ${first.thread.title} done`
-          : `Could not mark ${failed.length} of ${total} threads done`;
-
-      toaster.show({ title, lines: [failureMessage(first.failure)], tone: 'error' });
-    },
-  });
-
-  const markThreads = (threads: readonly NotificationThread[]) => {
-    const [first] = threads;
-
-    const login = accountSwitch.currentLogin();
-
-    if (first === undefined || login === null) {
-      return;
-    }
-
-    doneQueue.add(threads, `${effects.host}/${login}`);
-    update(hideThreads(snapshot, new Set(threads.map((thread) => thread.id))));
-
-    const title =
-      threads.length === 1 ? `Marked ${first.title} done` : `Marked ${threads.length} threads done`;
-
-    toaster.show(
-      { title, lines: ['You can undo for 5 seconds'], tone: 'info' },
-      undoWindowMilliseconds,
-    );
-  };
-
-  const markDone = () => {
-    const thread = selectedThreadOf(snapshot);
-
-    if (thread !== undefined) {
-      markThreads([thread]);
-    }
-  };
-
-  const markThreadsDone = (threadIds: readonly ThreadId[]) => {
-    const requested = new Set(threadIds);
-
-    const threads = snapshot.threads.filter(
-      (thread) => requested.has(thread.id) && !snapshot.hiddenThreadIds.has(thread.id),
-    );
-
-    markThreads(threads);
-  };
-
-  const undoDone = () => {
-    const outcome = doneQueue.undoLatest();
-
-    if (outcome.kind === 'undone') {
-      const [first] = outcome.threads;
-
-      const title =
-        outcome.threads.length === 1 && first !== undefined
-          ? `Undid marking ${first.title} done`
-          : `Undid marking ${outcome.threads.length} threads done`;
-
-      update(
-        showThreads(
-          snapshot,
-          outcome.threads.map((thread) => thread.id),
-        ),
-      );
-
-      toaster.show({ title, lines: [], tone: 'info' });
-    } else if (outcome.kind === 'tooLate') {
-      toaster.show({
-        title: 'The last done cannot be undone',
-        lines: [],
-        tone: 'info',
-      });
-    }
-  };
 
   let openQueue: Promise<void> = Promise.resolve();
 
@@ -555,11 +423,11 @@ export const createSession = (effects: SessionEffects): Session => {
     if (intent.kind === 'refresh') {
       refresh.request();
     } else if (intent.kind === 'markDone') {
-      markDone();
+      doneActions.markDone();
     } else if (intent.kind === 'markThreadsDone') {
-      markThreadsDone(intent.threadIds);
+      doneActions.markThreadsDone(intent.threadIds);
     } else if (intent.kind === 'undoDone') {
-      undoDone();
+      doneActions.undoDone();
     } else if (intent.kind === 'openInBrowser') {
       openQueue = openQueue.then(() => openInBrowser(intent.pages)).catch(() => undefined);
     } else if (intent.kind === 'editSearch') {
@@ -588,7 +456,7 @@ export const createSession = (effects: SessionEffects): Session => {
     toaster.cancel();
     listeners.clear();
 
-    return doneQueue.stop(deadline);
+    return doneActions.stop(deadline);
   };
 
   return { getSnapshot, subscribe, send, reportStateWrite, stop };
