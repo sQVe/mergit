@@ -1,4 +1,3 @@
-import type { OpenResult } from '../actions.ts';
 import type {
   GitHubResult,
   NotificationFeed,
@@ -11,6 +10,8 @@ import type {
 } from '../github/github.ts';
 import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../work/work.ts';
 import { createAccountSwitch } from './accountSwitch.ts';
+import { createBrowserOpen } from './browserOpen.ts';
+import type { BrowserOpenInputs } from './browserOpen.ts';
 import { copyAccountRecords, createDoneActions } from './doneActions.ts';
 import { createFeedRefresh } from './feedRefresh.ts';
 import type { SettledRefresh } from './feedRefresh.ts';
@@ -104,7 +105,7 @@ export interface SessionEffects {
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
-  openInBrowser: (page: BrowserPage, signal: AbortSignal) => Promise<OpenResult>;
+  openInBrowser: BrowserOpenInputs['openInBrowser'];
   stateWarning: string | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
@@ -227,7 +228,6 @@ export const createSession = (effects: SessionEffects): Session => {
         );
 
   let stopped = false;
-  const openController = new AbortController();
   let unsavedChanges = new Set<UnsavedChange>();
 
   const subjectLookup = createSubjectLookup({
@@ -380,38 +380,11 @@ export const createSession = (effects: SessionEffects): Session => {
     },
   });
 
-  let openQueue: Promise<void> = Promise.resolve();
-
-  const openInBrowser = async (pages: readonly BrowserPage[]) => {
-    const results: OpenResult[] = [];
-
-    for (const page of pages) {
-      if (stopped) {
-        return;
-      }
-
-      // oxlint-disable-next-line eslint/no-await-in-loop -- opens run one at a time, in order
-      results.push(await effects.openInBrowser(page, openController.signal));
-    }
-
-    if (stopped) {
-      return;
-    }
-
-    const failures = results.filter((result) => !result.ok);
-    const [first] = failures;
-
-    if (first === undefined) {
-      return;
-    }
-
-    const title =
-      pages.length === 1
-        ? 'Could not open the page in the browser'
-        : `Could not open ${failures.length} of ${pages.length} pages in the browser`;
-
-    toaster.show({ title, lines: [first.message], tone: 'error' });
-  };
+  const browserOpen = createBrowserOpen({
+    openInBrowser: effects.openInBrowser,
+    isStopped: () => stopped,
+    showToast: toaster.show,
+  });
 
   snapshot = marker.apply(snapshot);
 
@@ -429,7 +402,7 @@ export const createSession = (effects: SessionEffects): Session => {
     } else if (intent.kind === 'undoDone') {
       doneActions.undoDone();
     } else if (intent.kind === 'openInBrowser') {
-      openQueue = openQueue.then(() => openInBrowser(intent.pages)).catch(() => undefined);
+      browserOpen.open(intent.pages);
     } else if (intent.kind === 'editSearch') {
       update(editSearch(snapshot, intent.text));
     } else if (intent.kind === 'editFilterDraft') {
@@ -449,7 +422,7 @@ export const createSession = (effects: SessionEffects): Session => {
     marker.recordSelected(snapshot);
 
     stopped = true;
-    openController.abort();
+    browserOpen.stop();
     refresh.abort();
     subjectLookup.abort();
     refresh.cancelTimer();
