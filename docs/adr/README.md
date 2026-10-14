@@ -48,3 +48,4 @@ line that links to the replacement.
 - [0020: Field filters from a composer, applied on Enter](./0020-filter-composer.md), chip logic
   superseded by 0021
 - [0021: Chips of one field combine by how many values a thread holds](./0021-chip-logic-by-field.md)
+- [0022: Owner files inside modules, thin coordinators, and owner-first file names](./0022-owner-files-and-owner-first-names.md)
