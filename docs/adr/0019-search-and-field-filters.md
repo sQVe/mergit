@@ -1,7 +1,8 @@
 # ADR 0019: Plain text search on `/`, field filters from a picker
 
 **Date**: 2026-10-14\
-**Status**: Accepted\
+**Status**: Accepted; Filters superseded by
+[ADR 0020: Field filters from a composer, applied on Enter](./0020-filter-composer.md)\
 **Supersedes**: [ADR 0017: GitHub-style qualifiers, evaluated locally](./0017-local-query-language.md)\
 **Related**:
 [ADR 0004: Capability modules with an enforced import table](./0004-capability-modules.md)

@@ -44,3 +44,4 @@ line that links to the replacement.
   0019
 - [0018: Local state for two Zeta processes](./0018-local-state-and-config.md)
 - [0019: Plain text search on `/`, field filters from a picker](./0019-search-and-field-filters.md)
+- [0020: Field filters from a composer, applied on Enter](./0020-filter-composer.md)
