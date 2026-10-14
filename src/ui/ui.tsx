@@ -24,6 +24,8 @@ type UiIntent = Extract<Intent, { kind: 'ui' }>;
 
 type ThemeMode = 'light' | 'dark' | null;
 
+type QueryError = NonNullable<Snapshot['queryError']>;
+
 export interface ThemeSource {
   getThemeMode: () => ThemeMode;
   subscribe: (listener: () => void) => () => void;
@@ -177,6 +179,12 @@ const queryLineRows = (snapshot: Snapshot): number => {
   return snapshot.queryError === null ? 1 : 2;
 };
 
+// The caret lines up with the text only while the input does not scroll.
+const errorRowText = (error: QueryError, textFits: boolean): string =>
+  textFits
+    ? `${' '.repeat(error.position + 1)}^ ${error.message}`
+    : `column ${error.position + 1}: ${error.message}`;
+
 const QueryLine = (props: {
   session: Session;
   snapshot: Snapshot;
@@ -192,6 +200,8 @@ const QueryLine = (props: {
 
   const count = matchCountOf(snapshot);
   const suffix = `${count} ${count === 1 ? 'match' : 'matches'}`;
+  const inputWidth = props.width - 1 - suffix.length;
+  const textFits = snapshot.queryText.length < inputWidth;
 
   return (
     <box flexDirection="column" flexShrink={0}>
@@ -207,9 +217,7 @@ const QueryLine = (props: {
       />
       {queryError === null ? null : (
         // queryLineRows reserves one row for the error, so it must never wrap.
-        <text fg={palette.error}>
-          {truncate(`${' '.repeat(queryError.position + 1)}^ ${queryError.message}`, props.width)}
-        </text>
+        <text fg={palette.error}>{truncate(errorRowText(queryError, textFits), props.width)}</text>
       )}
     </box>
   );

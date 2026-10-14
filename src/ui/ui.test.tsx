@@ -1994,6 +1994,20 @@ test('a query error longer than the width keeps the last selected row visible', 
   expect(lines[queryIndex + 1]).toContain('^');
 });
 
+test('an error past the width still shows its message and position', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+  const values = Array.from({ length: 5 }, () => 'acme/app').join(',');
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, `repo:${values},sqve/zeta,acme/web repo:`);
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Missing value for repo:');
+  expect(frame).toContain('column 75');
+});
+
 test('ctrl+c quits while the query line is open and q still types', async () => {
   const { setup, press, settle, terminalIntents } = await mount(
     'dark',
