@@ -115,13 +115,14 @@ export const ThreadList = (props: {
   snapshot: Snapshot;
   palette: Palette;
   width: number;
+  reservedRows: number;
 }): ReactNode => {
   const { snapshot, palette, width } = props;
   const { selectedRowKey, refreshedAt, savedAt, newThreadIds } = snapshot;
   const rows = visibleRows(snapshot);
   const dimensions = useTerminalDimensions();
   const [top, setTop] = useState(0);
-  const height = Math.max(1, dimensions.height - statusLineHeight);
+  const height = Math.max(1, dimensions.height - statusLineHeight - props.reservedRows);
   const selectedIndex = rows.findIndex((row) => row.key === selectedRowKey);
   const visibleTop = scrollTop(top, selectedIndex, height, rows.length);
 

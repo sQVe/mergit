@@ -6,11 +6,12 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
 import type { Session, Snapshot } from '../session/session.ts';
-import { visibleRows } from '../session/session.ts';
+import { matchCountOf, visibleRows } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
+import { InputLine } from './InputLine.tsx';
 import { hasNotice, Notice } from './Notice.tsx';
 import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
@@ -47,6 +48,7 @@ interface KeysProps extends AppProps {
   detailOpen: boolean;
   setDetailOpen: (open: boolean) => void;
   sideLayout: boolean;
+  searchOpen: boolean;
 }
 
 const sidePaneMinimumWidth = 90;
@@ -55,22 +57,31 @@ const sidePaneShare = 0.36;
 
 const isActive = (
   command: Command,
-  modals: { helpOpen: boolean; confirmOpen: boolean },
-  detailOpen: boolean,
+  state: { helpOpen: boolean; confirmOpen: boolean; detailOpen: boolean; searchOpen: boolean },
 ): boolean => {
+  const { helpOpen, confirmOpen, detailOpen, searchOpen } = state;
+
+  if (searchOpen) {
+    return command.scope === 'input';
+  }
+
+  if (command.scope === 'input') {
+    return false;
+  }
+
   if (command.scope === 'help') {
-    return modals.helpOpen;
+    return helpOpen;
   }
 
   if (command.scope === 'confirm') {
-    return modals.confirmOpen;
+    return confirmOpen;
   }
 
   if (command.scope === 'global') {
     return true;
   }
 
-  if (modals.helpOpen || modals.confirmOpen) {
+  if (helpOpen || confirmOpen) {
     return false;
   }
 
@@ -81,8 +92,8 @@ const Keys = (props: KeysProps): null => {
   const { session, onTerminalIntent, setHelpOpen, setDetailOpen } = props;
 
   const { openRequest, setOpenRequest } = props;
-  const modals = { helpOpen: props.helpOpen, confirmOpen: openRequest !== null };
-  const commands = props.catalog.filter((command) => isActive(command, modals, props.detailOpen));
+  const state = { ...props, confirmOpen: openRequest !== null };
+  const commands = props.catalog.filter((command) => isActive(command, state));
 
   const confirmOpen = () => {
     setOpenRequest(null);
@@ -133,6 +144,7 @@ const Keys = (props: KeysProps): null => {
       bindings: commands.flatMap((command) =>
         command.keys.map((key) => ({
           key,
+          preventDefault: command.preventDefault ?? true,
           cmd: () => {
             run(command);
           },
@@ -145,6 +157,7 @@ const Keys = (props: KeysProps): null => {
       setOpenRequest,
       props.detailOpen,
       props.sideLayout,
+      props.searchOpen,
       props.catalog,
       session,
       onTerminalIntent,
@@ -154,6 +167,42 @@ const Keys = (props: KeysProps): null => {
   );
 
   return null;
+};
+
+const searchLineRows = (snapshot: Snapshot): number => {
+  if (!snapshot.searchOpen && snapshot.searchText === '') {
+    return 0;
+  }
+
+  return 1;
+};
+
+const SearchLine = (props: {
+  session: Session;
+  snapshot: Snapshot;
+  palette: Palette;
+}): ReactNode => {
+  const { session, snapshot, palette } = props;
+
+  if (!snapshot.searchOpen && snapshot.searchText === '') {
+    return null;
+  }
+
+  const count = matchCountOf(snapshot);
+  const suffix = `${count} ${count === 1 ? 'match' : 'matches'}`;
+
+  return (
+    <InputLine
+      prompt="/"
+      value={snapshot.searchText}
+      palette={palette}
+      focused={snapshot.searchOpen}
+      suffix={suffix}
+      onInput={(text) => {
+        session.send({ kind: 'editSearch', text });
+      }}
+    />
+  );
 };
 
 const Body = (props: {
@@ -193,7 +242,12 @@ const Body = (props: {
 
   return (
     <box flexDirection="row" flexGrow={1}>
-      <ThreadList snapshot={snapshot} palette={palette} width={width - paneWidth} />
+      <ThreadList
+        snapshot={snapshot}
+        palette={palette}
+        width={width - paneWidth}
+        reservedRows={searchLineRows(snapshot)}
+      />
       {paneWidth > 0 ? (
         <DetailPane
           row={selectedRow}
@@ -246,6 +300,7 @@ export const App = (props: AppProps): ReactNode => {
         detailOpen={fullDetail}
         setDetailOpen={setDetailOpen}
         sideLayout={sideLayout}
+        searchOpen={snapshot.searchOpen}
       />
       <box flexDirection="column" flexGrow={1}>
         <Body
@@ -255,6 +310,7 @@ export const App = (props: AppProps): ReactNode => {
           paneWidth={paneWidth}
           fullDetail={fullDetail}
         />
+        <SearchLine session={props.session} snapshot={snapshot} palette={palette} />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />

@@ -8,6 +8,7 @@ export const HelpOverlay = (props: {
   palette: Palette;
 }): ReactNode => {
   const { palette } = props;
+  const commands = props.catalog.filter((command) => command.scope !== 'confirm');
 
   return (
     <box
@@ -24,14 +25,13 @@ export const HelpOverlay = (props: {
       paddingLeft={1}
       paddingRight={1}
     >
-      {props.catalog
-        .filter((command) => command.scope !== 'confirm')
-        .map((command) => (
-          <box key={command.id} flexDirection="row" gap={2}>
-            <text fg={palette.key}>{command.keys.join(' ')}</text>
-            <text fg={palette.text}>{command.label}</text>
-          </box>
-        ))}
+      {commands.map((command) => (
+        <box key={command.id} flexDirection="row" gap={2}>
+          <text fg={palette.key}>{command.keys.join(' ')}</text>
+          <text fg={palette.text}>{command.label}</text>
+          {command.scope === 'input' ? <text fg={palette.dim}>(search line)</text> : null}
+        </box>
+      ))}
     </box>
   );
 };

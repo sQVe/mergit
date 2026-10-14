@@ -15,10 +15,12 @@ export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 export interface Command {
   id: string;
   label: string;
-  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm';
+  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm' | 'input';
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   intent: (snapshot: Snapshot) => Intent;
+  // False lets the key reach the focused input after the command runs.
+  preventDefault?: boolean;
 }
 
 const confirmAfterRepositories = 3;
@@ -179,6 +181,64 @@ export const catalog: readonly Command[] = [
     keys: ['u'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'application', intent: { kind: 'undoDone' } }),
+  },
+  {
+    id: 'openSearch',
+    label: 'Search the list',
+    scope: 'list',
+    keys: ['/'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'openSearch' } }),
+  },
+  {
+    id: 'clearSearch',
+    label: 'Clear the search',
+    scope: 'list',
+    keys: ['escape'],
+    disabledReason: (snapshot) => (snapshot.searchText === '' ? 'No search is active.' : undefined),
+    intent: () => ({ kind: 'application', intent: { kind: 'clearSearch' } }),
+  },
+  {
+    id: 'submitInput',
+    label: 'Keep the search',
+    scope: 'input',
+    keys: ['return'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'keepSearch' } }),
+  },
+  {
+    id: 'quitFromInput',
+    label: 'Quit',
+    scope: 'input',
+    keys: ['ctrl+c'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'terminal', action: 'quit' }),
+  },
+  {
+    id: 'cancelInput',
+    label: 'Restore the previous search',
+    scope: 'input',
+    keys: ['escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'restoreSearch' } }),
+  },
+  {
+    id: 'clearInput',
+    label: 'Clear the line',
+    scope: 'input',
+    keys: ['ctrl+u'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'editSearch', text: '' } }),
+  },
+  {
+    id: 'closeEmptyInput',
+    label: 'Close the empty line',
+    scope: 'input',
+    keys: ['backspace'],
+    preventDefault: false,
+    disabledReason: (snapshot) =>
+      snapshot.searchText === '' ? undefined : 'The line has text to delete.',
+    intent: () => ({ kind: 'application', intent: { kind: 'keepSearch' } }),
   },
   {
     id: 'closeDetail',

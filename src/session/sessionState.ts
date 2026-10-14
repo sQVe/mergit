@@ -1,5 +1,6 @@
 import type { GitHubFailure, SubjectLookup } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
+import { evaluate, searchQuery } from '../query.ts';
 import type {
   Grouping,
   NodeRow,
@@ -7,6 +8,7 @@ import type {
   SubjectFacts,
   ThreadId,
   TreeRow,
+  ViewerLogin,
 } from '../work/work.ts';
 import { groupings, selectOpenThreads, treeRows } from '../work/work.ts';
 
@@ -39,6 +41,10 @@ export interface Snapshot {
   pausedUntil: Date | null;
   stateWarning: string | null;
   toast: Toast | null;
+  viewerLogin: ViewerLogin | null;
+  searchText: string;
+  searchOpen: boolean;
+  searchTextBefore: string;
 }
 
 export interface NewThreadInput {
@@ -71,6 +77,10 @@ export const initialSnapshot: Snapshot = {
   pausedUntil: null,
   stateWarning: null,
   toast: null,
+  viewerLogin: null,
+  searchText: '',
+  searchOpen: false,
+  searchTextBefore: '',
 };
 
 export const isViewerActor = (facts: SubjectFacts | undefined, viewerLogin: string): boolean =>
@@ -99,11 +109,33 @@ export const newThreadIdsOf = (input: NewThreadInput): ReadonlySet<ThreadId> => 
   return newIds;
 };
 
-export const visibleRows = (snapshot: Snapshot): TreeRow[] => {
-  const shown = snapshot.threads.filter((thread) => !snapshot.hiddenThreadIds.has(thread.id));
+const openThreads = (snapshot: Snapshot): NotificationThread[] =>
+  snapshot.threads.filter((thread) => !snapshot.hiddenThreadIds.has(thread.id));
 
-  return treeRows(shown, snapshot.grouping, snapshot.foldedNodes[snapshot.grouping]);
+const searchedThreads = (snapshot: Snapshot): NotificationThread[] => {
+  const threads = openThreads(snapshot);
+  const query = searchQuery(snapshot.searchText);
+
+  if (query === null) {
+    return threads;
+  }
+
+  return threads.filter((thread) => {
+    const result = evaluate(query, thread, {
+      facts: snapshot.subjectFacts.get(thread.id),
+      isNew: snapshot.newThreadIds.has(thread.id),
+      viewerLogin: snapshot.viewerLogin,
+      now: snapshot.savedAt ?? snapshot.refreshedAt,
+    });
+
+    return result !== false;
+  });
 };
+
+export const matchCountOf = (snapshot: Snapshot): number => searchedThreads(snapshot).length;
+
+export const visibleRows = (snapshot: Snapshot): TreeRow[] =>
+  treeRows(searchedThreads(snapshot), snapshot.grouping, snapshot.foldedNodes[snapshot.grouping]);
 
 const topLevelRowOf = (rows: TreeRow[], index: number): NodeRow | undefined => {
   for (let candidate = index; candidate >= 0; candidate -= 1) {
@@ -158,6 +190,16 @@ const selectAfterRefresh = (
   return rows[index]?.key ?? null;
 };
 
+export const keepSelectionVisible = (previous: Snapshot, next: Snapshot): Snapshot => {
+  const selectedRowKey = selectAfterRefresh(
+    visibleRows(previous),
+    previous.selectedRowKey,
+    visibleRows(next),
+  );
+
+  return selectedRowKey === next.selectedRowKey ? next : { ...next, selectedRowKey };
+};
+
 export const startRefresh = (snapshot: Snapshot): Snapshot => ({
   ...snapshot,
   refreshStatus: 'running',
@@ -186,7 +228,7 @@ export const applyThreads = (
     [...snapshot.subjectFacts].filter(([threadId]) => unchangedIds.has(threadId)),
   );
 
-  const updated = { ...snapshot, threads, subjectFacts };
+  const updated = { ...snapshot, threads, subjectFacts, refreshedAt: now, savedAt: null };
 
   return {
     ...updated,
@@ -199,8 +241,6 @@ export const applyThreads = (
     errorMessage: null,
     notice: null,
     hasLoaded: true,
-    refreshedAt: now,
-    savedAt: null,
     feedBusy: false,
     pausedUntil: null,
   };
@@ -214,13 +254,12 @@ export const showSavedThreads = (
 ): Snapshot => {
   const threads = selectOpenThreads(saved, doneRecords);
 
-  const loaded = { ...start, threads };
+  const loaded = { ...start, threads, savedAt };
 
   return {
     ...loaded,
     selectedRowKey: visibleRows(loaded)[0]?.key ?? null,
     hasLoaded: true,
-    savedAt,
   };
 };
 
@@ -235,7 +274,7 @@ export const applySubjectLookups = (snapshot: Snapshot, lookups: SubjectLookup[]
     }
   }
 
-  return { ...snapshot, subjectFacts };
+  return keepSelectionVisible(snapshot, { ...snapshot, subjectFacts });
 };
 
 export const clearAccount = (snapshot: Snapshot): Snapshot => ({
@@ -474,3 +513,22 @@ export const releaseThreads = (snapshot: Snapshot, threadIds: ReadonlySet<Thread
 
   return { ...snapshot, hiddenThreadIds };
 };
+
+export const openSearch = (snapshot: Snapshot): Snapshot => ({
+  ...snapshot,
+  searchOpen: true,
+  searchTextBefore: snapshot.searchText,
+});
+
+export const editSearch = (snapshot: Snapshot, text: string): Snapshot =>
+  keepSelectionVisible(snapshot, { ...snapshot, searchText: text });
+
+export const keepSearch = (snapshot: Snapshot): Snapshot => ({ ...snapshot, searchOpen: false });
+
+export const restoreSearch = (snapshot: Snapshot): Snapshot => {
+  const restored = editSearch(snapshot, snapshot.searchTextBefore);
+
+  return { ...restored, searchOpen: false };
+};
+
+export const clearSearch = (snapshot: Snapshot): Snapshot => editSearch(snapshot, '');

@@ -101,8 +101,11 @@ const loadedThread = {
 
 const loadedSnapshot = { ...snapshot, threads: [loadedThread] };
 
+const globalOverlaps = (global: Command['scope'], other: Command['scope']): boolean =>
+  global === 'global' && other !== 'input';
+
 const scopesOverlap = (first: Command['scope'], second: Command['scope']): boolean =>
-  first === second || first === 'global' || second === 'global';
+  first === second || globalOverlaps(first, second) || globalOverlaps(second, first);
 
 const overlappingKeys = (commands: readonly Command[]): string[] => {
   const clashes: string[] = [];
@@ -256,4 +259,33 @@ test('o on a group node over 3 repos opens at once, and over 4 repos opens the d
   const four = groupOf(4);
 
   expect(four?.kind === 'ui' && four.action === 'askOpen' ? four.pages : []).toHaveLength(4);
+});
+
+test('the input commands act on the search line and clearSearch is disabled without a search', () => {
+  const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
+
+  expect(byId['openSearch']?.keys).toEqual(['/']);
+
+  expect(byId['submitInput']?.intent(snapshot)).toEqual({
+    kind: 'application',
+    intent: { kind: 'keepSearch' },
+  });
+
+  expect(byId['cancelInput']?.intent(snapshot)).toEqual({
+    kind: 'application',
+    intent: { kind: 'restoreSearch' },
+  });
+
+  expect(byId['clearInput']?.intent(snapshot)).toEqual({
+    kind: 'application',
+    intent: { kind: 'editSearch', text: '' },
+  });
+
+  expect(byId['closeEmptyInput']?.keys).toEqual(['backspace']);
+  expect(byId['closeEmptyInput']?.preventDefault).toBe(false);
+  expect(byId['closeEmptyInput']?.disabledReason(snapshot)).toBeUndefined();
+  expect(byId['closeEmptyInput']?.disabledReason({ ...snapshot, searchText: 'a' })).toBeDefined();
+  expect(byId['clearSearch']?.disabledReason(snapshot)).toBeDefined();
+
+  expect(byId['clearSearch']?.disabledReason({ ...snapshot, searchText: 'a' })).toBeUndefined();
 });

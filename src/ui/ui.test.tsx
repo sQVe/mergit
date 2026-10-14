@@ -107,6 +107,7 @@ const mount = async (
   effects: SessionEffects = idleEffects,
   width = 60,
   manualTime = false,
+  height = 24,
 ) => {
   let themeMode = initialMode;
   const themeListeners = new Set<() => void>();
@@ -165,8 +166,7 @@ const mount = async (
 
   const clock = manualTime ? new ManualClock() : undefined;
 
-  const rendererOptions =
-    clock === undefined ? { width, height: 24 } : { width, height: 24, clock };
+  const rendererOptions = clock === undefined ? { width, height } : { width, height, clock };
 
   const setup = await act(() => testRender(node, rendererOptions));
 
@@ -198,6 +198,8 @@ const mount = async (
         setup.mockInput.pressEscape();
       } else if (key === 'return') {
         setup.mockInput.pressEnter();
+      } else if (key === 'backspace') {
+        setup.mockInput.pressBackspace();
       } else {
         setup.mockInput.pressKey(key);
       }
@@ -232,13 +234,14 @@ const mount = async (
 };
 
 test('? opens the overlay with every command label and ? closes it', async () => {
-  const { setup, press } = await mount();
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
 
   await press('?');
 
   const open = setup.captureCharFrame();
+  const listed = catalog.filter((command) => command.scope !== 'confirm');
 
-  for (const command of catalog.filter((candidate) => candidate.scope !== 'confirm')) {
+  for (const command of listed) {
     expect(open).toContain(command.label);
   }
 
@@ -318,7 +321,7 @@ test('ctrl+c passes a quit terminal intent', async () => {
 });
 
 test('escape does nothing while the overlay is closed', async () => {
-  const { setup, press } = await mount();
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
 
   await press('escape');
 
@@ -326,7 +329,7 @@ test('escape does nothing while the overlay is closed', async () => {
 });
 
 test('the overlay lists the close help command from the catalog', async () => {
-  const { setup, press } = await mount();
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
 
   await press('?');
 
@@ -334,7 +337,13 @@ test('the overlay lists the close help command from the catalog', async () => {
 });
 
 test('a theme change keeps the overlay open, recolors it, and adds no subscriber', async () => {
-  const { setup, press, settle, changeTheme, subscriberCount } = await mount('dark');
+  const { setup, press, settle, changeTheme, subscriberCount } = await mount(
+    'dark',
+    idleEffects,
+    60,
+    false,
+    30,
+  );
 
   await press('?');
 
@@ -1794,4 +1803,239 @@ test('confirm opens the repos captured when the dialog opened, not the refreshed
   await settle();
 
   expect(opens).toEqual(openedPages);
+});
+
+const queryThreads = [
+  treeThread(1, 'Zeta pull request', { repository: 'sqve/zeta' }),
+  treeThread(2, 'App pull request', { repository: 'acme/app' }),
+  treeThread(3, 'Web pull request', { repository: 'acme/web' }),
+  treeThread(4, 'App issue', {
+    repository: 'acme/app',
+    subjectType: 'Issue',
+    subjectUrl: 'https://api.github.com/repos/acme/app/issues/4',
+  }),
+];
+
+const searchThreads = [
+  ...queryThreads,
+  treeThread(5, 'Fix yjs sync', { repository: 'acme/editor' }),
+  treeThread(6, 'Update docs', { repository: 'acme/yjs' }),
+  treeThread(7, 'Document repo: syntax', { repository: 'acme/docs' }),
+];
+
+const typeText = async (setup: Setup, settle: () => Promise<void>, text: string) => {
+  await act(async () => {
+    await setup.mockInput.typeText(text);
+  });
+
+  await settle();
+};
+
+const pressCtrlU = async (setup: Setup, settle: () => Promise<void>) => {
+  await act(async () => {
+    setup.mockInput.pressKey('u', { ctrl: true });
+  });
+
+  await settle();
+};
+
+test('Backspace deletes characters in the search line, and on an empty line closes it', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'ab');
+  await press('backspace');
+
+  expect(setup.captureCharFrame()).toContain('/a');
+  expect(setup.captureCharFrame()).not.toContain('/ab');
+
+  await press('backspace');
+
+  const emptied = setup.captureCharFrame();
+
+  expect(emptied).toContain('/');
+  expect(emptied).toContain('4 matches');
+
+  await press('backspace');
+
+  const closed = setup.captureCharFrame();
+
+  expect(closed).not.toContain('matches');
+
+  for (const title of ['Zeta pull request', 'App pull request', 'Web pull request', 'App issue']) {
+    expect(closed).toContain(title);
+  }
+});
+
+test('typing yjs after / shows only threads with yjs in the title or repository', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(searchThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'yjs');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Fix yjs sync');
+  expect(frame).toContain('Update docs');
+  expect(frame).toContain('acme/yjs');
+  expect(frame).not.toContain('Zeta pull request');
+  expect(frame).not.toContain('App issue');
+  expect(frame).not.toContain('acme/web');
+  expect(frame).toContain('/yjs');
+  expect(frame).toContain('2 matches');
+});
+
+test('repo: after / matches the text repo: and shows no error row', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(searchThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'repo:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Document repo: syntax');
+  expect(frame).not.toContain('Zeta pull request');
+  expect(frame).toContain('/repo:');
+  expect(frame).toContain('1 match');
+  expect(frame).not.toContain('^');
+  expect(frame).not.toContain('Missing value');
+});
+
+test('Enter keeps the text, Esc while editing restores the old one, Ctrl-U clears the line, and Esc in the list clears', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'issue');
+  await press('return');
+
+  const kept = setup.captureCharFrame();
+
+  expect(kept).toContain('App issue');
+  expect(kept).not.toContain('Zeta pull request');
+  expect(kept).toContain('1 match');
+
+  await press('/');
+  await typeText(setup, settle, ' acme');
+  await press('escape');
+
+  const restored = setup.captureCharFrame();
+
+  expect(restored).toContain('/issue');
+  expect(restored).not.toContain('/issue acme');
+  expect(restored).toContain('App issue');
+
+  await press('/');
+  await pressCtrlU(setup, settle);
+
+  const cleared = setup.captureCharFrame();
+
+  expect(cleared).toContain('Zeta pull request');
+  expect(cleared).not.toContain('/issue');
+
+  await press('return');
+  await press('/');
+  await typeText(setup, settle, 'issue');
+  await press('return');
+  await press('escape');
+
+  const listCleared = setup.captureCharFrame();
+
+  expect(listCleared).toContain('Zeta pull request');
+  expect(listCleared).not.toContain('/issue');
+});
+
+test('q typed in the open search line goes into the text and does not quit', async () => {
+  const { setup, press, settle, terminalIntents } = await mount(
+    'dark',
+    threadsEffects(queryThreads),
+  );
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'q');
+
+  expect(terminalIntents).toEqual([]);
+  expect(setup.captureCharFrame()).toContain('/q');
+});
+
+test('d on a group node under a search marks only its matching threads done', async () => {
+  const { setup, press, settle, sent } = await mount('dark', threadsEffects(queryThreads));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'acme/app');
+  await press('return');
+  await press('g');
+
+  await press('d');
+
+  const marks = sent.filter((intent) => (intent as { kind: string }).kind === 'markThreadsDone');
+
+  expect(marks).toEqual([
+    { kind: 'markThreadsDone', threadIds: [toThreadId('2'), toThreadId('4')] },
+  ]);
+});
+
+test('under a search with more matches than rows, the last selected row stays fully visible', async () => {
+  const many = Array.from({ length: 35 }, (_, index) =>
+    makeThread(index + 1, `Match thread ${String(index + 1).padStart(2, '0')}`),
+  );
+
+  const { setup, press, settle } = await mount('dark', threadsEffects(many));
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'Match');
+  await press('return');
+  await press('G');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const rowIndex = lines.findIndex((line) => line.includes('Match thread 35'));
+  const queryIndex = lines.findIndex((line) => line.startsWith('/Match'));
+
+  expect(rowIndex).toBeGreaterThanOrEqual(0);
+  expect(rowIndex).toBeLessThan(queryIndex);
+  expect(lines[rowIndex]).toContain('3h');
+});
+
+test('ctrl+c quits while the search line is open and q still types', async () => {
+  const { setup, press, settle, terminalIntents } = await mount(
+    'dark',
+    threadsEffects(queryThreads),
+  );
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'q');
+
+  expect(terminalIntents).toEqual([]);
+
+  await act(async () => {
+    setup.mockInput.pressKey('c', { ctrl: true });
+  });
+
+  await settle();
+
+  expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
+  expect(setup.captureCharFrame()).toContain('/q');
+});
+
+test('the help overlay lists the search line keys and still shows Close help', async () => {
+  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+
+  for (const id of ['submitInput', 'cancelInput', 'clearInput', 'closeEmptyInput']) {
+    const command = catalog.find((candidate) => candidate.id === id);
+
+    expect(frame).toContain(command?.label ?? 'missing');
+  }
+
+  expect(frame).toContain('Close help');
 });

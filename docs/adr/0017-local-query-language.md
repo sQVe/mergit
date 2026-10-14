@@ -1,8 +1,11 @@
 # ADR 0017: GitHub-style qualifiers, evaluated locally
 
 **Date**: 2026-10-05\
-**Status**: Accepted\
-**Related**: [ADR 0004: Capability modules with an enforced import table](./0004-capability-modules.md),
+**Status**: Superseded\
+**Superseded by**:
+[ADR 0019: Plain text search on `/`, field filters from a picker](./0019-search-and-field-filters.md)\
+**Related**:
+[ADR 0004: Capability modules with an enforced import table](./0004-capability-modules.md),
 [GitHub issue filters](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/filtering-and-searching-issues-and-pull-requests),
 [GitHub inbox filters](https://docs.github.com/en/subscriptions-and-notifications/reference/inbox-filters)
 
