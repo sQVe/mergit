@@ -19,6 +19,15 @@ import type {
   ViewerLogin,
 } from '../work/work.ts';
 import { createDoneQueue, undoWindowMilliseconds } from './done.ts';
+import {
+  applyFilterRow,
+  clearFilters,
+  closeFilters,
+  editFilterDraft,
+  moveFilterCursor,
+  openFilters,
+  takeFilterRow,
+} from './filterComposer.ts';
 import type { Snapshot, Toast, UnsavedChange } from './sessionState.ts';
 import {
   applyFailure,
@@ -52,6 +61,9 @@ import {
 } from './sessionState.ts';
 
 export type { Snapshot } from './sessionState.ts';
+export { filterCursorOf, filterRowsOf } from './filterComposer.ts';
+export type { FilterRow } from './filterComposer.ts';
+export { formatFilter } from '../query.ts';
 export { matchCountOf, visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
@@ -70,6 +82,13 @@ export type ApplicationIntent =
   | { kind: 'keepSearch' }
   | { kind: 'restoreSearch' }
   | { kind: 'clearSearch' }
+  | { kind: 'openFilters' }
+  | { kind: 'editFilterDraft'; text: string }
+  | { kind: 'moveFilterCursor'; direction: 'up' | 'down' }
+  | { kind: 'takeFilterRow' }
+  | { kind: 'applyFilterRow' }
+  | { kind: 'closeFilters' }
+  | { kind: 'clearFilters' }
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
@@ -139,6 +158,8 @@ type StateIntent = Exclude<
   | { kind: 'undoDone' }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
   | { kind: 'editSearch'; text: string }
+  | { kind: 'editFilterDraft'; text: string }
+  | { kind: 'moveFilterCursor'; direction: 'up' | 'down' }
 >;
 
 const minimumPollSeconds = 60;
@@ -196,6 +217,11 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   keepSearch,
   restoreSearch,
   clearSearch,
+  openFilters,
+  takeFilterRow,
+  applyFilterRow,
+  closeFilters,
+  clearFilters,
 };
 
 const copyAccountRecords = (
@@ -985,6 +1011,10 @@ export const createSession = (effects: SessionEffects): Session => {
       openQueue = openQueue.then(() => openInBrowser(intent.pages)).catch(() => undefined);
     } else if (intent.kind === 'editSearch') {
       update(editSearch(snapshot, intent.text));
+    } else if (intent.kind === 'editFilterDraft') {
+      update(editFilterDraft(snapshot, intent.text));
+    } else if (intent.kind === 'moveFilterCursor') {
+      update(moveFilterCursor(snapshot, intent.direction));
     } else {
       update(transitions[intent.kind](snapshot));
 

@@ -1,6 +1,7 @@
 import type { GitHubFailure, SubjectLookup } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
-import { evaluate, searchQuery } from '../query.ts';
+import type { Filter, Query } from '../query.ts';
+import { evaluate, filterQuery, searchQuery } from '../query.ts';
 import type {
   Grouping,
   NodeRow,
@@ -45,6 +46,11 @@ export interface Snapshot {
   searchText: string;
   searchOpen: boolean;
   searchTextBefore: string;
+  filters: Filter[];
+  filtersOpen: boolean;
+  filterDraft: string;
+  filterCursor: number;
+  filterEditing: Filter | null;
 }
 
 export interface NewThreadInput {
@@ -81,6 +87,11 @@ export const initialSnapshot: Snapshot = {
   searchText: '',
   searchOpen: false,
   searchTextBefore: '',
+  filters: [],
+  filtersOpen: false,
+  filterDraft: '',
+  filterCursor: 0,
+  filterEditing: null,
 };
 
 export const isViewerActor = (facts: SubjectFacts | undefined, viewerLogin: string): boolean =>
@@ -109,13 +120,14 @@ export const newThreadIdsOf = (input: NewThreadInput): ReadonlySet<ThreadId> => 
   return newIds;
 };
 
-const openThreads = (snapshot: Snapshot): NotificationThread[] =>
+export const openThreads = (snapshot: Snapshot): NotificationThread[] =>
   snapshot.threads.filter((thread) => !snapshot.hiddenThreadIds.has(thread.id));
 
-const searchedThreads = (snapshot: Snapshot): NotificationThread[] => {
-  const threads = openThreads(snapshot);
-  const query = searchQuery(snapshot.searchText);
-
+export const threadsMatching = (
+  snapshot: Snapshot,
+  threads: NotificationThread[],
+  query: Query | null,
+): NotificationThread[] => {
   if (query === null) {
     return threads;
   }
@@ -130,6 +142,16 @@ const searchedThreads = (snapshot: Snapshot): NotificationThread[] => {
 
     return result !== false;
   });
+};
+
+const searchedThreads = (snapshot: Snapshot): NotificationThread[] => {
+  const searched = threadsMatching(
+    snapshot,
+    openThreads(snapshot),
+    searchQuery(snapshot.searchText),
+  );
+
+  return threadsMatching(snapshot, searched, filterQuery(snapshot.filters));
 };
 
 export const matchCountOf = (snapshot: Snapshot): number => searchedThreads(snapshot).length;
