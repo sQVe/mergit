@@ -3,8 +3,8 @@ import type { CommandContext } from '@opentui/keymap';
 import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
-import type { ReactNode } from 'react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import type { ReactNode, RefObject } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
 import type { Session, Snapshot } from '../session/session.ts';
@@ -45,7 +45,14 @@ interface OpenRequest {
   pages: readonly BrowserPage[];
 }
 
+interface ModalState {
+  helpOpen: boolean;
+  detailOpen: boolean;
+  openRequest: OpenRequest | null;
+}
+
 interface KeysProps extends AppProps {
+  modal: RefObject<ModalState>;
   openRequest: OpenRequest | null;
   setOpenRequest: (request: OpenRequest | null) => void;
   helpOpen: boolean;
@@ -122,10 +129,11 @@ const isRowAction = (command: Command, snapshot: Snapshot): boolean => {
 const Keys = (props: KeysProps): null => {
   const { session, onTerminalIntent, setHelpOpen, setDetailOpen } = props;
 
-  const { openRequest, setOpenRequest } = props;
-  const state = { ...props, confirmOpen: openRequest !== null };
+  const { setOpenRequest, modal } = props;
 
   const confirmOpen = () => {
+    const { openRequest } = modal.current;
+
     setOpenRequest(null);
 
     if (openRequest !== null) {
@@ -154,9 +162,9 @@ const Keys = (props: KeysProps): null => {
       props.setHelpTop((top) =>
         Math.min(helpMaximumTop, Math.max(0, Math.min(top, helpMaximumTop) + lines)),
       );
-    } else if (openRequest === null) {
+    } else if (modal.current.openRequest === null) {
       props.setHelpTop(() => 0);
-      setHelpOpen(action === 'toggleHelp' ? !props.helpOpen : false);
+      setHelpOpen(action === 'toggleHelp' ? !modal.current.helpOpen : false);
     }
   };
 
@@ -198,7 +206,15 @@ const Keys = (props: KeysProps): null => {
   // renders what the first key changed.
   const commandFor = (key: string): Command | undefined => {
     const { searchOpen, filtersOpen } = session.getSnapshot();
-    const live = { ...state, searchOpen, filtersOpen };
+    const { helpOpen, detailOpen, openRequest } = modal.current;
+
+    const live = {
+      helpOpen,
+      confirmOpen: openRequest !== null,
+      detailOpen: detailOpen && !props.sideLayout,
+      searchOpen,
+      filtersOpen,
+    };
 
     return props.catalog.find((command) => command.keys.includes(key) && isActive(command, live));
   };
@@ -239,7 +255,7 @@ const Keys = (props: KeysProps): null => {
     [
       props.helpOpen,
       props.helpMaximumTop,
-      openRequest,
+      props.openRequest,
       setOpenRequest,
       props.detailOpen,
       props.sideLayout,
@@ -312,10 +328,29 @@ const Body = (props: {
 };
 
 export const App = (props: AppProps): ReactNode => {
-  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpOpen, setHelpOpenState] = useState(false);
   const [helpTop, setHelpTop] = useState(0);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [openRequest, setOpenRequest] = useState<OpenRequest | null>(null);
+  const [detailOpen, setDetailOpenState] = useState(false);
+  const [openRequest, setOpenRequestState] = useState<OpenRequest | null>(null);
+
+  // Keys in one burst arrive before React renders, so key handling reads this copy, which each
+  // setter updates at once.
+  const modal = useRef<ModalState>({ helpOpen: false, detailOpen: false, openRequest: null });
+
+  const setHelpOpen = (open: boolean) => {
+    modal.current.helpOpen = open;
+    setHelpOpenState(open);
+  };
+
+  const setDetailOpen = (open: boolean) => {
+    modal.current.detailOpen = open;
+    setDetailOpenState(open);
+  };
+
+  const setOpenRequest = (request: OpenRequest | null) => {
+    modal.current.openRequest = request;
+    setOpenRequestState(request);
+  };
 
   const snapshot = useSyncExternalStore(props.session.subscribe, props.session.getSnapshot);
 
@@ -352,6 +387,7 @@ export const App = (props: AppProps): ReactNode => {
     <KeymapProvider keymap={props.keymap}>
       <Keys
         {...props}
+        modal={modal}
         openRequest={openRequest}
         setOpenRequest={setOpenRequest}
         helpOpen={helpOpen}
