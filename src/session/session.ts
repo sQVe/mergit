@@ -16,6 +16,13 @@ import { copyAccountRecords, createDoneActions } from './doneActions.ts';
 import { createFeedRefresh } from './feedRefresh.ts';
 import type { SettledRefresh } from './feedRefresh.ts';
 import {
+  applyFailure,
+  applyThreads,
+  clearAccount,
+  markFeedBusy,
+  showSavedThreads,
+} from './feedTransitions.ts';
+import {
   applyFilterRow,
   clearFilters,
   closeFilters,
@@ -27,27 +34,18 @@ import {
 } from './filterComposer.ts';
 import { createMarker } from './marker.ts';
 import { createMessageToast } from './messageToast.ts';
-import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import {
-  applyFailure,
-  applyThreads,
-  clearAccount,
   clearSearch,
   editSearch,
-  initialSnapshot,
   keepSearch,
   openSearch,
   restoreSearch,
-  markFeedBusy,
-  cycleGrouping,
-  jumpTopLevel,
-  moveSelection,
-  selectEdge,
-  toggleAllFolds,
-  toggleFold,
-  showSavedThreads,
-} from './sessionState.ts';
+} from './searchTransitions.ts';
+import { jumpTopLevel, moveSelection, selectEdge } from './selectionMoves.ts';
+import type { Snapshot, UnsavedChange } from './sessionState.ts';
+import { initialSnapshot } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
+import { cycleGrouping, toggleAllFolds, toggleFold } from './treeTransitions.ts';
 
 export type { Snapshot } from './sessionState.ts';
 export { filterCursorOf, filterRowsOf } from './filterComposer.ts';

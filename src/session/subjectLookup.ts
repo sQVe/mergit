@@ -1,7 +1,7 @@
 import type { SubjectLookup } from '../github/github.ts';
 import type { NotificationThread, ThreadId } from '../work/work.ts';
-import { applySubjectLookups } from './sessionState.ts';
 import type { Snapshot } from './sessionState.ts';
+import { keepSelectionVisible } from './sessionState.ts';
 
 export interface SubjectLookupOwner {
   start: (threads: NotificationThread[]) => void;
@@ -24,6 +24,20 @@ const isSubject = (thread: NotificationThread) =>
 
 const subjectVersionsOf = (threads: readonly NotificationThread[] = []) =>
   new Map(threads.filter(isSubject).map((thread) => [thread.id, thread.updatedAt]));
+
+const applySubjectLookups = (snapshot: Snapshot, lookups: SubjectLookup[]): Snapshot => {
+  const subjectFacts = new Map(snapshot.subjectFacts);
+
+  for (const lookup of lookups) {
+    if (lookup.facts === null) {
+      subjectFacts.delete(lookup.threadId);
+    } else {
+      subjectFacts.set(lookup.threadId, lookup.facts);
+    }
+  }
+
+  return keepSelectionVisible(snapshot, { ...snapshot, subjectFacts });
+};
 
 export const createSubjectLookup = (host: SubjectLookupHost): SubjectLookupOwner => {
   let lookupController: AbortController | null = null;

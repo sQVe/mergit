@@ -2,15 +2,11 @@ import type { GitHubResult } from '../github/github.ts';
 import { invariant } from '../invariant.ts';
 import type { NotificationThread, ThreadId } from '../work/work.ts';
 import { createDoneQueue, undoWindowMilliseconds } from './done.ts';
+import { hideThreads, releaseThreads, showThreads } from './doneHiding.ts';
+import { failureMessage } from './feedTransitions.ts';
 import type { MessageToastOwner } from './messageToast.ts';
+import { selectedThreadOf } from './selectionMoves.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
-import {
-  failureMessage,
-  hideThreads,
-  releaseThreads,
-  selectedThreadOf,
-  showThreads,
-} from './sessionState.ts';
 
 export interface DoneActionsInputs {
   host: string;

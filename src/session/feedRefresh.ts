@@ -9,7 +9,7 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import type { AccountSwitchOwner } from './accountSwitch.ts';
-import { applyFailure, clearFailure, startRefresh } from './sessionState.ts';
+import { applyFailure, clearFailure, startRefresh } from './feedTransitions.ts';
 import type { Snapshot } from './sessionState.ts';
 
 type FullRefreshOutcome =
