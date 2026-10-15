@@ -12,6 +12,7 @@ import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../wor
 import { createAccountSwitch } from './accountSwitch.ts';
 import { createBrowserOpen } from './browserOpen.ts';
 import type { BrowserOpenInputs } from './browserOpen.ts';
+import { closeCommandLine, editCommandLine, openCommandLine } from './commandLine.ts';
 import { copyAccountRecords, createDoneActions } from './doneActions.ts';
 import { createFeedRefresh } from './feedRefresh.ts';
 import type { SettledRefresh } from './feedRefresh.ts';
@@ -66,6 +67,10 @@ export type ApplicationIntent =
   | { kind: 'toggleFold' }
   | { kind: 'toggleAllFolds' }
   | { kind: 'cycleGrouping' }
+  | { kind: 'openCommandLine' }
+  | { kind: 'editCommandLine'; text: string }
+  | { kind: 'closeCommandLine' }
+  | { kind: 'reportUnknownCommand'; name: string }
   | { kind: 'openSearch' }
   | { kind: 'editSearch'; text: string }
   | { kind: 'keepSearch' }
@@ -134,6 +139,18 @@ export interface Session {
   stop: (deadline: AbortSignal) => Promise<void>;
 }
 
+type EditIntent = Extract<
+  ApplicationIntent,
+  {
+    kind:
+      | 'editSearch'
+      | 'editCommandLine'
+      | 'reportUnknownCommand'
+      | 'editFilterDraft'
+      | 'moveFilterCursor';
+  }
+>;
+
 type StateIntent = Exclude<
   ApplicationIntent,
   | { kind: 'refresh' }
@@ -141,10 +158,19 @@ type StateIntent = Exclude<
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
-  | { kind: 'editSearch'; text: string }
-  | { kind: 'editFilterDraft'; text: string }
-  | { kind: 'moveFilterCursor'; direction: 'up' | 'down' }
+  | EditIntent
 >;
+
+const editKinds = new Set<string>([
+  'editSearch',
+  'editCommandLine',
+  'reportUnknownCommand',
+  'editFilterDraft',
+  'moveFilterCursor',
+]);
+
+const isEditIntent = (intent: ApplicationIntent): intent is EditIntent =>
+  editKinds.has(intent.kind);
 
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',
@@ -162,6 +188,8 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   toggleFold,
   toggleAllFolds,
   cycleGrouping,
+  openCommandLine,
+  closeCommandLine,
   openSearch,
   keepSearch,
   restoreSearch,
@@ -308,10 +336,16 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const toaster = createMessageToast({
+    now: effects.now,
     setTimer: effects.setTimer,
     getSnapshot: () => snapshot,
     update,
   });
+
+  const reportUnknownCommand = (name: string) => {
+    update(closeCommandLine(snapshot));
+    toaster.show({ title: `Unknown command: ${name}`, lines: [], tone: 'error' });
+  };
 
   const reportStateWrite = (outcome: StateWriteOutcome) => {
     if (stopped) {
@@ -386,6 +420,31 @@ export const createSession = (effects: SessionEffects): Session => {
 
   snapshot = marker.apply(snapshot);
 
+  const sendEdit = (intent: EditIntent) => {
+    switch (intent.kind) {
+      case 'editSearch':
+        update(editSearch(snapshot, intent.text));
+
+        break;
+      case 'editCommandLine':
+        update(editCommandLine(snapshot, intent.text));
+
+        break;
+      case 'reportUnknownCommand':
+        reportUnknownCommand(intent.name);
+
+        break;
+      case 'editFilterDraft':
+        update(editFilterDraft(snapshot, intent.text));
+
+        break;
+      case 'moveFilterCursor':
+        update(moveFilterCursor(snapshot, intent.direction));
+
+        break;
+    }
+  };
+
   const send = (intent: ApplicationIntent) => {
     if (stopped) {
       return;
@@ -401,12 +460,8 @@ export const createSession = (effects: SessionEffects): Session => {
       doneActions.undoDone();
     } else if (intent.kind === 'openInBrowser') {
       browserOpen.open(intent.pages);
-    } else if (intent.kind === 'editSearch') {
-      update(editSearch(snapshot, intent.text));
-    } else if (intent.kind === 'editFilterDraft') {
-      update(editFilterDraft(snapshot, intent.text));
-    } else if (intent.kind === 'moveFilterCursor') {
-      update(moveFilterCursor(snapshot, intent.direction));
+    } else if (isEditIntent(intent)) {
+      sendEdit(intent);
     } else {
       update(transitions[intent.kind](snapshot));
 

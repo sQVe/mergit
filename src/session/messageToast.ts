@@ -2,6 +2,7 @@ import type { Snapshot, Toast } from './sessionState.ts';
 
 export interface MessageToastInputs {
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
+  now: () => Date;
   getSnapshot: () => Snapshot;
   update: (candidate: Snapshot) => void;
 }
@@ -12,9 +13,11 @@ export interface MessageToastOwner {
 }
 
 const toastMilliseconds = 4000;
+const messageLimit = 100;
 
 export const createMessageToast = (inputs: MessageToastInputs): MessageToastOwner => {
   let cancelTimer: (() => void) | null = null;
+  let nextMessageId = 0;
 
   const show = (
     content: Omit<Toast, 'durationMilliseconds'>,
@@ -23,7 +26,21 @@ export const createMessageToast = (inputs: MessageToastInputs): MessageToastOwne
     const toast = { ...content, durationMilliseconds };
 
     cancelTimer?.();
-    inputs.update({ ...inputs.getSnapshot(), toast });
+    const snapshot = inputs.getSnapshot();
+
+    nextMessageId += 1;
+
+    const message = {
+      id: nextMessageId,
+      title: content.title,
+      lines: content.lines,
+      tone: content.tone,
+      shownAt: inputs.now(),
+    };
+
+    const messages = [message, ...snapshot.messages].slice(0, messageLimit);
+
+    inputs.update({ ...snapshot, toast, messages });
 
     cancelTimer = inputs.setTimer(toast.durationMilliseconds, () => {
       cancelTimer = null;

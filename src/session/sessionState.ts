@@ -20,6 +20,14 @@ export interface Toast {
   durationMilliseconds: number;
 }
 
+interface Message {
+  id: number;
+  title: string;
+  lines: string[];
+  tone: Toast['tone'];
+  shownAt: Date;
+}
+
 export type UnsavedChange = 'grouping' | 'done' | 'seen';
 
 export interface Snapshot {
@@ -40,10 +48,13 @@ export interface Snapshot {
   pausedUntil: Date | null;
   stateWarning: string | null;
   toast: Toast | null;
+  messages: Message[];
   viewerLogin: ViewerLogin | null;
   searchText: string;
   searchOpen: boolean;
   searchTextBefore: string;
+  commandLineOpen: boolean;
+  commandLineText: string;
   filters: Filter[];
   filtersOpen: boolean;
   filterDraft: string;
@@ -74,10 +85,13 @@ export const initialSnapshot: Snapshot = {
   pausedUntil: null,
   stateWarning: null,
   toast: null,
+  messages: [],
   viewerLogin: null,
   searchText: '',
   searchOpen: false,
   searchTextBefore: '',
+  commandLineOpen: false,
+  commandLineText: '',
   filters: [],
   filtersOpen: false,
   filterDraft: '',

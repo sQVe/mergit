@@ -51,3 +51,46 @@ test("a toast's duration equals the delay of its expiry timer", () => {
 
   expect(session.getSnapshot().toast?.durationMilliseconds).toBe(toastTimer?.delay);
 });
+
+test('toasts stay in messages newest first with time and tone after the toast clears', () => {
+  const { session, timers, now, advance } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+
+  const firstShownAt = now();
+
+  session.reportStateWrite({ ok: false, reason: 'first', path: '~/state.json' });
+  advance(1000);
+
+  const secondShownAt = now();
+
+  session.send({ kind: 'reportUnknownCommand', name: 'foo' });
+  timers.at(-1)?.callback();
+
+  const { toast, messages } = session.getSnapshot();
+
+  expect(toast).toBeNull();
+
+  expect(messages.map((message) => message.title)).toEqual([
+    'Unknown command: foo',
+    'Grouping not saved',
+  ]);
+
+  expect(messages.map((message) => message.tone)).toEqual(['error', 'error']);
+  expect(messages.map((message) => message.shownAt)).toEqual([secondShownAt, firstShownAt]);
+  expect(messages[1]?.lines).toEqual(['first', '~/state.json']);
+});
+
+test('the message history keeps at most 100 entries and drops the oldest', () => {
+  const { session } = makeHarness();
+
+  for (let index = 0; index < 105; index += 1) {
+    session.send({ kind: 'reportUnknownCommand', name: `command${index}` });
+  }
+
+  const { messages } = session.getSnapshot();
+
+  expect(messages).toHaveLength(100);
+  expect(messages[0]?.title).toBe('Unknown command: command104');
+  expect(messages.at(-1)?.title).toBe('Unknown command: command5');
+});
