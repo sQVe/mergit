@@ -6,6 +6,7 @@ import { act } from 'react';
 import { catalog } from '../commands.ts';
 import type { Command } from '../commands.ts';
 import { HelpOverlay } from './HelpOverlay.tsx';
+import { suffixOf } from './helpWindow.ts';
 import { pickPalette } from './palette.ts';
 import { idleEffects, track, mount as untrackedMount } from './uiHarness.tsx';
 
@@ -198,6 +199,28 @@ test('the help box keeps its width while scrolling', async () => {
 
   expect(atTop).toBeGreaterThan(0);
   expect(atEnd).toBe(atTop);
+});
+
+test('the widest help rows show in full at 80x24', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+
+  await press('?');
+
+  for (let index = 0; index < 30; index += 1) {
+    await press('j');
+  }
+
+  const frame = setup.captureCharFrame();
+  const shown = catalog.filter((command) => frame.includes(command.label));
+  const noted = shown.filter((command) => suffixOf(command) !== undefined);
+
+  expect(noted.length).toBeGreaterThan(0);
+
+  for (const command of noted) {
+    const keys = command.keys.join(' ');
+
+    expect(frame).toContain(`${keys}  ${command.label}  ${suffixOf(command)}`);
+  }
 });
 
 test('help that fits shows no position hint', async () => {
