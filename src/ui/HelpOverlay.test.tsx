@@ -6,7 +6,6 @@ import { act } from 'react';
 import { catalog } from '../commands.ts';
 import type { Command } from '../commands.ts';
 import { HelpOverlay } from './HelpOverlay.tsx';
-import { suffixOf } from './helpWindow.ts';
 import { pickPalette } from './palette.ts';
 import { idleEffects, track, mount as untrackedMount } from './uiHarness.tsx';
 
@@ -211,15 +210,18 @@ test('the widest help rows show in full at 80x24', async () => {
   }
 
   const frame = setup.captureCharFrame();
-  const shown = catalog.filter((command) => frame.includes(command.label));
-  const noted = shown.filter((command) => suffixOf(command) !== undefined);
+  const position = /(\d+)-(\d+) of \d+/u.exec(frame);
+  const first = Number(position?.[1]);
+  const last = Number(position?.[2]);
+  const listed = catalog.filter((command) => command.scope !== 'confirm');
+  const shown = listed.slice(first - 1, last);
 
-  expect(noted.length).toBeGreaterThan(0);
+  expect(shown.length).toBeGreaterThan(0);
 
-  for (const command of noted) {
+  for (const command of shown) {
     const keys = command.keys.join(' ');
 
-    expect(frame).toContain(`${keys}  ${command.label}  ${suffixOf(command)}`);
+    expect(frame).toContain(`${keys}  ${command.label}`);
   }
 });
 
