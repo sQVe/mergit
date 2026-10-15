@@ -55,7 +55,7 @@ export type { FilterRow } from './filterComposer.ts';
 export { describeFilterRow } from './filterDescriptions.ts';
 export { formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
-export { searchCandidatesOf } from './searchCompletion.ts';
+export { chosenCandidateIndexOf, searchCandidatesOf } from './searchCompletion.ts';
 export { matchCountOf, openThreads, visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
