@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { Command } from '../commands.ts';
-import { helpWindowOf } from './helpWindow.ts';
+import { helpWindowOf, suffixOf } from './helpWindow.ts';
 import type { Palette } from './palette.ts';
 
 const firstKeyOf = (catalog: readonly Command[], id: string): string =>
@@ -14,7 +14,12 @@ export const HelpOverlay = (props: {
   top: number;
 }): ReactNode => {
   const { palette, catalog } = props;
-  const { commands, viewportRows, maximumTop, overflows } = helpWindowOf(catalog, props.height);
+
+  const { commands, viewportRows, maximumTop, overflows, boxWidth } = helpWindowOf(
+    catalog,
+    props.height,
+  );
+
   const top = Math.min(props.top, maximumTop);
   const visible = commands.slice(top, top + viewportRows);
   const position = `${top + 1}-${top + visible.length} of ${commands.length}`;
@@ -26,6 +31,7 @@ export const HelpOverlay = (props: {
       position="absolute"
       top={0}
       left={2}
+      width={boxWidth}
       border
       borderStyle="rounded"
       borderColor={palette.key}
@@ -36,16 +42,19 @@ export const HelpOverlay = (props: {
       paddingLeft={1}
       paddingRight={1}
     >
-      {visible.map((command) => (
-        <box key={command.id} flexDirection="row" gap={2}>
-          {command.keys.length === 0 ? null : (
-            <text fg={palette.key}>{command.keys.join(' ')}</text>
-          )}
-          <text fg={palette.text}>{command.label}</text>
-          {command.scope === 'input' ? <text fg={palette.dim}>(search line)</text> : null}
-          {command.scope === 'filter' ? <text fg={palette.dim}>(filter composer)</text> : null}
-        </box>
-      ))}
+      {visible.map((command) => {
+        const suffix = suffixOf(command);
+
+        return (
+          <box key={command.id} flexDirection="row" gap={2}>
+            {command.keys.length === 0 ? null : (
+              <text fg={palette.key}>{command.keys.join(' ')}</text>
+            )}
+            <text fg={palette.text}>{command.label}</text>
+            {suffix === undefined ? null : <text fg={palette.dim}>{suffix}</text>}
+          </box>
+        );
+      })}
       {overflows ? <text fg={palette.dim}>{hint}</text> : null}
     </box>
   );

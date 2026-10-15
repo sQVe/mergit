@@ -181,6 +181,25 @@ test('the first scroll key after a resize moves one row from what is shown', asy
   expect(setup.captureCharFrame()).toContain(`10-${total - 1} of ${total}`);
 });
 
+const rightEdgeOf = (frame: string): number => frame.split('\n')[0]?.lastIndexOf('╮') ?? -1;
+
+test('the help box keeps its width while scrolling', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+
+  await press('?');
+
+  const atTop = rightEdgeOf(setup.captureCharFrame());
+
+  for (let index = 0; index < 30; index += 1) {
+    await press('j');
+  }
+
+  const atEnd = rightEdgeOf(setup.captureCharFrame());
+
+  expect(atTop).toBeGreaterThan(0);
+  expect(atEnd).toBe(atTop);
+});
+
 test('help that fits shows no position hint', async () => {
   const { setup, press } = await mount(null, idleEffects, 80, false, 50);
 
