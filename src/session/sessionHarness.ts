@@ -11,8 +11,8 @@ import type {
 } from '../github/github.ts';
 import type { BrowserPage, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
-import { createSession, visibleRows } from './session.ts';
-import type { SavedSnapshot, SavedState, Session, SessionEffects } from './session.ts';
+import { createSession, formatFilter, visibleRows } from './session.ts';
+import type { FilterRow, SavedSnapshot, SavedState, Session, SessionEffects } from './session.ts';
 
 type Call =
   | {
@@ -436,6 +436,52 @@ export const sentOk: GitHubResult<null> = { ok: true, value: null };
 
 export const rowKeysOf = (session: ReturnType<typeof makeHarness>['session']): string[] =>
   visibleRows(session.getSnapshot()).map((row) => row.key);
+
+export const threadKeysOf = (session: ReturnType<typeof makeHarness>['session']): string[] =>
+  rowKeysOf(session).filter((key) => key.startsWith('thread:'));
+
+export const sortedThreadKeysOf = (session: ReturnType<typeof makeHarness>['session']): string[] =>
+  threadKeysOf(session).toSorted();
+
+export const addFilters = (
+  session: ReturnType<typeof makeHarness>['session'],
+  text: string,
+): void => {
+  session.send({ kind: 'editFilterDraft', text });
+  session.send({ kind: 'applyFilterRow' });
+};
+
+export const describeRow = (row: FilterRow): string => {
+  if (row.kind === 'active') {
+    return `active ${formatFilter(row.filter)}${row.count === null ? '' : ` ${row.count}`}`;
+  }
+
+  if (row.kind === 'field') {
+    return `field ${row.field}`;
+  }
+
+  if (row.kind === 'candidate') {
+    return `candidate ${formatFilter(row.filter)} ${row.count}`;
+  }
+
+  if (row.kind === 'typed') {
+    return `typed ${row.filters.map(formatFilter).join(' ')} ${row.count}`;
+  }
+
+  return 'error';
+};
+
+export const flatHarness = async (
+  ...threads: NotificationThread[]
+): Promise<ReturnType<typeof makeHarness>> => {
+  const harness = makeHarness();
+
+  await harness.load(...threads);
+  harness.session.send({ kind: 'cycleGrouping' });
+  harness.session.send({ kind: 'cycleGrouping' });
+
+  return harness;
+};
 
 export const fireDoneTimerAt = async (
   harness: ReturnType<typeof makeHarness>,

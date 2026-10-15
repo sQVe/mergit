@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { visibleRows } from './session.ts';
-import { makeHarness, makeThread } from './sessionHarness.ts';
+import { flatHarness, makeHarness, makeThread } from './sessionHarness.ts';
 
 const reviewThread = makeThread('1');
 
@@ -14,16 +14,6 @@ const threadKeys = (session: ReturnType<typeof makeHarness>['session']): string[
   visibleRows(session.getSnapshot()).map((row) => row.key);
 
 const otherThread = makeThread('3', { repository: 'acme/other' });
-
-const flatHarness = async () => {
-  const harness = makeHarness();
-
-  await harness.load(reviewThread, mentionThread, otherThread);
-  harness.session.send({ kind: 'cycleGrouping' });
-  harness.session.send({ kind: 'cycleGrouping' });
-
-  return harness;
-};
 
 test('toggleFold folds the node that holds the selected thread and moves the cursor to it', async () => {
   const { session, load, selected, selectThread } = makeHarness();
@@ -169,14 +159,18 @@ test('a fold in one grouping does not fold a node in another', async () => {
 });
 
 test('none lists only thread rows in input order', async () => {
-  const { session } = await flatHarness();
+  const { session } = await flatHarness(reviewThread, mentionThread, otherThread);
 
   expect(session.getSnapshot().grouping).toBe('none');
   expect(threadKeys(session)).toEqual(['thread:1', 'thread:2', 'thread:3']);
 });
 
 test('group jumps and folds change nothing in none and do not throw', async () => {
-  const { session, selected, selectThread } = await flatHarness();
+  const { session, selected, selectThread } = await flatHarness(
+    reviewThread,
+    mentionThread,
+    otherThread,
+  );
 
   selectThread(mentionThread);
 

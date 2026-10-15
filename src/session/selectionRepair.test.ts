@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { makeHarness, makeThread } from './sessionHarness.ts';
+import { flatHarness, makeHarness, makeThread } from './sessionHarness.ts';
 
 const reviewThread = makeThread('1');
 
@@ -10,16 +10,6 @@ const mentionThread = makeThread('2', {
 });
 
 const otherThread = makeThread('3', { repository: 'acme/other' });
-
-const flatHarness = async () => {
-  const harness = makeHarness();
-
-  await harness.load(reviewThread, mentionThread, otherThread);
-  harness.session.send({ kind: 'cycleGrouping' });
-  harness.session.send({ kind: 'cycleGrouping' });
-
-  return harness;
-};
 
 test('selection stays on the same thread across a refresh that reorders threads', async () => {
   const { session, load, selected, selectThread } = makeHarness();
@@ -115,7 +105,11 @@ test('a refresh that removes the selected thread and its repo selects the group 
 });
 
 test('a refresh in none keeps the selected thread, or falls back to the row index', async () => {
-  const { load, selected, selectThread } = await flatHarness();
+  const { load, selected, selectThread } = await flatHarness(
+    reviewThread,
+    mentionThread,
+    otherThread,
+  );
 
   selectThread(mentionThread);
   await load(mentionThread, reviewThread);

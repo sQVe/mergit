@@ -2,29 +2,8 @@ import { expect, test } from 'bun:test';
 
 import { filterFields } from '../query.ts';
 import type { NotificationThread } from '../work/work.ts';
-import { describeFilterRow, filterCursorOf, filterRowsOf, formatFilter } from './session.ts';
-import type { FilterRow } from './session.ts';
-import { factsOf, makeHarness, makeThread, settle } from './sessionHarness.ts';
-
-const describeRow = (row: FilterRow): string => {
-  if (row.kind === 'active') {
-    return `active ${formatFilter(row.filter)}${row.count === null ? '' : ` ${row.count}`}`;
-  }
-
-  if (row.kind === 'field') {
-    return `field ${row.field}`;
-  }
-
-  if (row.kind === 'candidate') {
-    return `candidate ${formatFilter(row.filter)} ${row.count}`;
-  }
-
-  if (row.kind === 'typed') {
-    return `typed ${row.filters.map(formatFilter).join(' ')} ${row.count}`;
-  }
-
-  return 'error';
-};
+import { describeFilterRow, filterCursorOf, filterRowsOf } from './session.ts';
+import { describeRow, factsOf, makeHarness, makeThread, settle } from './sessionHarness.ts';
 
 const loadInbox = async (
   entries: { id: string; overrides?: Partial<NotificationThread>; author?: string }[],

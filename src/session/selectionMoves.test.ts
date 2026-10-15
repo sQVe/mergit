@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { makeHarness, makeThread } from './sessionHarness.ts';
+import { flatHarness, makeHarness, makeThread } from './sessionHarness.ts';
 
 const reviewThread = makeThread('1');
 
@@ -10,16 +10,6 @@ const mentionThread = makeThread('2', {
 });
 
 const otherThread = makeThread('3', { repository: 'acme/other' });
-
-const flatHarness = async () => {
-  const harness = makeHarness();
-
-  await harness.load(reviewThread, mentionThread, otherThread);
-  harness.session.send({ kind: 'cycleGrouping' });
-  harness.session.send({ kind: 'cycleGrouping' });
-
-  return harness;
-};
 
 test('selectNext and selectPrevious move one row and stop at the ends', async () => {
   const { session, load, selected } = makeHarness();
@@ -92,7 +82,7 @@ test('selectPreviousGroup from a thread in the second group selects the first gr
 });
 
 test('j, k, g, and G move over thread rows in none', async () => {
-  const { session, selected } = await flatHarness();
+  const { session, selected } = await flatHarness(reviewThread, mentionThread, otherThread);
 
   session.send({ kind: 'selectFirst' });
 

@@ -5,6 +5,7 @@ import { matchCountOf, visibleRows } from './session.ts';
 import type { SavedState } from './session.ts';
 import {
   accountKeyOf,
+  addFilters,
   doneFor,
   makeHarness,
   fireDoneTimerAt,
@@ -14,9 +15,10 @@ import {
   readOf,
   savedSnapshotOf,
   seenOf,
-  rowKeysOf,
   sentOk,
   settle,
+  sortedThreadKeysOf,
+  threadKeysOf,
 } from './sessionHarness.ts';
 
 test('getSnapshot returns the same object until a transition changes it', async () => {
@@ -237,9 +239,6 @@ const queryThreads = () => [
   makeThread('4', { title: 'Tidy', reason: 'mention', repository: 'acme/app' }),
 ];
 
-const threadKeysOf = (session: ReturnType<typeof makeHarness>['session']) =>
-  rowKeysOf(session).filter((key) => key.startsWith('thread:'));
-
 const nodeRowsOf = (session: ReturnType<typeof makeHarness>['session']) =>
   visibleRows(session.getSnapshot()).filter((row) => row.kind === 'node');
 
@@ -328,14 +327,6 @@ test('markThreadsDone with a node row marks only its matching threads under a se
 
   expect(harness.sends).toHaveLength(2);
 });
-
-const sortedThreadKeysOf = (session: ReturnType<typeof makeHarness>['session']) =>
-  threadKeysOf(session).toSorted();
-
-const addFilters = (session: ReturnType<typeof makeHarness>['session'], text: string) => {
-  session.send({ kind: 'editFilterDraft', text });
-  session.send({ kind: 'applyFilterRow' });
-};
 
 test('search text and filters combine with AND', async () => {
   const { session, load } = makeHarness();

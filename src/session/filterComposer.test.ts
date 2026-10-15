@@ -4,33 +4,24 @@ import type { NotificationThread } from '../work/work.ts';
 import { filterCursorOf, filterRowsOf, formatFilter } from './session.ts';
 import type { FilterRow } from './session.ts';
 import {
+  addFilters,
+  describeRow,
   factsOf,
   makeHarness,
   makeThread,
   octocat,
   releaseOf,
   seenFor,
-  rowKeysOf,
   settle,
+  sortedThreadKeysOf,
   stateWithSeen,
 } from './sessionHarness.ts';
-
-const threadKeysOf = (session: ReturnType<typeof makeHarness>['session']) =>
-  rowKeysOf(session).filter((key) => key.startsWith('thread:'));
 
 const filterThreads = () => [
   makeThread('1', { repository: 'hups-co/platform' }),
   makeThread('2', { repository: 'hups-co/web' }),
   makeThread('3', { repository: 'acme/app' }),
 ];
-
-const sortedThreadKeysOf = (session: ReturnType<typeof makeHarness>['session']) =>
-  threadKeysOf(session).toSorted();
-
-const addFilters = (session: ReturnType<typeof makeHarness>['session'], text: string) => {
-  session.send({ kind: 'editFilterDraft', text });
-  session.send({ kind: 'applyFilterRow' });
-};
 
 test('applyFilterRow on a negated repo token hides that repo and keeps the others', async () => {
   const { session, load } = makeHarness();
@@ -215,26 +206,6 @@ test('a thread with unknown state stays visible under state:merged', async () =>
 
   expect(sortedThreadKeysOf(session)).toEqual(['thread:1', 'thread:2', 'thread:3']);
 });
-
-const describeRow = (row: FilterRow): string => {
-  if (row.kind === 'active') {
-    return `active ${formatFilter(row.filter)}${row.count === null ? '' : ` ${row.count}`}`;
-  }
-
-  if (row.kind === 'field') {
-    return `field ${row.field}`;
-  }
-
-  if (row.kind === 'candidate') {
-    return `candidate ${formatFilter(row.filter)} ${row.count}`;
-  }
-
-  if (row.kind === 'typed') {
-    return `typed ${row.filters.map(formatFilter).join(' ')} ${row.count}`;
-  }
-
-  return 'error';
-};
 
 test('composer rows list active filters, then values, then fields when the draft is empty', async () => {
   const { session, load } = makeHarness();

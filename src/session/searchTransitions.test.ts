@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { NotificationThread } from '../work/work.ts';
-import { makeHarness, makeThread, rowKeysOf } from './sessionHarness.ts';
+import { makeHarness, makeThread, rowKeysOf, threadKeysOf } from './sessionHarness.ts';
 
 const queryThreads = () => [
   makeThread('1', { title: 'Fix parser', reason: 'review_requested', repository: 'acme/app' }),
@@ -9,9 +9,6 @@ const queryThreads = () => [
   makeThread('3', { title: 'Docs', reason: 'review_requested', repository: 'acme/tools' }),
   makeThread('4', { title: 'Tidy', reason: 'mention', repository: 'acme/app' }),
 ];
-
-const threadKeysOf = (session: ReturnType<typeof makeHarness>['session']) =>
-  rowKeysOf(session).filter((key) => key.startsWith('thread:'));
 
 test('openSearch opens the line and keepSearch closes it with the text applied', async () => {
   const { session, load } = makeHarness();
