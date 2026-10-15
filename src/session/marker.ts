@@ -1,11 +1,15 @@
-import type { NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
+import type { NotificationThread, SubjectFacts, ThreadId, ViewerLogin } from '../work/work.ts';
+import { selectedThreadOf } from './selectionMoves.ts';
 import type { Snapshot } from './sessionState.ts';
-import {
-  isViewerActor,
-  keepSelectionVisible,
-  newThreadIdsOf,
-  selectedThreadOf,
-} from './sessionState.ts';
+import { keepSelectionVisible } from './sessionState.ts';
+
+interface NewThreadInput {
+  threads: NotificationThread[];
+  seen: ReadonlyMap<ThreadId, string> | undefined;
+  subjectFacts: ReadonlyMap<ThreadId, SubjectFacts>;
+  viewerLogin: string;
+  pendingThreadIds: ReadonlySet<ThreadId>;
+}
 
 export interface MarkerInputs {
   host: string;
@@ -23,6 +27,32 @@ export interface MarkerOwner {
   recordSelected: (candidate: Snapshot) => void;
   prune: (fetched: NotificationThread[]) => void;
 }
+
+const isViewerActor = (facts: SubjectFacts | undefined, viewerLogin: string): boolean =>
+  facts?.latestActor?.toLowerCase() === viewerLogin.toLowerCase();
+
+const newThreadIdsOf = (input: NewThreadInput): ReadonlySet<ThreadId> => {
+  const { seen, subjectFacts, viewerLogin, pendingThreadIds } = input;
+  const newIds = new Set<ThreadId>();
+
+  if (seen === undefined) {
+    return newIds;
+  }
+
+  for (const thread of input.threads) {
+    const seenAt = seen.get(thread.id);
+
+    const changed = seenAt === undefined || Date.parse(thread.updatedAt) > Date.parse(seenAt);
+
+    const ownActivity = isViewerActor(subjectFacts.get(thread.id), viewerLogin);
+
+    if (changed && !ownActivity && !pendingThreadIds.has(thread.id)) {
+      newIds.add(thread.id);
+    }
+  }
+
+  return newIds;
+};
 
 export const createMarker = (inputs: MarkerInputs): MarkerOwner => {
   const currentSeen = (): Map<ThreadId, string> | undefined => {
