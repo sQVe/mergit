@@ -466,3 +466,46 @@ test('text typed in the same burst after Ctrl-U on the search line replaces the 
 
   expect(session.getSnapshot().searchText).toBe('x');
 });
+
+test('? and j in one burst scroll help and leave the list selection alone', async () => {
+  const { setup, press, settle, session } = await mount(
+    'dark',
+    threadsEffects(threeThreads),
+    80,
+    false,
+    24,
+  );
+
+  await pressAll(press, ['r', 'j']);
+
+  const selected = session.getSnapshot().selectedRowKey;
+
+  await burst(setup, ['?', 'j']);
+  await settle();
+
+  expect(setup.captureCharFrame()).toMatch(/2-\d+ of \d+/);
+  expect(session.getSnapshot().selectedRowKey).toBe(selected);
+});
+
+test('? twice in one burst leaves help closed', async () => {
+  const { setup, settle } = await mount('dark', threadsEffects(threeThreads), 80, false, 24);
+
+  await burst(setup, ['?', '?']);
+  await settle();
+
+  expect(setup.captureCharFrame()).not.toMatch(/\d+-\d+ of \d+/);
+});
+
+test('Enter and j in one burst open the detail and leave the list selection alone', async () => {
+  const { setup, press, settle, session } = await mount('dark', threadsEffects(threeThreads));
+
+  await pressAll(press, ['r', 'j', 'j']);
+
+  const selected = session.getSnapshot().selectedRowKey;
+
+  await burst(setup, ['return', 'j']);
+  await settle();
+
+  expect(setup.captureCharFrame()).toMatch(/Repo\s+example\/repo/);
+  expect(session.getSnapshot().selectedRowKey).toBe(selected);
+});
