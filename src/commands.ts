@@ -8,6 +8,7 @@ export type Intent =
   | { kind: 'ui'; action: 'toggleHelp' | 'closeHelp' | 'openDetail' | 'closeDetail' }
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
+  | { kind: 'ui'; action: 'scrollHelp'; lines: number }
   | { kind: 'terminal'; action: 'quit' };
 
 export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
@@ -272,6 +273,22 @@ export const catalog: readonly Command[] = [
     keys: ['escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'closeHelp' }),
+  },
+  {
+    id: 'scrollHelpDown',
+    label: 'Scroll help down',
+    scope: 'help',
+    keys: ['j', 'down'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollHelp', lines: 1 }),
+  },
+  {
+    id: 'scrollHelpUp',
+    label: 'Scroll help up',
+    scope: 'help',
+    keys: ['k', 'up'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollHelp', lines: -1 }),
   },
   {
     id: 'confirmOpen',

@@ -1,6 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
 
+import { testRender } from '@opentui/react/test-utils';
+import { act } from 'react';
+
 import { catalog } from '../commands.ts';
+import type { Command } from '../commands.ts';
+import { HelpOverlay } from './HelpOverlay.tsx';
+import { pickPalette } from './palette.ts';
 import { idleEffects, track, mount as untrackedMount } from './uiHarness.tsx';
 
 const cleanups: (() => void)[] = [];
@@ -75,4 +81,136 @@ test('the help overlay lists the search line keys and still shows Close help', a
   }
 
   expect(frame).toContain('Close help');
+});
+
+test('help fits inside an 80x24 terminal and scrolls to Close help', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+
+  await press('?');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const bottomBorder = lines.findIndex((line) => line.includes('╰'));
+
+  expect(bottomBorder).toBeGreaterThan(0);
+  expect(bottomBorder).toBeLessThan(24);
+  expect(lines[0]).toContain('Help');
+
+  for (let index = 0; index < 16; index += 1) {
+    await press('j');
+  }
+
+  const scrolled = setup.captureCharFrame();
+
+  expect(scrolled).toContain('Close help');
+  expect(scrolled).toContain('escape');
+});
+
+test('scrolling 80x24 help reaches every listed command and shows the position', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+
+  await press('?');
+
+  const listed = catalog.filter((command) => command.scope !== 'confirm');
+  const seen = new Set<string>();
+  const positions: string[] = [];
+
+  for (const scrolledBy of listed.keys()) {
+    const frame = setup.captureCharFrame();
+
+    positions.push(/\d+-\d+ of \d+/.exec(frame)?.[0] ?? 'none');
+
+    for (const command of listed) {
+      if (frame.includes(command.label)) {
+        seen.add(command.id);
+      }
+    }
+
+    if (scrolledBy < listed.length) {
+      await press('j');
+    }
+  }
+
+  expect(seen.size).toBe(listed.length);
+  expect(positions[0]).toBe(`1-21 of ${listed.length}`);
+  expect(positions.at(-1)).toBe(`${listed.length - 20}-${listed.length} of ${listed.length}`);
+});
+
+test('scrolling up stops at the first command and down stops at the last', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+
+  await press('?');
+  await press('k');
+  await press('up');
+
+  expect(setup.captureCharFrame()).toContain('1-21 of');
+
+  for (let index = 0; index < 16; index += 1) {
+    await press('down');
+  }
+
+  const bottom = setup.captureCharFrame();
+
+  await press('j');
+
+  expect(setup.captureCharFrame()).toBe(bottom);
+
+  await press('k');
+
+  expect(setup.captureCharFrame()).not.toBe(bottom);
+});
+
+test('the first scroll key after a resize moves one row from what is shown', async () => {
+  const { setup, press, resize } = await mount(null, idleEffects, 80, false, 24);
+
+  await press('?');
+
+  for (let index = 0; index < 30; index += 1) {
+    await press('j');
+  }
+
+  const total = catalog.filter((command) => command.scope !== 'confirm').length;
+
+  expect(setup.captureCharFrame()).toContain(`17-${total} of ${total}`);
+
+  await resize(80, 30);
+
+  expect(setup.captureCharFrame()).toContain(`11-${total} of ${total}`);
+
+  await press('k');
+
+  expect(setup.captureCharFrame()).toContain(`10-${total - 1} of ${total}`);
+});
+
+test('help that fits shows no position hint', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, 50);
+
+  await press('?');
+
+  expect(setup.captureCharFrame()).not.toMatch(/\d+-\d+ of \d+/);
+});
+
+test('a command without keys renders its label', async () => {
+  const nameOnly: Command = {
+    id: 'nameOnly',
+    label: 'Run by name',
+    scope: 'global',
+    keys: [],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'terminal', action: 'quit' }),
+  };
+
+  const setup = await act(() =>
+    testRender(
+      <HelpOverlay catalog={[nameOnly]} palette={pickPalette('dark')} height={24} top={0} />,
+      { width: 80, height: 24 },
+    ),
+  );
+
+  cleanups.push(() => {
+    setup.renderer.destroy();
+  });
+
+  await act(() => setup.renderOnce());
+
+  expect(setup.captureCharFrame()).toContain('Run by name');
 });

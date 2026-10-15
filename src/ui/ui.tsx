@@ -15,6 +15,7 @@ import { DetailPane } from './DetailPane.tsx';
 import { FilterBar, filterBarRows } from './FilterBar.tsx';
 import { FilterComposer, composerLayoutOf } from './FilterComposer.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
+import { helpWindowOf } from './helpWindow.ts';
 import { hasNotice, Notice } from './Notice.tsx';
 import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
@@ -49,6 +50,8 @@ interface KeysProps extends AppProps {
   setOpenRequest: (request: OpenRequest | null) => void;
   helpOpen: boolean;
   setHelpOpen: (open: boolean) => void;
+  helpMaximumTop: number;
+  setHelpTop: (update: (top: number) => number) => void;
   detailOpen: boolean;
   setDetailOpen: (open: boolean) => void;
   sideLayout: boolean;
@@ -143,7 +146,16 @@ const Keys = (props: KeysProps): null => {
       setDetailOpen(!props.sideLayout);
     } else if (action === 'closeDetail') {
       setDetailOpen(false);
+    } else if (intent.action === 'scrollHelp') {
+      const { lines } = intent;
+
+      const { helpMaximumTop } = props;
+
+      props.setHelpTop((top) =>
+        Math.min(helpMaximumTop, Math.max(0, Math.min(top, helpMaximumTop) + lines)),
+      );
     } else if (openRequest === null) {
+      props.setHelpTop(() => 0);
       setHelpOpen(action === 'toggleHelp' ? !props.helpOpen : false);
     }
   };
@@ -226,6 +238,7 @@ const Keys = (props: KeysProps): null => {
     }),
     [
       props.helpOpen,
+      props.helpMaximumTop,
       openRequest,
       setOpenRequest,
       props.detailOpen,
@@ -300,6 +313,7 @@ const Body = (props: {
 
 export const App = (props: AppProps): ReactNode => {
   const [helpOpen, setHelpOpen] = useState(false);
+  const [helpTop, setHelpTop] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false);
   const [openRequest, setOpenRequest] = useState<OpenRequest | null>(null);
 
@@ -312,6 +326,8 @@ export const App = (props: AppProps): ReactNode => {
 
   const palette = pickPalette(themeMode);
   const { width, height } = useTerminalDimensions();
+
+  const helpWindow = helpWindowOf(props.catalog, height);
 
   const sideLayout = width >= sidePaneMinimumWidth;
   const fullDetail = detailOpen && !sideLayout;
@@ -340,6 +356,8 @@ export const App = (props: AppProps): ReactNode => {
         setOpenRequest={setOpenRequest}
         helpOpen={helpOpen}
         setHelpOpen={setHelpOpen}
+        helpMaximumTop={helpWindow.maximumTop}
+        setHelpTop={setHelpTop}
         detailOpen={fullDetail}
         setDetailOpen={setDetailOpen}
         sideLayout={sideLayout}
@@ -373,7 +391,9 @@ export const App = (props: AppProps): ReactNode => {
       {openRequest === null ? null : (
         <ConfirmDialog repositories={openRequest.pages.length} palette={palette} />
       )}
-      {helpOpen ? <HelpOverlay catalog={props.catalog} palette={palette} /> : null}
+      {helpOpen ? (
+        <HelpOverlay catalog={props.catalog} palette={palette} height={height} top={helpTop} />
+      ) : null}
     </KeymapProvider>
   );
 };
