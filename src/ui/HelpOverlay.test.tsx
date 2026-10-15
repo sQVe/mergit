@@ -52,7 +52,7 @@ test('Escape closes the overlay', async () => {
 });
 
 test('escape does nothing while the overlay is closed', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
+  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
 
   await press('escape');
 
@@ -60,7 +60,7 @@ test('escape does nothing while the overlay is closed', async () => {
 });
 
 test('the overlay lists the close help command from the catalog', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
+  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
 
   await press('?');
 
@@ -68,7 +68,7 @@ test('the overlay lists the close help command from the catalog', async () => {
 });
 
 test('the help overlay lists the search line keys and still shows Close help', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 30);
+  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
 
   await press('?');
 
@@ -95,7 +95,7 @@ test('help fits inside an 80x24 terminal and scrolls to Close help', async () =>
   expect(bottomBorder).toBeLessThan(24);
   expect(lines[0]).toContain('Help');
 
-  for (let index = 0; index < 16; index += 1) {
+  for (let index = 0; index < 22; index += 1) {
     await press('j');
   }
 
@@ -144,7 +144,7 @@ test('scrolling up stops at the first command and down stops at the last', async
 
   expect(setup.captureCharFrame()).toContain('1-21 of');
 
-  for (let index = 0; index < 16; index += 1) {
+  for (let index = 0; index < 30; index += 1) {
     await press('down');
   }
 
@@ -170,15 +170,15 @@ test('the first scroll key after a resize moves one row from what is shown', asy
 
   const total = catalog.filter((command) => command.scope !== 'confirm').length;
 
-  expect(setup.captureCharFrame()).toContain(`17-${total} of ${total}`);
+  expect(setup.captureCharFrame()).toContain(`${total - 20}-${total} of ${total}`);
 
   await resize(80, 30);
 
-  expect(setup.captureCharFrame()).toContain(`11-${total} of ${total}`);
+  expect(setup.captureCharFrame()).toContain(`${total - 26}-${total} of ${total}`);
 
   await press('k');
 
-  expect(setup.captureCharFrame()).toContain(`10-${total - 1} of ${total}`);
+  expect(setup.captureCharFrame()).toContain(`${total - 27}-${total - 1} of ${total}`);
 });
 
 const rightEdgeOf = (frame: string): number => frame.split('\n')[0]?.lastIndexOf('╮') ?? -1;
@@ -257,4 +257,43 @@ test('a command without keys renders its label', async () => {
   await act(() => setup.renderOnce());
 
   expect(setup.captureCharFrame()).toContain('Run by name');
+});
+
+test('a command with a name and no keys is listed as :<name>', async () => {
+  const quit = catalog.find((command) => command.id === 'quit') as Command;
+  const named: Command = { ...quit, id: 'quitByName', label: 'Leave Zeta', name: 'bye', keys: [] };
+
+  const { setup, press } = await mount(null, idleEffects, 60, false, 50, false, [
+    ...catalog,
+    named,
+  ]);
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+  const row = frame.split('\n').find((line) => line.includes('Leave Zeta'));
+
+  expect(row).toContain(':bye');
+});
+
+test('a command line command is listed with the command line suffix', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, 50);
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+  const row = frame.split('\n').find((line) => line.includes('Run the command'));
+
+  expect(row).toContain('(command line)');
+});
+
+test('help lists the :messages command', async () => {
+  const { setup, press } = await mount(null, idleEffects, 60, false, 60);
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain(':messages');
+  expect(frame).toContain('Show recent messages');
 });

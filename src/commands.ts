@@ -5,10 +5,20 @@ import { pagesOfRow } from './work/work.ts';
 
 export type Intent =
   | { kind: 'application'; intent: ApplicationIntent }
-  | { kind: 'ui'; action: 'toggleHelp' | 'closeHelp' | 'openDetail' | 'closeDetail' }
+  | {
+      kind: 'ui';
+      action:
+        | 'toggleHelp'
+        | 'closeHelp'
+        | 'openDetail'
+        | 'closeDetail'
+        | 'runCommandLine'
+        | 'openMessages'
+        | 'closeMessages';
+    }
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
-  | { kind: 'ui'; action: 'scrollHelp'; lines: number }
+  | { kind: 'ui'; action: 'scrollHelp' | 'scrollMessages'; lines: number }
   | { kind: 'terminal'; action: 'quit' };
 
 export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
@@ -16,7 +26,18 @@ export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 export interface Command {
   id: string;
   label: string;
-  scope: 'global' | 'list' | 'preview' | 'help' | 'confirm' | 'input' | 'filter';
+  scope:
+    | 'global'
+    | 'list'
+    | 'preview'
+    | 'help'
+    | 'confirm'
+    | 'input'
+    | 'filter'
+    | 'command'
+    | 'messages';
+  // The word typed after `:` that runs this command.
+  name?: string;
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   intent: (snapshot: Snapshot) => Intent;
@@ -200,6 +221,14 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'clearSearch' } }),
   },
   {
+    id: 'openCommandLine',
+    label: 'Open the command line',
+    scope: 'list',
+    keys: [':'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'openCommandLine' } }),
+  },
+  {
     id: 'openFilters',
     label: 'Filter the list',
     scope: 'list',
@@ -259,6 +288,48 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'application', intent: { kind: 'keepSearch' } }),
   },
   {
+    id: 'runCommandLine',
+    label: 'Run the command',
+    scope: 'command',
+    keys: ['return'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'runCommandLine' }),
+  },
+  {
+    id: 'closeCommandLine',
+    label: 'Close the command line',
+    scope: 'command',
+    keys: ['escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'closeCommandLine' } }),
+  },
+  {
+    id: 'clearCommandLine',
+    label: 'Clear the line',
+    scope: 'command',
+    keys: ['ctrl+u'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'editCommandLine', text: '' } }),
+  },
+  {
+    id: 'quitFromCommandLine',
+    label: 'Quit',
+    scope: 'command',
+    keys: ['ctrl+c'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'terminal', action: 'quit' }),
+  },
+  {
+    id: 'closeEmptyCommandLine',
+    label: 'Close the empty line',
+    scope: 'command',
+    keys: ['backspace'],
+    preventDefault: false,
+    disabledReason: (snapshot) =>
+      snapshot.commandLineText === '' ? undefined : 'The line has text to delete.',
+    intent: () => ({ kind: 'application', intent: { kind: 'closeCommandLine' } }),
+  },
+  {
     id: 'closeDetail',
     label: 'Close thread detail',
     scope: 'preview',
@@ -273,6 +344,39 @@ export const catalog: readonly Command[] = [
     keys: ['escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'closeHelp' }),
+  },
+  {
+    id: 'showMessages',
+    label: 'Show recent messages',
+    scope: 'global',
+    name: 'messages',
+    keys: [],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'openMessages' }),
+  },
+  {
+    id: 'closeMessages',
+    label: 'Close messages',
+    scope: 'messages',
+    keys: ['escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'closeMessages' }),
+  },
+  {
+    id: 'scrollMessagesDown',
+    label: 'Scroll messages down',
+    scope: 'messages',
+    keys: ['j', 'down'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollMessages', lines: 1 }),
+  },
+  {
+    id: 'scrollMessagesUp',
+    label: 'Scroll messages up',
+    scope: 'messages',
+    keys: ['k', 'up'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollMessages', lines: -1 }),
   },
   {
     id: 'scrollHelpDown',
