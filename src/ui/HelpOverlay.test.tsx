@@ -19,6 +19,15 @@ afterEach(() => {
 
 const mount = track(cleanups, untrackedMount);
 
+const pressForEachCommand = async (
+  press: (key: string) => Promise<void>,
+  key: string,
+): Promise<void> => {
+  await catalog.reduce((previous) => previous.then(() => press(key)), Promise.resolve());
+};
+
+const tallRows = catalog.length + 10;
+
 test('? opens the overlay with every command label and ? closes it', async () => {
   const { setup, press } = await mount(null, idleEffects, 60, false, 50);
 
@@ -60,7 +69,7 @@ test('escape does nothing while the overlay is closed', async () => {
 });
 
 test('the overlay lists the close help command from the catalog', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
+  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
 
   await press('?');
 
@@ -68,7 +77,7 @@ test('the overlay lists the close help command from the catalog', async () => {
 });
 
 test('the help overlay lists the search line keys and still shows Close help', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
+  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
 
   await press('?');
 
@@ -95,9 +104,7 @@ test('help fits inside an 80x24 terminal and scrolls to Close help', async () =>
   expect(bottomBorder).toBeLessThan(24);
   expect(lines[0]).toContain('Help');
 
-  for (let index = 0; index < 22; index += 1) {
-    await press('j');
-  }
+  await pressForEachCommand(press, 'j');
 
   const scrolled = setup.captureCharFrame();
 
@@ -144,9 +151,7 @@ test('scrolling up stops at the first command and down stops at the last', async
 
   expect(setup.captureCharFrame()).toContain('1-21 of');
 
-  for (let index = 0; index < 30; index += 1) {
-    await press('down');
-  }
+  await pressForEachCommand(press, 'down');
 
   const bottom = setup.captureCharFrame();
 
@@ -164,9 +169,7 @@ test('the first scroll key after a resize moves one row from what is shown', asy
 
   await press('?');
 
-  for (let index = 0; index < 30; index += 1) {
-    await press('j');
-  }
+  await pressForEachCommand(press, 'j');
 
   const total = catalog.filter((command) => command.scope !== 'confirm').length;
 

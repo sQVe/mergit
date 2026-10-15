@@ -9,6 +9,7 @@ import type {
   ViewerLogin,
 } from '../work/work.ts';
 import { treeRows } from '../work/work.ts';
+import type { SearchCompletion } from './searchCompletion.ts';
 import { selectAfterRefresh } from './selectionRepair.ts';
 
 type Notice = 'ghMissing' | 'notSignedIn';
@@ -55,6 +56,7 @@ export interface Snapshot {
   searchTextBefore: string;
   commandLineOpen: boolean;
   commandLineText: string;
+  searchCompletion: SearchCompletion | null;
   filters: Filter[];
   filtersOpen: boolean;
   filterDraft: string;
@@ -92,6 +94,7 @@ export const initialSnapshot: Snapshot = {
   searchTextBefore: '',
   commandLineOpen: false,
   commandLineText: '',
+  searchCompletion: null,
   filters: [],
   filtersOpen: false,
   filterDraft: '',
@@ -115,7 +118,7 @@ const evaluateThread = (
     now: snapshot.savedAt ?? snapshot.refreshedAt,
   });
 
-const threadsMatching = (
+export const threadsMatching = (
   snapshot: Snapshot,
   threads: NotificationThread[],
   query: Query | null,
