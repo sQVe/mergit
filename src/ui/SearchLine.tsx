@@ -35,6 +35,12 @@ export const SearchLine = (props: {
 
   return (
     <box flexDirection="column" flexShrink={0}>
+      <SearchCompletion
+        snapshot={snapshot}
+        width={width}
+        room={completionRoomOf(room)}
+        palette={palette}
+      />
       <InputLine
         prompt="/"
         value={snapshot.searchText}
@@ -50,12 +56,6 @@ export const SearchLine = (props: {
             session.send({ kind: 'editSearch', text });
           }
         }}
-      />
-      <SearchCompletion
-        snapshot={snapshot}
-        width={width}
-        room={completionRoomOf(room)}
-        palette={palette}
       />
     </box>
   );

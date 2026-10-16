@@ -405,7 +405,7 @@ test('f, kind:pr, and Enter in one burst add the kind:pr chip', async () => {
   const frame = setup.captureCharFrame();
 
   expect(frame.split('\n')[0]).toContain('kind:pr');
-  expect(composerInputOf(frame)).toBe('');
+  expect(frame).not.toContain('Filter');
 });
 
 test('f then Esc in one burst closes the composer', async () => {
@@ -441,14 +441,16 @@ test('keys sent in the same burst as Enter on the search line leave the search t
   expect(session.getSnapshot().searchText).toBe('Alpha');
 });
 
-test('text typed in the same burst after Enter starts a new draft', async () => {
+test('text typed in the same burst after Enter removes a chip starts a new draft', async () => {
   const { setup, settle, press, session } = await mountFilters();
 
+  await press('f');
+  await burst(setup, ['kind:pr', 'return']);
   await press('f');
   await burst(setup, ['kind:pr', 'return', 'author:octo']);
   await settle();
 
-  expect(session.getSnapshot().filters).toEqual([{ field: 'kind', value: 'pr', negated: false }]);
+  expect(session.getSnapshot().filters).toEqual([]);
   expect(session.getSnapshot().filterDraft).toBe('author:octo');
 });
 

@@ -479,6 +479,11 @@ const withDraftError = (snapshot: Snapshot): Snapshot => {
   return { ...snapshot, filterError: parsed.error, filterCursor: -1 };
 };
 
+const closeWithFilters = (snapshot: Snapshot, filters: Filter[]): Snapshot => ({
+  ...finishRow(snapshot, filters),
+  filtersOpen: false,
+});
+
 export const applyFilterRow = (snapshot: Snapshot): Snapshot => {
   const row = rowUnderCursor(snapshot);
 
@@ -487,15 +492,15 @@ export const applyFilterRow = (snapshot: Snapshot): Snapshot => {
   }
 
   if (row.kind === 'typed') {
-    return finishRow(snapshot, replaceOrAdd(snapshot, row.filters));
+    return closeWithFilters(snapshot, replaceOrAdd(snapshot, row.filters));
   }
 
   if (row.kind === 'candidate') {
-    return finishRow(snapshot, replaceOrAdd(snapshot, [row.filter]));
+    return closeWithFilters(snapshot, replaceOrAdd(snapshot, [row.filter]));
   }
 
   if (row.kind === 'active' && snapshot.filterEditing !== null) {
-    return finishRow(snapshot, replaceOrAdd(snapshot, [row.filter]));
+    return closeWithFilters(snapshot, replaceOrAdd(snapshot, [row.filter]));
   }
 
   if (row.kind === 'active') {

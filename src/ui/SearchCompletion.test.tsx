@@ -29,15 +29,16 @@ const threads = [
   treeThread(3, 'Plant docs', { repository: 'acme/app' }),
 ];
 
-const highlightedBelowLine = (setup: Setup): string[] => {
+const highlightedAboveLine = (setup: Setup): string[] => {
   const selectedBackground = RGBA.fromHex(pickPalette('dark').selectedBackground).toString();
   const lines = setup.captureSpans().lines.map((line) => line.spans);
   const queryIndex = lines.findIndex((spans) => spans[0]?.text.startsWith('/') === true);
 
   return lines
-    .slice(queryIndex + 1)
+    .slice(0, queryIndex)
     .filter((spans) => spans.some((span) => span.bg.toString() === selectedBackground))
-    .map((spans) => spans.map((span) => span.text).join(''));
+    .map((spans) => spans.map((span) => span.text).join(''))
+    .filter((text) => text.startsWith('  '));
 };
 
 const searchWith = async (typed: string) => {
@@ -50,7 +51,7 @@ const searchWith = async (typed: string) => {
   return app;
 };
 
-test('typing after / lists the repositories that match under the line', async () => {
+test('typing after / lists the repositories that match above the line', async () => {
   const { setup } = await searchWith('pla');
 
   const lines = frameLines(setup);
@@ -58,13 +59,14 @@ test('typing after / lists the repositories that match under the line', async ()
   const candidateIndex = lines.findLastIndex((line) => line.includes('hups-co/platform'));
 
   expect(queryIndex).toBeGreaterThanOrEqual(0);
-  expect(candidateIndex).toBeGreaterThan(queryIndex);
+  expect(candidateIndex).toBeLessThan(queryIndex);
+  expect(candidateIndex).toBeGreaterThanOrEqual(0);
 });
 
 test('tab puts the candidate on the line, narrows the matches, and keeps the typed list with the choice marked', async () => {
   const { setup, press, settle } = await searchWith('pla');
 
-  expect(highlightedBelowLine(setup)).toEqual([]);
+  expect(highlightedAboveLine(setup)).toEqual([]);
 
   await press('tab');
   await settle();
@@ -72,7 +74,7 @@ test('tab puts the candidate on the line, narrows the matches, and keeps the typ
   const frame = setup.captureCharFrame();
   const lines = frameLines(setup);
   const queryLine = lines.find((line) => line.startsWith('/'));
-  const marked = highlightedBelowLine(setup);
+  const marked = highlightedAboveLine(setup);
 
   expect(queryLine).toContain('/hups-co/platform');
   expect(frame).toContain('1 match');
