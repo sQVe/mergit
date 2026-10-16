@@ -37,6 +37,13 @@ export const createBrowserOpen = (inputs: BrowserOpenInputs): BrowserOpenOwner =
     const [first] = failures;
 
     if (first === undefined) {
+      const opened =
+        pages.length === 1
+          ? 'Opened the page in the browser'
+          : `Opened ${pages.length} pages in the browser`;
+
+      inputs.showToast({ title: opened, lines: [], tone: 'info' });
+
       return;
     }
 
