@@ -36,6 +36,72 @@ test('applyFilterRow on a negated repo token hides that repo and keeps the other
 
   expect(sortedThreadKeysOf(session)).toEqual(['thread:2', 'thread:3']);
   expect(session.getSnapshot().filterDraft).toBe('');
+  expect(session.getSnapshot().filtersOpen).toBe(false);
+});
+
+test('applyFilterRow on a candidate row adds the chip and closes the composer', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+
+  const snapshot = session.getSnapshot();
+  const row = filterRowsOf(snapshot)[filterCursorOf(snapshot)];
+
+  expect(row?.kind).toBe('candidate');
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual(row?.kind === 'candidate' ? [row.filter] : []);
+
+  expect(session.getSnapshot().filtersOpen).toBe(false);
+});
+
+test('applyFilterRow while editing replaces the chip and closes the composer', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+  session.send({ kind: 'takeFilterRow' });
+  session.send({ kind: 'editFilterDraft', text: 'repo:hups-co/web' });
+  session.send({ kind: 'applyFilterRow' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.filters).toEqual([{ field: 'repo', value: 'hups-co/web', negated: false }]);
+  expect(snapshot.filterEditing).toBeNull();
+  expect(snapshot.filtersOpen).toBe(false);
+});
+
+test('applyFilterRow on an invalid entry keeps the composer open with an error', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'nope:1');
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.filters).toEqual([]);
+  expect(snapshot.filtersOpen).toBe(true);
+  expect(filterRowsOf(snapshot)[0]?.kind).toBe('error');
+});
+
+test('applyFilterRow on an active filter removes it and keeps the composer open', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(session.getSnapshot().filters).toEqual([]);
   expect(session.getSnapshot().filtersOpen).toBe(true);
 });
 
@@ -109,6 +175,7 @@ test('closeFilters during an edit cancels the edit and keeps age:>3d', async () 
   await load(...filterThreads());
   session.send({ kind: 'openFilters' });
   addFilters(session, 'age:>3d');
+  session.send({ kind: 'openFilters' });
   session.send({ kind: 'moveFilterCursor', direction: 'down' });
   session.send({ kind: 'takeFilterRow' });
   session.send({ kind: 'editFilterDraft', text: 'age:>14d' });

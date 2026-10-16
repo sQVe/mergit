@@ -24,6 +24,9 @@ Filters are `field:value` tokens that the user types or picks with completion in
 with `f`. Each valid token becomes a chip when the user presses `Enter`, and the list changes only
 then.
 
+`Enter` that adds or replaces a chip closes the composer. `Enter` on an active chip removes it and
+keeps the composer open, so the user can remove several chips in a row.
+
 ### Tokens
 
 - A leading `-` negates a token. An unknown field name or a bad value is an error that names the

@@ -40,6 +40,7 @@ const addAuthorChip = async (mounted: Awaited<ReturnType<typeof mountFilters>>, 
   await press('f');
   await typeText(setup, settle, text);
   await press('return');
+  await press('f');
 };
 
 test('f lists author candidates with their counts', async () => {
@@ -61,7 +62,8 @@ test('Enter on a candidate adds a chip and narrows the list', async () => {
   await press('f');
   await typeText(setup, settle, 'author:mona');
   await press('return');
-  await press('escape');
+
+  expect(mounted.session.getSnapshot().filtersOpen).toBe(false);
 
   const frame = setup.captureCharFrame();
   const chipRow = frame.split('\n')[0] ?? '';
@@ -519,8 +521,10 @@ test('after Enter removes a chip found by typing, a second Enter removes the nex
   await press('f');
   await typeText(setup, settle, 'author:octo');
   await press('return');
+  await press('f');
   await typeText(setup, settle, 'author:mona');
   await press('return');
+  await press('f');
   await typeText(setup, settle, 'author:octo');
   await press('return');
 
@@ -528,9 +532,12 @@ test('after Enter removes a chip found by typing, a second Enter removes the nex
     { field: 'author', value: 'mona', negated: false },
   ]);
 
+  expect(session.getSnapshot().filtersOpen).toBe(true);
+
   await press('return');
 
   expect(session.getSnapshot().filters).toEqual([]);
+  expect(session.getSnapshot().filtersOpen).toBe(true);
 });
 
 test('a long description wraps over several lines and never over more than three', async () => {
