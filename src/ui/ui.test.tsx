@@ -396,7 +396,7 @@ test.each([
 });
 
 test('f, kind:pr, and Enter in one burst add the kind:pr chip', async () => {
-  const { setup, settle, press } = await mountFilters(60, true);
+  const { setup, settle, press, session } = await mountFilters(60, true);
 
   await press('r');
   await burst(setup, ['f', 'kind:pr', 'return']);
@@ -405,7 +405,7 @@ test('f, kind:pr, and Enter in one burst add the kind:pr chip', async () => {
   const frame = setup.captureCharFrame();
 
   expect(frame.split('\n')[0]).toContain('kind:pr');
-  expect(frame).not.toContain('Filter');
+  expect(session.getSnapshot().filtersOpen).toBe(false);
 });
 
 test('f then Esc in one burst closes the composer', async () => {
