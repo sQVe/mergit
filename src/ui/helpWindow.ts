@@ -13,19 +13,31 @@ const footerRows = 1;
 const boxChromeColumns = 4;
 const rowGap = 2;
 
-export const suffixOf = (command: Command): string | undefined => {
-  if (command.scope === 'input') {
-    return '(search line)';
+const suffixes: Partial<Record<Command['scope'], string>> = {
+  input: '(search line)',
+  filter: '(filter composer)',
+  command: '(command line)',
+};
+
+export const suffixOf = (command: Command): string | undefined => suffixes[command.scope];
+
+export const keysTextOf = (command: Command): string => {
+  const texts = [...command.keys];
+
+  if (command.name !== undefined) {
+    texts.push(`:${command.name}`);
   }
 
-  return command.scope === 'filter' ? '(filter composer)' : undefined;
+  return texts.join(' ');
 };
 
 const rowTextsOf = (command: Command): string[] => {
   const texts: string[] = [];
 
-  if (command.keys.length > 0) {
-    texts.push(command.keys.join(' '));
+  const keysText = keysTextOf(command);
+
+  if (keysText !== '') {
+    texts.push(keysText);
   }
 
   texts.push(command.label);

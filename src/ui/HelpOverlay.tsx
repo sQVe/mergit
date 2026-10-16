@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { Command } from '../commands.ts';
-import { helpWindowOf, suffixOf } from './helpWindow.ts';
+import { helpWindowOf, keysTextOf, suffixOf } from './helpWindow.ts';
 import type { Palette } from './palette.ts';
 
 const firstKeyOf = (catalog: readonly Command[], id: string): string =>
@@ -44,12 +44,11 @@ export const HelpOverlay = (props: {
     >
       {visible.map((command) => {
         const suffix = suffixOf(command);
+        const keysText = keysTextOf(command);
 
         return (
           <box key={command.id} flexDirection="row" gap={2}>
-            {command.keys.length === 0 ? null : (
-              <text fg={palette.key}>{command.keys.join(' ')}</text>
-            )}
+            {keysText === '' ? null : <text fg={palette.key}>{keysText}</text>}
             <text fg={palette.text}>{command.label}</text>
             {suffix === undefined ? null : <text fg={palette.dim}>{suffix}</text>}
           </box>

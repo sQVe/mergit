@@ -7,7 +7,7 @@ import { act, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
 import { catalog } from '../commands.ts';
-import type { TerminalIntent } from '../commands.ts';
+import type { Command, TerminalIntent } from '../commands.ts';
 import { createSession } from '../session/session.ts';
 import type { Session, SessionEffects } from '../session/session.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
@@ -124,6 +124,7 @@ export const mount = async (
   manualTime = false,
   height = defaultHeight,
   kittyKeyboard = false,
+  appCatalog: readonly Command[] = catalog,
 ): Promise<MountedApp> => {
   let themeMode = initialMode;
   const themeListeners = new Set<() => void>();
@@ -175,7 +176,7 @@ export const mount = async (
   const node: ReactNode = (
     <WithKeymap
       session={session}
-      catalog={catalog}
+      catalog={appCatalog}
       themeSource={themeSource}
       onTerminalIntent={(intent) => terminalIntents.push(intent)}
     />

@@ -101,8 +101,10 @@ const loadedThread = {
 
 const loadedSnapshot = { ...snapshot, threads: [loadedThread] };
 
+const lineScopes = new Set<Command['scope']>(['input', 'filter', 'command']);
+
 const globalOverlaps = (global: Command['scope'], other: Command['scope']): boolean =>
-  global === 'global' && other !== 'input' && other !== 'filter';
+  global === 'global' && !lineScopes.has(other);
 
 const scopesOverlap = (first: Command['scope'], second: Command['scope']): boolean =>
   first === second || globalOverlaps(first, second) || globalOverlaps(second, first);
@@ -288,4 +290,27 @@ test('the input commands act on the search line and clearSearch is disabled with
   expect(byId['clearSearch']?.disabledReason(snapshot)).toBeDefined();
 
   expect(byId['clearSearch']?.disabledReason({ ...snapshot, searchText: 'a' })).toBeUndefined();
+});
+
+const byId = (id: string) => catalog.find((command) => command.id === id);
+
+test('the command line opens on colon and its commands run, close, clear, and quit', () => {
+  const commandIntentOf = (id: string) => byId(id)?.intent(snapshot);
+  const open = byId('openCommandLine');
+  const emptyClose = byId('closeEmptyCommandLine');
+
+  const intents = [
+    ['openCommandLine', { kind: 'application', intent: { kind: 'openCommandLine' } }],
+    ['runCommandLine', { kind: 'ui', action: 'runCommandLine' }],
+    ['closeCommandLine', { kind: 'application', intent: { kind: 'closeCommandLine' } }],
+    ['clearCommandLine', { kind: 'application', intent: { kind: 'editCommandLine', text: '' } }],
+    ['quitFromCommandLine', { kind: 'terminal', action: 'quit' }],
+  ] as const;
+
+  expect([open?.keys, open?.scope]).toEqual([[':'], 'list']);
+  expect(intents.map(([id]) => commandIntentOf(id))).toEqual(intents.map(([, intent]) => intent));
+
+  expect(emptyClose?.preventDefault).toBe(false);
+  expect(emptyClose?.disabledReason(snapshot)).toBeUndefined();
+  expect(emptyClose?.disabledReason({ ...snapshot, commandLineText: 'a' })).toBeDefined();
 });
