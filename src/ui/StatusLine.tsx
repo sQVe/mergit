@@ -10,18 +10,18 @@ const noticeMarkers = {
   notSignedIn: 'not signed in, press r',
 };
 
-const readError = (snapshot: Snapshot): string | null => {
+const readMarker = (snapshot: Snapshot): string | null => {
   // With threads loaded, the list stays on screen and the full notice shows as a toast.
   if (snapshot.notice !== null && !hasNoRows(snapshot)) {
     return noticeMarkers[snapshot.notice];
   }
 
-  return snapshot.errorMessage;
+  return null;
 };
 
 export const StatusLine = (props: { snapshot: Snapshot; palette: Palette }): ReactNode => {
   const { snapshot, palette } = props;
-  const error = readError(snapshot);
+  const marker = readMarker(snapshot);
 
   return (
     <box height={1} flexShrink={0} flexDirection="row" gap={2}>
@@ -38,17 +38,20 @@ export const StatusLine = (props: { snapshot: Snapshot; palette: Palette }): Rea
           refreshing...
         </text>
       ) : null}
-      {snapshot.feedBusy ? (
-        <text fg={palette.dim} flexShrink={0}>
-          feed busy, showing the last list
-        </text>
-      ) : null}
       {snapshot.stateWarning === null ? null : (
         <text fg={palette.error} flexShrink={0}>
           {snapshot.stateWarning}
         </text>
       )}
-      {error === null ? null : <text fg={palette.error}>{error}</text>}
+      {marker === null ? null : (
+        <text fg={palette.error} flexShrink={0}>
+          {marker}
+        </text>
+      )}
+      {snapshot.feedBusy ? <text fg={palette.dim}>feed busy, showing the last list</text> : null}
+      {snapshot.errorMessage === null ? null : (
+        <text fg={palette.error}>{snapshot.errorMessage}</text>
+      )}
     </box>
   );
 };
