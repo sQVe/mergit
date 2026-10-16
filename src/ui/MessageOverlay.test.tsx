@@ -310,7 +310,7 @@ test('a message of wide characters wraps by cell width and scrolling reaches its
 
   const mounted = await mount('dark', effects, 40, false, 8);
 
-  await sendUnknownCommands(mounted, [`${'界'.repeat(60)}ENDMARKER`]);
+  await sendUnknownCommands(mounted, [`${'界'.repeat(55)}ENDMARKER`]);
   await openMessages(mounted);
 
   for (let index = 0; index < 30; index += 1) {
@@ -344,4 +344,30 @@ test('a message with line breaks shows each line as its own row and scrolling re
   }
 
   expect(mounted.setup.captureCharFrame()).toContain('ENDMARKER');
+});
+
+test('the empty messages overlay at 80x24 is a readable box with nothing from the list beside it', async () => {
+  const threads = Array.from({ length: 30 }, (_, index) =>
+    makeThread(index + 1, `Thread ${index + 1}`),
+  );
+
+  const mounted = await mount('dark', threadsEffects(threads), 80, false, 24);
+
+  await mounted.press('r');
+  await openMessages(mounted);
+
+  const lines = mounted.setup.captureCharFrame().split('\n');
+  const bottom = lines.findIndex((line) => line.includes('╰'));
+  const boxRows = lines.slice(0, bottom + 1);
+
+  expect(bottom).toBe(23);
+
+  for (const row of boxRows) {
+    expect(row.startsWith('╭') || row.startsWith('│') || row.startsWith('╰')).toBe(true);
+    expect(row.trimEnd().length).toBe(80);
+  }
+
+  for (const row of lines.slice(2, bottom)) {
+    expect(row.slice(1, 79).trim()).toBe('');
+  }
 });

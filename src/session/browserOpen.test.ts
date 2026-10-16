@@ -26,8 +26,22 @@ test('a successful open leaves the rows, the selection, and saved state unchange
   expect(visibleRows(after)).toEqual(visibleRows(before));
   expect(after.selectedRowKey).toBe(before.selectedRowKey);
   expect(after.hiddenThreadIds).toEqual(before.hiddenThreadIds);
-  expect(after.toast).toBeNull();
   expect(harness.saves).toHaveLength(savesBefore);
+});
+
+test('a successful open shows an info toast and adds it to messages', async () => {
+  const harness = makeHarness();
+
+  await harness.load(makeThread('1'));
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/app')] });
+  await settle();
+
+  const { toast, messages } = harness.session.getSnapshot();
+
+  expect(toast?.tone).toBe('info');
+  expect(toast?.lines).toEqual([]);
+  expect(messages).toHaveLength(1);
+  expect(messages[0]?.tone).toBe('info');
 });
 
 test('a failed open shows an error toast with the failure message', async () => {
@@ -43,6 +57,7 @@ test('a failed open shows an error toast with the failure message', async () => 
 
   expect(toast?.tone).toBe('error');
   expect(toast?.lines).toEqual(['no such repository']);
+  expect(harness.session.getSnapshot().messages).toHaveLength(1);
 });
 
 test('an open intent with several pages opens each page once and reports the failure count', async () => {
