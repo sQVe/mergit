@@ -8,9 +8,13 @@ export const openSearch = (snapshot: Snapshot): Snapshot => ({
 });
 
 export const editSearch = (snapshot: Snapshot, text: string): Snapshot =>
-  keepSelectionVisible(snapshot, { ...snapshot, searchText: text });
+  keepSelectionVisible(snapshot, { ...snapshot, searchText: text, searchCompletion: null });
 
-export const keepSearch = (snapshot: Snapshot): Snapshot => ({ ...snapshot, searchOpen: false });
+export const keepSearch = (snapshot: Snapshot): Snapshot => ({
+  ...snapshot,
+  searchOpen: false,
+  searchCompletion: null,
+});
 
 export const restoreSearch = (snapshot: Snapshot): Snapshot => {
   const restored = editSearch(snapshot, snapshot.searchTextBefore);

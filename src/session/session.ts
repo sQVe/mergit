@@ -35,6 +35,7 @@ import {
 } from './filterComposer.ts';
 import { createMarker } from './marker.ts';
 import { createMessageToast } from './messageToast.ts';
+import { moveSearchCompletion } from './searchCompletion.ts';
 import {
   clearSearch,
   editSearch,
@@ -54,6 +55,7 @@ export type { FilterRow } from './filterComposer.ts';
 export { describeFilterRow } from './filterDescriptions.ts';
 export { formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
+export { chosenCandidateIndexOf, searchCandidatesOf } from './searchCompletion.ts';
 export { matchCountOf, openThreads, visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
@@ -76,6 +78,8 @@ export type ApplicationIntent =
   | { kind: 'keepSearch' }
   | { kind: 'restoreSearch' }
   | { kind: 'clearSearch' }
+  | { kind: 'nextSearchCompletion' }
+  | { kind: 'previousSearchCompletion' }
   | { kind: 'openFilters' }
   | { kind: 'editFilterDraft'; text: string }
   | { kind: 'moveFilterCursor'; direction: 'up' | 'down' }
@@ -194,6 +198,8 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   keepSearch,
   restoreSearch,
   clearSearch,
+  nextSearchCompletion: (snapshot) => moveSearchCompletion(snapshot, 1),
+  previousSearchCompletion: (snapshot) => moveSearchCompletion(snapshot, -1),
   openFilters,
   takeFilterRow,
   applyFilterRow,

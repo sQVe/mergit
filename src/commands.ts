@@ -1,5 +1,5 @@
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
-import { visibleRows } from './session/session.ts';
+import { searchCandidatesOf, visibleRows } from './session/session.ts';
 import type { BrowserPage } from './work/work.ts';
 import { pagesOfRow } from './work/work.ts';
 
@@ -49,6 +49,9 @@ const confirmAfterRepositories = 3;
 
 const selectedRowOf = (snapshot: Snapshot) =>
   visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
+
+const noCompletion = (snapshot: Snapshot) =>
+  searchCandidatesOf(snapshot).length === 0 ? 'No completion for the last word.' : undefined;
 
 export const catalog: readonly Command[] = [
   {
@@ -252,6 +255,22 @@ export const catalog: readonly Command[] = [
     keys: ['return'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'application', intent: { kind: 'keepSearch' } }),
+  },
+  {
+    id: 'nextSearchCompletion',
+    label: 'Complete the last word',
+    scope: 'input',
+    keys: ['tab'],
+    disabledReason: noCompletion,
+    intent: () => ({ kind: 'application', intent: { kind: 'nextSearchCompletion' } }),
+  },
+  {
+    id: 'previousSearchCompletion',
+    label: 'Complete the last word backwards',
+    scope: 'input',
+    keys: ['shift+tab'],
+    disabledReason: noCompletion,
+    intent: () => ({ kind: 'application', intent: { kind: 'previousSearchCompletion' } }),
   },
   {
     id: 'quitFromInput',

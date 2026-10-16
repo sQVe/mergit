@@ -340,8 +340,9 @@ const Body = (props: {
   width: number;
   paneWidth: number;
   fullDetail: boolean;
+  searchRoom: number;
 }): ReactNode => {
-  const { snapshot, palette, width, paneWidth } = props;
+  const { snapshot, palette, width, paneWidth, searchRoom } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
 
   const facts =
@@ -375,7 +376,7 @@ const Body = (props: {
         palette={palette}
         width={width - paneWidth}
         reservedRows={
-          searchLineRows(snapshot) + commandLineRows(snapshot) + filterBarRows(snapshot)
+          searchLineRows(snapshot, searchRoom) + commandLineRows(snapshot) + filterBarRows(snapshot)
         }
       />
       {paneWidth > 0 ? (
@@ -452,10 +453,15 @@ export const App = (props: AppProps): ReactNode => {
 
   const composerRows = snapshot.filtersOpen ? filterRowsOf(snapshot) : [];
 
+  const searchRoom = Math.max(
+    0,
+    height - statusRows - boxChromeRows - commandLineRows(snapshot) - filterBarRows(snapshot),
+  );
+
   const otherRows =
     statusRows +
     boxChromeRows +
-    searchLineRows(snapshot) +
+    searchLineRows(snapshot, searchRoom) +
     commandLineRows(snapshot) +
     filterBarRows(snapshot);
 
@@ -506,8 +512,14 @@ export const App = (props: AppProps): ReactNode => {
           width={width}
           paneWidth={paneWidth}
           fullDetail={fullDetail}
+          searchRoom={searchRoom}
         />
-        <SearchLine session={props.session} snapshot={snapshot} palette={palette} />
+        <SearchLine
+          session={props.session}
+          snapshot={snapshot}
+          palette={palette}
+          room={searchRoom}
+        />
         <CommandLine session={props.session} snapshot={snapshot} palette={palette} />
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
