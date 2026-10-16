@@ -177,10 +177,71 @@ test('a saveState that throws leaves the session running with the new grouping',
   expect(session.getSnapshot().grouping).toBe('none');
 });
 
-test('stateWarning is in the starting snapshot', () => {
-  const { session } = makeHarness({ stateWarning: 'bad state file' });
+test('a startup state warning shows as an error toast and stays in the message history', () => {
+  const { session } = makeHarness({
+    stateWarning: { reason: 'The file is not valid JSON.', path: '~/state.json' },
+  });
 
-  expect(session.getSnapshot().stateWarning).toBe('bad state file');
+  const { toast, messages, stateWarning } = session.getSnapshot();
+
+  expect(toast?.tone).toBe('error');
+  expect(toast?.lines).toEqual(['The file is not valid JSON.', '~/state.json']);
+
+  expect(messages.map((message) => message.lines)).toEqual([
+    ['The file is not valid JSON.', '~/state.json'],
+  ]);
+
+  expect(stateWarning).not.toBeNull();
+});
+
+test('a session without a state warning has no toast and no messages', () => {
+  const { session } = makeHarness();
+
+  expect(session.getSnapshot().stateWarning).toBeNull();
+  expect(session.getSnapshot().toast).toBeNull();
+  expect(session.getSnapshot().messages).toEqual([]);
+});
+
+test('a gh notice with rows on screen toasts once, and again only when the notice changes', async () => {
+  const { session, load, answerRead } = makeHarness();
+
+  await load(makeThread('1'));
+
+  const failWith = async (kind: 'ghMissing' | 'notSignedIn') => {
+    session.send({ kind: 'refresh' });
+    await settle();
+    await answerRead({ ok: false, failure: { kind } });
+  };
+
+  await failWith('ghMissing');
+
+  expect(session.getSnapshot().messages).toHaveLength(1);
+  expect(session.getSnapshot().toast?.lines.join(' ')).toContain('press r');
+
+  await failWith('ghMissing');
+  await failWith('ghMissing');
+
+  expect(session.getSnapshot().messages).toHaveLength(1);
+
+  await failWith('notSignedIn');
+
+  expect(session.getSnapshot().messages).toHaveLength(2);
+
+  await load(makeThread('1'));
+  await failWith('notSignedIn');
+
+  expect(session.getSnapshot().messages).toHaveLength(3);
+});
+
+test('a gh notice with no rows on screen adds no toast', async () => {
+  const { session, answerRead } = makeHarness();
+
+  session.send({ kind: 'refresh' });
+  await settle();
+  await answerRead({ ok: false, failure: { kind: 'ghMissing' } });
+
+  expect(session.getSnapshot().notice).toBe('ghMissing');
+  expect(session.getSnapshot().messages).toEqual([]);
 });
 
 test('a failed state write after a grouping change shows an error toast naming the grouping, the reason, and the file', () => {

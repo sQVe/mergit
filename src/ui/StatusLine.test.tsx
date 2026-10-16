@@ -131,10 +131,60 @@ test('the status line shows the age of the saved list, and not without one', asy
   expect(fresh.setup.captureCharFrame()).not.toContain('saved');
 });
 
-test('the status line shows the state warning', async () => {
-  const { setup } = await mount('dark', { ...idleEffects, stateWarning: 'state file is invalid' });
+const startupWarning = {
+  reason: 'The file is not valid JSON.',
+  path: '~/.local/state/zeta/state.json',
+};
 
-  expect(setup.captureCharFrame()).toContain('state file is invalid');
+const statusRowOf = (frame: string) => {
+  const row = frame.split('\n').find((line) => line.includes('? help'));
+
+  if (row === undefined) {
+    throw new Error('no status row');
+  }
+
+  return row;
+};
+
+test('the status line keeps every item whole at 80 columns with a state warning', async () => {
+  const { setup, press } = await mount(
+    'dark',
+    {
+      ...savedEffects(new Date(), threeThreads),
+      readFeed: () => new Promise(() => {}),
+      stateWarning: startupWarning,
+    },
+    80,
+    false,
+    24,
+  );
+
+  await press('r');
+
+  const row = statusRowOf(setup.captureCharFrame());
+
+  expect(row).toContain('saved 0m ago');
+  expect(row).toContain('refreshing...');
+  expect(row).toContain('state not saved');
+  expect(row).not.toContain('Zeta will not save');
+});
+
+test('the status line names the key r in full at 80 columns when gh is missing and rows are shown', async () => {
+  const effects: SessionEffects = {
+    ...savedEffects(new Date(), threeThreads),
+    readViewer: idleEffects.readViewer,
+    readFeed: feedEffects(() => ({ ok: false as const, failure: { kind: 'ghMissing' as const } }))
+      .readFeed,
+  };
+
+  const { setup, press } = await mount('dark', effects, 80, false, 24);
+
+  await press('r');
+
+  const row = statusRowOf(setup.captureCharFrame());
+
+  expect(row).toContain('press r');
+  expect(row).toContain('saved');
 });
 
 test('the status line stays on the last row in the full-width detail', async () => {
@@ -146,4 +196,67 @@ test('the status line stays on the last row in the full-width detail', async () 
 
   expect(rows.join('\n')).not.toContain('Third');
   expect(rows.findIndex((row) => row.includes('? help'))).toBe(rows.length - 2);
+});
+
+test('the status line keeps the state warning whole when the feed is busy and a refresh runs at 80 columns', async () => {
+  let hang = false;
+
+  const effects: SessionEffects = {
+    ...savedEffects(new Date(), threeThreads),
+    ...threadsEffects(threeThreads),
+    savedSnapshot: savedEffects(new Date(), threeThreads).savedSnapshot,
+    stateWarning: startupWarning,
+    verifyFeed: () =>
+      Promise.resolve({
+        ok: true as const,
+        value: { kind: 'changed' as const, pollInterval: null },
+      }),
+    readFeed: () => {
+      if (hang) {
+        return new Promise(() => {});
+      }
+
+      return Promise.resolve({
+        ok: true as const,
+        value: { feed: { pages: [] }, threads: [...threeThreads], pollInterval: null },
+      });
+    },
+  };
+
+  const { setup, press } = await mount('dark', effects, 80, false, 24);
+
+  await press('r');
+  hang = true;
+  await press('r');
+
+  const row = statusRowOf(setup.captureCharFrame());
+
+  expect(row).toContain('saved 0m ago');
+  expect(row).toContain('refreshing...');
+  expect(row).toContain('state not saved');
+  expect(row).toContain('feed busy');
+});
+
+test('a gh missing toast shows the install text and the key r at 80x24 with rows on screen', async () => {
+  const effects: SessionEffects = {
+    ...savedEffects(new Date(), threeThreads),
+    readViewer: idleEffects.readViewer,
+    readFeed: feedEffects(() => ({ ok: false as const, failure: { kind: 'ghMissing' as const } }))
+      .readFeed,
+  };
+
+  const { setup, press, settle } = await mount('dark', effects, 80, false, 24);
+
+  await press('r');
+  await settle();
+
+  const toastRows = setup
+    .captureCharFrame()
+    .split('\n')
+    .filter((line) => line.includes('▌'));
+
+  const toastText = toastRows.join('').replace(/[▌\s]+/g, '');
+
+  expect(toastText).toContain('InstallGitHubCLI');
+  expect(toastText).toContain('thenpressr');
 });

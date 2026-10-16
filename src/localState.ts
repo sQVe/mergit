@@ -284,7 +284,7 @@ export const loadState = (directory: string): StateLoad => {
   const body = stateBody.safeParse(json);
 
   if (!body.success) {
-    return { kind: 'invalid', path, reason: body.error.message };
+    return { kind: 'invalid', path, reason: 'The file does not have the shape Zeta saves.' };
   }
 
   return {
