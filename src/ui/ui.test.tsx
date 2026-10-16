@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 
 import { act } from 'react';
 
+import { catalog } from '../commands.ts';
 import type { Setup } from './uiHarness.tsx';
 import {
   idleEffects,
@@ -76,7 +77,7 @@ test('a theme change keeps the overlay open, recolors it, and adds no subscriber
     idleEffects,
     60,
     false,
-    50,
+    catalog.length + 10,
   );
 
   await press('?');

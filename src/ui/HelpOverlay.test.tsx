@@ -7,6 +7,7 @@ import { catalog } from '../commands.ts';
 import type { Command } from '../commands.ts';
 import { HelpOverlay } from './HelpOverlay.tsx';
 import { pickPalette } from './palette.ts';
+import type { Setup } from './uiHarness.tsx';
 import { idleEffects, track, mount as untrackedMount } from './uiHarness.tsx';
 
 const cleanups: (() => void)[] = [];
@@ -19,17 +20,23 @@ afterEach(() => {
 
 const mount = track(cleanups, untrackedMount);
 
-const pressForEachCommand = async (
+const scrollToEnd = async (
+  setup: Setup,
   press: (key: string) => Promise<void>,
   key: string,
 ): Promise<void> => {
-  await catalog.reduce((previous) => previous.then(() => press(key)), Promise.resolve());
+  let before = '';
+
+  while (setup.captureCharFrame() !== before) {
+    before = setup.captureCharFrame();
+    await press(key);
+  }
 };
 
 const tallRows = catalog.length + 10;
 
 test('? opens the overlay with every command label and ? closes it', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
+  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
 
   await press('?');
 
@@ -61,7 +68,7 @@ test('Escape closes the overlay', async () => {
 });
 
 test('escape does nothing while the overlay is closed', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 50);
+  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
 
   await press('escape');
 
@@ -104,7 +111,7 @@ test('help fits inside an 80x24 terminal and scrolls to Close help', async () =>
   expect(bottomBorder).toBeLessThan(24);
   expect(lines[0]).toContain('Help');
 
-  await pressForEachCommand(press, 'j');
+  await scrollToEnd(setup, press, 'j');
 
   const scrolled = setup.captureCharFrame();
 
@@ -121,7 +128,9 @@ test('scrolling 80x24 help reaches every listed command and shows the position',
   const seen = new Set<string>();
   const positions: string[] = [];
 
-  for (const scrolledBy of listed.keys()) {
+  let previous = '';
+
+  while (setup.captureCharFrame() !== previous) {
     const frame = setup.captureCharFrame();
 
     positions.push(/\d+-\d+ of \d+/.exec(frame)?.[0] ?? 'none');
@@ -132,9 +141,8 @@ test('scrolling 80x24 help reaches every listed command and shows the position',
       }
     }
 
-    if (scrolledBy < listed.length) {
-      await press('j');
-    }
+    previous = frame;
+    await press('j');
   }
 
   expect(seen.size).toBe(listed.length);
@@ -151,9 +159,12 @@ test('scrolling up stops at the first command and down stops at the last', async
 
   expect(setup.captureCharFrame()).toContain('1-21 of');
 
-  await pressForEachCommand(press, 'down');
+  await scrollToEnd(setup, press, 'down');
 
   const bottom = setup.captureCharFrame();
+  const total = catalog.filter((command) => command.scope !== 'confirm').length;
+
+  expect(bottom).toContain(`-${total} of ${total}`);
 
   await press('j');
 
@@ -169,7 +180,7 @@ test('the first scroll key after a resize moves one row from what is shown', asy
 
   await press('?');
 
-  await pressForEachCommand(press, 'j');
+  await scrollToEnd(setup, press, 'j');
 
   const total = catalog.filter((command) => command.scope !== 'confirm').length;
 
@@ -193,9 +204,7 @@ test('the help box keeps its width while scrolling', async () => {
 
   const atTop = rightEdgeOf(setup.captureCharFrame());
 
-  for (let index = 0; index < 30; index += 1) {
-    await press('j');
-  }
+  await scrollToEnd(setup, press, 'j');
 
   const atEnd = rightEdgeOf(setup.captureCharFrame());
 
@@ -208,9 +217,7 @@ test('the widest help rows show in full at 80x24', async () => {
 
   await press('?');
 
-  for (let index = 0; index < 30; index += 1) {
-    await press('j');
-  }
+  await scrollToEnd(setup, press, 'j');
 
   const frame = setup.captureCharFrame();
   const position = /(\d+)-(\d+) of \d+/u.exec(frame);
@@ -229,7 +236,7 @@ test('the widest help rows show in full at 80x24', async () => {
 });
 
 test('help that fits shows no position hint', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, 50);
+  const { setup, press } = await mount(null, idleEffects, 80, false, tallRows);
 
   await press('?');
 
@@ -266,7 +273,7 @@ test('a command with a name and no keys is listed as :<name>', async () => {
   const quit = catalog.find((command) => command.id === 'quit') as Command;
   const named: Command = { ...quit, id: 'quitByName', label: 'Leave Zeta', name: 'bye', keys: [] };
 
-  const { setup, press } = await mount(null, idleEffects, 60, false, 50, false, [
+  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows + 1, false, [
     ...catalog,
     named,
   ]);
@@ -280,7 +287,7 @@ test('a command with a name and no keys is listed as :<name>', async () => {
 });
 
 test('a command line command is listed with the command line suffix', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, 50);
+  const { setup, press } = await mount(null, idleEffects, 80, false, tallRows);
 
   await press('?');
 
@@ -291,7 +298,7 @@ test('a command line command is listed with the command line suffix', async () =
 });
 
 test('help lists the :messages command', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, 60);
+  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
 
   await press('?');
 
