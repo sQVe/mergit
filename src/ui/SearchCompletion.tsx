@@ -14,6 +14,9 @@ export const searchCompletionRows = (snapshot: Snapshot, room: number): number =
   return Math.min(searchCandidatesOf(snapshot).length, Math.max(0, room));
 };
 
+const windowStartOf = (chosen: number | null, rows: number): number =>
+  chosen === null ? 0 : Math.max(0, chosen - rows + 1);
+
 export const SearchCompletion = (props: {
   snapshot: Snapshot;
   width: number;
@@ -36,14 +39,13 @@ export const SearchCompletion = (props: {
   }));
 
   const chosen = chosenCandidateIndexOf(snapshot);
+  const start = windowStartOf(chosen, rows);
+
+  // The list sits above the / line, so the best candidate goes last, next to the line.
+  const shown = items.slice(start, start + rows).toReversed();
+  const cursor = chosen === null ? -1 : rows - 1 - (chosen - start);
 
   return (
-    <CandidateList
-      items={items}
-      cursor={chosen ?? -1}
-      height={rows}
-      width={width}
-      palette={palette}
-    />
+    <CandidateList items={shown} cursor={cursor} height={rows} width={width} palette={palette} />
   );
 };

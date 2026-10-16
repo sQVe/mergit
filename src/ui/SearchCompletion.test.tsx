@@ -21,6 +21,8 @@ afterEach(() => {
   }
 });
 
+const shortHeight = 8;
+
 const mount = track(cleanups, untrackedMount);
 
 const threads = [
@@ -81,6 +83,54 @@ test('tab puts the candidate on the line, narrows the matches, and keeps the typ
   expect(frame).toContain('plant');
   expect(marked).toHaveLength(1);
   expect(marked[0]).toContain('hups-co/platform');
+});
+
+test('the best candidate sits directly above the / line, and tab picks it there', async () => {
+  const { setup, press, settle } = await searchWith('pla');
+
+  await press('tab');
+  await settle();
+
+  const lines = frameLines(setup);
+  const queryIndex = lines.findIndex((line) => line.startsWith('/'));
+  const queryLine = lines[queryIndex] ?? '';
+  const chosen = queryLine.slice(1).split(/\s/)[0] ?? '';
+
+  expect(chosen).not.toBe('');
+  expect(lines[queryIndex - 1]).toContain(chosen);
+  expect(highlightedAboveLine(setup)[0]).toContain(chosen);
+});
+
+test('in a short terminal the rows kept are the best candidates, next to the / line', async () => {
+  const many = Array.from({ length: 9 }, (_, index) =>
+    treeThread(index + 1, `Fix topic${index + 1}`, { repository: 'acme/app' }),
+  );
+
+  const tall = await mount('dark', threadsEffects(many));
+
+  await tall.press('r');
+  await tall.press('/');
+  await typeText(tall.setup, tall.settle, 'topic');
+  await tall.press('tab');
+  await tall.settle();
+
+  const tallQuery = frameLines(tall.setup).find((line) => line.startsWith('/')) ?? '';
+  const best = tallQuery.slice(1).split(/\s/)[0] ?? '';
+
+  const short = await mount('dark', threadsEffects(many), 60, false, shortHeight);
+
+  await short.press('r');
+  await short.press('/');
+  await typeText(short.setup, short.settle, 'topic');
+
+  const shortLines = frameLines(short.setup);
+  const shortQuery = shortLines.findIndex((line) => line.startsWith('/'));
+
+  const shownAbove = shortLines.slice(0, shortQuery).filter((line) => /topic\d/.test(line));
+
+  expect(best).not.toBe('');
+  expect(shownAbove.length).toBeLessThan(6);
+  expect(shortLines[shortQuery - 1]).toContain(best);
 });
 
 test('the list holds at most 6 candidates', async () => {
