@@ -7,20 +7,23 @@ import { InputLine } from './InputLine.tsx';
 import type { Palette } from './palette.ts';
 import { SearchCompletion, searchCompletionRows } from './SearchCompletion.tsx';
 
-export const searchLineRows = (snapshot: Snapshot): number => {
+const completionRoomOf = (room: number): number => room - 1;
+
+export const searchLineRows = (snapshot: Snapshot, room: number): number => {
   if (!snapshot.searchOpen && snapshot.searchText === '') {
     return 0;
   }
 
-  return 1 + searchCompletionRows(snapshot);
+  return 1 + searchCompletionRows(snapshot, completionRoomOf(room));
 };
 
 export const SearchLine = (props: {
   session: Session;
   snapshot: Snapshot;
   palette: Palette;
+  room: number;
 }): ReactNode => {
-  const { session, snapshot, palette } = props;
+  const { session, snapshot, palette, room } = props;
   const { width } = useTerminalDimensions();
 
   if (!snapshot.searchOpen && snapshot.searchText === '') {
@@ -48,7 +51,12 @@ export const SearchLine = (props: {
           }
         }}
       />
-      <SearchCompletion snapshot={snapshot} width={width} palette={palette} />
+      <SearchCompletion
+        snapshot={snapshot}
+        width={width}
+        room={completionRoomOf(room)}
+        palette={palette}
+      />
     </box>
   );
 };

@@ -110,3 +110,21 @@ test('without tab, the list narrows by the typed text alone', async () => {
   expect(frame).not.toContain('hups-co/platform');
   expect(frame).toContain('plan');
 });
+
+test('in a short terminal the completion list leaves the / line and the status line on screen', async () => {
+  const app = await mount('dark', threadsEffects(threads), 60, false, 4);
+
+  await app.press('r');
+  await app.press('/');
+  await typeText(app.setup, app.settle, 'pla');
+
+  const lines = frameLines(app.setup);
+
+  const lastLine = app.setup
+    .captureCharFrame()
+    .split('\n')
+    .filter((line) => line.trim() !== '');
+
+  expect(lines.some((line) => line.startsWith('/pla'))).toBe(true);
+  expect(lastLine.at(-1)).toContain('? help');
+});

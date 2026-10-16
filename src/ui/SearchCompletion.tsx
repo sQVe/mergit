@@ -6,16 +6,22 @@ import { CandidateList } from './CandidateList.tsx';
 import type { CandidateItem } from './CandidateList.tsx';
 import type { Palette } from './palette.ts';
 
-export const searchCompletionRows = (snapshot: Snapshot): number =>
-  snapshot.searchOpen ? searchCandidatesOf(snapshot).length : 0;
+export const searchCompletionRows = (snapshot: Snapshot, room: number): number => {
+  if (!snapshot.searchOpen) {
+    return 0;
+  }
+
+  return Math.min(searchCandidatesOf(snapshot).length, Math.max(0, room));
+};
 
 export const SearchCompletion = (props: {
   snapshot: Snapshot;
   width: number;
+  room: number;
   palette: Palette;
 }): ReactNode => {
-  const { snapshot, width, palette } = props;
-  const rows = searchCompletionRows(snapshot);
+  const { snapshot, width, room, palette } = props;
+  const rows = searchCompletionRows(snapshot, room);
 
   if (rows === 0) {
     return null;
