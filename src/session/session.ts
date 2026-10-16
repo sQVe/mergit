@@ -45,7 +45,7 @@ import {
 } from './searchTransitions.ts';
 import { jumpTopLevel, moveSelection, selectEdge } from './selectionMoves.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
-import { initialSnapshot } from './sessionState.ts';
+import { initialSnapshot, noticeMessages, visibleRows } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
 import { cycleGrouping, toggleAllFolds, toggleFold } from './treeTransitions.ts';
 
@@ -56,7 +56,7 @@ export { describeFilterRow } from './filterDescriptions.ts';
 export { formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
 export { chosenCandidateIndexOf, searchCandidatesOf } from './searchCompletion.ts';
-export { matchCountOf, openThreads, visibleRows } from './sessionState.ts';
+export { matchCountOf, noticeMessages, openThreads, visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
@@ -113,7 +113,7 @@ export interface SessionEffects {
   saveState: (state: SavedState) => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
   openInBrowser: BrowserOpenInputs['openInBrowser'];
-  stateWarning: string | null;
+  stateWarning: { reason: string; path: string } | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
   pollFeed: (
@@ -208,6 +208,8 @@ const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot>
   clearFilters,
 };
 
+const stateWarningMarker = 'state not saved';
+
 export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
@@ -246,7 +248,7 @@ export const createSession = (effects: SessionEffects): Session => {
   const startSnapshot: Snapshot = {
     ...initialSnapshot,
     grouping: effects.savedState?.grouping ?? initialSnapshot.grouping,
-    stateWarning: effects.stateWarning,
+    stateWarning: effects.stateWarning === null ? null : stateWarningMarker,
   };
 
   let snapshot: Snapshot =
@@ -307,6 +309,16 @@ export const createSession = (effects: SessionEffects): Session => {
     },
   });
 
+  const announceNotice = (previous: Snapshot, next: Snapshot) => {
+    if (next.notice === null || next.notice === previous.notice || visibleRows(next).length === 0) {
+      return;
+    }
+
+    const message = noticeMessages[next.notice];
+
+    toaster.show({ title: message.title, lines: [message.text], tone: 'error' });
+  };
+
   const update = (candidate: Snapshot) => {
     const next = marker.applyLeaving(candidate);
 
@@ -314,11 +326,15 @@ export const createSession = (effects: SessionEffects): Session => {
       return;
     }
 
+    const previous = snapshot;
+
     snapshot = next;
 
     for (const listener of listeners) {
       listener();
     }
+
+    announceNotice(previous, next);
   };
 
   later.update = update;
@@ -347,6 +363,14 @@ export const createSession = (effects: SessionEffects): Session => {
     getSnapshot: () => snapshot,
     update,
   });
+
+  if (effects.stateWarning !== null) {
+    toaster.show({
+      title: 'Zeta will not save state until the file is fixed or removed',
+      lines: [effects.stateWarning.reason, effects.stateWarning.path],
+      tone: 'error',
+    });
+  }
 
   const reportUnknownCommand = (name: string) => {
     update(closeCommandLine(snapshot));

@@ -1,18 +1,13 @@
 import type { ReactNode } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
-import { openThreads, visibleRows } from '../session/session.ts';
+import { noticeMessages, openThreads, visibleRows } from '../session/session.ts';
 import type { Palette } from './palette.ts';
-
-const noticeText = {
-  ghMissing: 'Install GitHub CLI from https://cli.github.com, then press r',
-  notSignedIn: 'Run gh auth login, then press r',
-};
 
 export const hasNoRows = (snapshot: Snapshot): boolean => visibleRows(snapshot).length === 0;
 
-export const readNoticeText = (snapshot: Snapshot): string | null =>
-  snapshot.notice === null ? null : noticeText[snapshot.notice];
+const readNoticeText = (snapshot: Snapshot): string | null =>
+  snapshot.notice === null ? null : noticeMessages[snapshot.notice].text;
 
 const readMessage = (snapshot: Snapshot): { text: string; dim: boolean } | null => {
   const notice = readNoticeText(snapshot);

@@ -65,6 +65,14 @@ export interface Snapshot {
   filterEditing: Filter | null;
 }
 
+export const noticeMessages: Record<Notice, { title: string; text: string }> = {
+  ghMissing: {
+    title: 'GitHub CLI not found',
+    text: 'Install GitHub CLI from https://cli.github.com, then press r',
+  },
+  notSignedIn: { title: 'Not signed in to GitHub', text: 'Run gh auth login, then press r' },
+};
+
 export const initialSnapshot: Snapshot = {
   threads: [],
   hiddenThreadIds: new Set(),

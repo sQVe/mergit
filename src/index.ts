@@ -84,7 +84,7 @@ const loadedState = stateHome === null ? null : loadState(stateHome);
 let writer: StateWriter | undefined;
 let session: Session | undefined;
 let savedState: SavedState | null = null;
-let stateWarning: string | null = null;
+let stateWarning: { reason: string; path: string } | null = null;
 let newerVersion: string | null = null;
 
 if (stateHome !== null && loadedState?.kind !== 'invalid' && loadedState?.kind !== 'newer') {
@@ -104,7 +104,7 @@ if (loadedState?.kind === 'loaded') {
 }
 
 if (loadedState?.kind === 'invalid') {
-  stateWarning = `Zeta will not save state until the file is fixed or removed: ${loadedState.path}: ${loadedState.reason}`;
+  stateWarning = { reason: loadedState.reason, path: shortenHome(loadedState.path) };
 }
 
 if (loadedState?.kind === 'newer') {

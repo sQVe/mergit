@@ -430,6 +430,8 @@ test.each([
     '{"version":3,"grouping":"type","done":{},"seen":{"github.com/octocat":{"1":"yesterday"}}}',
   ],
   ['a missing version', '{"grouping":"type"}'],
+  ['an array', '[]'],
+  ['unquoted JSON', '{not json'],
 ])('%s loads as invalid and leaves the file unchanged', (_name, text) => {
   const path = writeStateText(text);
 
@@ -439,6 +441,20 @@ test.each([
   expect(result.kind === 'invalid' ? result.path : null).toBe(path);
   expect(readFileSync(path, 'utf8')).toBe(text);
 });
+
+test.each([['[]'], ['{"version":3,"grouping":"owner","done":{},"seen":{}}'], ['{not json']])(
+  'the reason for invalid state %s is one short line',
+  (text) => {
+    writeStateText(text);
+
+    const result = loadState(directory);
+    const reason = result.kind === 'invalid' ? result.reason : '';
+
+    expect(reason).not.toBe('');
+    expect(reason).not.toContain('\n');
+    expect(reason.length).toBeLessThan(80);
+  },
+);
 
 test('a version 4 file loads as newer with the path and version and stays unchanged', () => {
   const text = '{"version":4,"grouping":"type","done":{},"seen":{}}';
