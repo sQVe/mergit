@@ -23,7 +23,7 @@ const toneColumns = 5;
 const timeColumns = 8;
 const columnGap = 1;
 const prefixColumns = timeColumns + columnGap + toneColumns + columnGap;
-const boxChromeColumns = 8;
+const boxChromeColumns = 4;
 
 const pad = (value: number): string => String(value).padStart(2, '0');
 
