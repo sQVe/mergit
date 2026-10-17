@@ -220,3 +220,78 @@ test('a negated row counts the threads it keeps, before and after it is applied'
   expect(candidates).toContain('active -kind:pr 1');
   expect(candidates).toContain('candidate -kind:issue 3');
 });
+
+test('a value row of a field outside repo, org, and author describes the field', async () => {
+  const session = await loadInbox([{ id: '1' }]);
+  const snapshot = session.getSnapshot();
+  const filter = { field: 'title' as const, value: 'bug', negated: false };
+
+  const fieldText = describeFilterRow(snapshot, { kind: 'field', field: 'title' });
+  const candidate = describeFilterRow(snapshot, { kind: 'candidate', filter, count: 1 });
+  const active = describeFilterRow(snapshot, { kind: 'active', filter, count: 1 });
+
+  expect(fieldText).not.toBe('');
+  expect(candidate).toBe(fieldText);
+  expect(active).toBe(fieldText);
+});
+
+test('candidate and active rows describe their own filter, not the draft', async () => {
+  const session = await loadInbox([
+    { id: '1', overrides: { repository: 'acme/app' } },
+    { id: '2', overrides: { repository: 'acme/app' } },
+    { id: '3', overrides: { repository: 'acme/web' } },
+  ]);
+
+  session.send({ kind: 'editFilterDraft', text: 'author:' });
+
+  const snapshot = session.getSnapshot();
+  const filter = { field: 'repo' as const, value: 'acme/app', negated: false };
+
+  for (const kind of ['candidate', 'active'] as const) {
+    const description = describeFilterRow(snapshot, { kind, filter, count: 2 });
+
+    expect(description).toContain('acme/app');
+    expect(description).toContain('2 in your inbox');
+  }
+});
+
+test('an error row describes nothing', async () => {
+  const session = await loadInbox([{ id: '1' }]);
+
+  session.send({ kind: 'editFilterDraft', text: 'age:>3' });
+  session.send({ kind: 'applyFilterRow' });
+
+  const invalid = session.getSnapshot();
+  const invalidRow = filterRowsOf(invalid)[0];
+
+  expect(invalidRow?.kind).toBe('error');
+  expect(describeFilterRow(invalid, invalidRow)).toBe('');
+
+  session.send({ kind: 'editFilterDraft', text: 'foo:' });
+
+  const unknown = session.getSnapshot();
+  const unknownRow = filterRowsOf(unknown)[0];
+
+  expect(unknownRow?.kind).toBe('error');
+  expect(describeFilterRow(unknown, unknownRow)).toBe('');
+});
+
+test('with no row under the cursor the draft field is described once it has a colon', async () => {
+  const session = await loadInbox([{ id: '1' }]);
+
+  const describeDraft = (draft: string): string => {
+    session.send({ kind: 'editFilterDraft', text: draft });
+
+    return describeFilterRow(session.getSnapshot(), undefined);
+  };
+
+  const repoText = describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'repo' });
+
+  expect(repoText).not.toBe('');
+  expect(describeDraft('repo:')).toBe(repoText);
+  expect(describeDraft(' -repo:')).toBe(repoText);
+  expect(describeDraft('REPO:')).toBe(repoText);
+  expect(describeDraft('repo')).toBe('');
+  expect(describeDraft('foo:')).toBe('');
+  expect(describeDraft('')).toBe('');
+});

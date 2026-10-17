@@ -996,3 +996,266 @@ test('Enter on age:<0m adds no chip and shows an error row', async () => {
   expect(session.getSnapshot().filters).toEqual([]);
   expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
 });
+
+test('a chip is a duplicate only when field, sign, and value all match', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'openFilters' });
+  addFilters(session, '-repo:acme/app');
+
+  expect(session.getSnapshot().filters).toEqual([
+    { field: 'repo', value: 'acme/app', negated: false },
+    { field: 'repo', value: 'acme/app', negated: true },
+  ]);
+
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'org:acme/app');
+
+  expect(session.getSnapshot().filters).toHaveLength(3);
+
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'repo:hups-co/web');
+
+  expect(session.getSnapshot().filters).toHaveLength(4);
+});
+
+test.each(['repo:a foo:', 'repo:a -foo:', 'title:"fix it" foo:'])(
+  'an unknown field in a later token of %s shows an error row at once',
+  async (draft) => {
+    const { session } = await loadWithAuthors();
+
+    session.send({ kind: 'editFilterDraft', text: draft });
+
+    expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+  },
+);
+
+test('a field-like word in an open quote at the start of the draft shows no error row', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: '"fix foo:' });
+
+  expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'error')).toBe(false);
+});
+
+test('a whitespace-only draft lists the same rows as an empty draft', async () => {
+  const { session } = await loadWithAuthors();
+
+  const empty = filterRowsOf(session.getSnapshot());
+
+  session.send({ kind: 'editFilterDraft', text: '  ' });
+
+  expect(filterRowsOf(session.getSnapshot())).toEqual(empty);
+  expect(filterCursorOf(session.getSnapshot())).toBe(-1);
+});
+
+test('an active false chip does not move false before true when the field is typed', async () => {
+  const threads = [
+    makeThread('1', { unread: false, lastReadAt: '2026-01-02T11:00:00Z' }),
+    makeThread('2', { unread: false, lastReadAt: '2026-01-02T11:00:00Z' }),
+    makeThread('3', { unread: false, lastReadAt: '2026-01-02T11:00:00Z' }),
+    makeThread('4'),
+  ];
+
+  const { session, load } = makeHarness();
+
+  await load(...threads);
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'unread:false');
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'unread' });
+
+  const rows = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(rows.indexOf('candidate unread:true')).toBeGreaterThan(-1);
+  expect(rows.indexOf('active unread:false')).toBeGreaterThan(-1);
+  expect(rows.indexOf('candidate unread:true')).toBeLessThan(rows.indexOf('active unread:false'));
+});
+
+test('a negated chip is not listed as an active row for a draft without a minus', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  addFilters(session, '-repo:acme/app');
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo' });
+
+  expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'active')).toBe(false);
+
+  session.send({ kind: 'editFilterDraft', text: '-repo' });
+
+  expect(filterRowsOf(session.getSnapshot()).some((row) => row.kind === 'active')).toBe(true);
+});
+
+test('a field that matches without being a prefix is listed last', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'ae' });
+
+  const rows = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(rows.at(-1)).toBe('field age');
+});
+
+test('a typed row with two tokens does not hide the candidate for one of them', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme/app repo:acme' });
+
+  const rows = filterRowsOf(session.getSnapshot());
+
+  expect(rows[0]).toMatchObject({ kind: 'typed' });
+  expect(rows.slice(1).map(rowSummaryOf)).toContain('candidate repo:acme/app');
+});
+
+test('an active chip typed in full is followed by the other matching candidates', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads(), makeThread('4', { repository: 'acme/app-two' }));
+  session.send({ kind: 'openFilters' });
+  addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme/app' });
+
+  const rows = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(rows[0]).toBe('active repo:acme/app');
+  expect(rows).toContain('candidate repo:acme/app-two');
+  expect(rows).toHaveLength(2);
+});
+
+test('the cursor stays on the last row when a refresh removes a candidate', async () => {
+  const harness = makeHarness();
+  const { session, load } = harness;
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'moveFilterCursor', direction: 'up' });
+
+  const before = filterRowsOf(session.getSnapshot()).length;
+
+  expect(filterCursorOf(session.getSnapshot())).toBe(before - 1);
+
+  await load(...filterThreads().slice(0, 2));
+
+  const after = filterRowsOf(session.getSnapshot()).length;
+
+  expect(after).toBeLessThan(before);
+  expect(filterCursorOf(session.getSnapshot())).toBe(after - 1);
+});
+
+test('moveFilterCursor up from a selected row selects the row above', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+
+  expect(filterCursorOf(session.getSnapshot())).toBe(1);
+
+  session.send({ kind: 'moveFilterCursor', direction: 'up' });
+
+  expect(filterCursorOf(session.getSnapshot())).toBe(0);
+
+  session.send({ kind: 'moveFilterCursor', direction: 'up' });
+
+  expect(filterCursorOf(session.getSnapshot())).toBe(0);
+});
+
+test('Tab on a field row after a leading space and a minus keeps the minus', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: ' -rep' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(filterRowsOf(snapshot)[filterCursorOf(snapshot)]).toEqual({
+    kind: 'field',
+    field: 'repo',
+  });
+
+  session.send({ kind: 'takeFilterRow' });
+
+  expect(session.getSnapshot().filterDraft).toBe('-repo:');
+});
+
+test('Tab on a candidate value row puts the filter in the draft without editing a chip', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...filterThreads());
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme' });
+  session.send({ kind: 'moveFilterCursor', direction: 'down' });
+
+  const snapshot = session.getSnapshot();
+  const row = filterRowsOf(snapshot)[filterCursorOf(snapshot)];
+
+  expect(row).toMatchObject({ kind: 'candidate' });
+
+  session.send({ kind: 'takeFilterRow' });
+
+  expect(session.getSnapshot().filterDraft).toBe('repo:acme/app');
+  expect(session.getSnapshot().filterEditing).toBeNull();
+});
+
+test('Enter on an invalid draft with no row selected leaves no row selected', async () => {
+  const { session } = await loadWithAuthors();
+
+  session.send({ kind: 'editFilterDraft', text: 'age:>3' });
+
+  expect(filterCursorOf(session.getSnapshot())).toBe(-1);
+
+  session.send({ kind: 'applyFilterRow' });
+
+  expect(filterRowsOf(session.getSnapshot())[0]?.kind).toBe('error');
+  expect(filterCursorOf(session.getSnapshot())).toBe(-1);
+});
+
+test('Enter on a field row while editing a chip completes the field and keeps the chip', async () => {
+  const { session } = await loadWithAuthors();
+
+  addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme/app' });
+  session.send({ kind: 'takeFilterRow' });
+  session.send({ kind: 'editFilterDraft', text: 'rep' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(filterRowsOf(snapshot)[filterCursorOf(snapshot)]).toEqual({
+    kind: 'field',
+    field: 'repo',
+  });
+
+  session.send({ kind: 'applyFilterRow' });
+
+  const applied = session.getSnapshot();
+
+  expect(applied.filterDraft).toBe('repo:');
+  expect(applied.filters).toEqual([{ field: 'repo', value: 'acme/app', negated: false }]);
+  expect(applied.filtersOpen).toBe(true);
+  expect(applied.filterEditing).not.toBeNull();
+});
+
+test('Enter on a chip being edited with the draft unchanged keeps the chip', async () => {
+  const { session } = await loadWithAuthors();
+
+  addFilters(session, 'repo:acme/app');
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme/app' });
+  session.send({ kind: 'takeFilterRow' });
+  session.send({ kind: 'applyFilterRow' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.filters).toEqual([{ field: 'repo', value: 'acme/app', negated: false }]);
+  expect(snapshot.filterEditing).toBeNull();
+  expect(snapshot.filtersOpen).toBe(false);
+});
