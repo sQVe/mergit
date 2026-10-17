@@ -307,3 +307,64 @@ test('help lists the :messages command', async () => {
   expect(frame).toContain(':messages');
   expect(frame).toContain('Show recent messages');
 });
+
+const listedCount = catalog.filter((command) => command.scope !== 'confirm').length;
+
+test('help with height equal to the commands plus the border shows every row and no footer', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, listedCount + 2);
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).not.toMatch(/\d+-\d+ of \d+/);
+  expect(frame).not.toContain('scroll');
+
+  for (const command of catalog.filter((candidate) => candidate.scope !== 'confirm')) {
+    expect(frame).toContain(command.label);
+  }
+});
+
+test('help one row shorter overflows and shows the footer with the scroll and close keys', async () => {
+  const { setup, press } = await mount(null, idleEffects, 80, false, listedCount + 1);
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain(`1-${listedCount - 2} of ${listedCount}  j/k scroll  escape close`);
+});
+
+const commandOf = (id: string, keys: string[]): Command => ({
+  id,
+  label: `Label of ${id}`,
+  scope: 'global',
+  keys,
+  disabledReason: () => undefined,
+  intent: () => ({ kind: 'terminal', action: 'quit' }),
+});
+
+test('the footer names the scroll and close keys that the catalog gives', async () => {
+  const custom = [
+    commandOf('scrollHelpDown', ['n', 'down']),
+    commandOf('scrollHelpUp', ['p', 'up']),
+    commandOf('closeHelp', ['x']),
+    commandOf('other', ['o']),
+    commandOf('another', ['a']),
+  ];
+
+  const setup = await act(() =>
+    testRender(<HelpOverlay catalog={custom} palette={pickPalette('dark')} height={5} top={0} />, {
+      width: 80,
+      height: 5,
+    }),
+  );
+
+  cleanups.push(() => {
+    setup.renderer.destroy();
+  });
+
+  await act(() => setup.renderOnce());
+
+  expect(setup.captureCharFrame()).toContain('1-2 of 5  n/p scroll  x close');
+});

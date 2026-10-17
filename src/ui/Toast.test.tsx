@@ -370,3 +370,26 @@ test('a new toast during an exit appears at once and slides in', async () => {
   expect(markColumn(settled)).toBe(resting);
   expect(settled).toContain('second failure');
 });
+
+test('a long reason is wrapped once and the path after it stays visible', async () => {
+  const { setup, session, advance } = await mount('dark', idleEffects, 60, true);
+
+  await act(async () => {
+    session.reportStateWrite({ ok: false, reason: `${'A'.repeat(45)} ENDPATH`, path: '~/s.json' });
+  });
+
+  await advance(0);
+  await advance(slideMilliseconds);
+
+  const text = setup
+    .captureCharFrame()
+    .split('\n')
+    .filter((line) => line.includes('▌'))
+    .map((line) => line.slice(line.indexOf('▌') + 1))
+    .join('')
+    .replaceAll(/[\s▁]/g, '');
+
+  expect(text).toContain('notsaved');
+  expect(text).toContain('ENDPATH');
+  expect(text.split('A'.repeat(45))).toHaveLength(2);
+});

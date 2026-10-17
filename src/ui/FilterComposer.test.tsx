@@ -4,6 +4,7 @@ import { RGBA } from '@opentui/core';
 
 import type { createSession } from '../session/session.ts';
 import { describeFilterRow, filterCursorOf, filterRowsOf } from '../session/session.ts';
+import { wrapText } from './CandidateList.tsx';
 import { pickPalette } from './palette.ts';
 import {
   threadsEffects,
@@ -589,3 +590,146 @@ test('author:@me shows its own text, and -kind:pr says it hides pull requests', 
   expect(negatedLine).toMatch(/^Hides/);
   expect(negatedLine).toContain(positiveLine);
 });
+
+test('a label exactly as wide as its room shows in full with no ellipsis and no count', async () => {
+  const { setup, press, settle } = await mountFilters(13);
+
+  await press('f');
+  await typeText(setup, settle, 'auth');
+
+  const rows = setup.captureCharFrame().split('\n').map(innerOf);
+
+  expect(rows).toContain('author:');
+});
+
+test('a field row shows no count after its label', async () => {
+  const { setup, press, settle } = await mountFilters(60);
+
+  await press('f');
+  await typeText(setup, settle, 'auth');
+
+  const row = setup
+    .captureCharFrame()
+    .split('\n')
+    .find((line) => line.includes('author:'));
+
+  expect(innerOf(row)).toBe('author:');
+});
+
+test('wrapText gives the exact lines for a word wider than the box, an exact-width line, and no text', () => {
+  expect(wrapText('abcdefghij kl', 5, 3)).toEqual(['abcd…', 'kl']);
+  expect(wrapText('abc def', 7, 3)).toEqual(['abc def']);
+  expect(wrapText('abcde fghij', 5, 3)).toEqual(['abcde', 'fghij']);
+  expect(wrapText('  abc   def ', 20, 3)).toEqual(['abc def']);
+  expect(wrapText('', 5, 3)).toEqual([]);
+  expect(wrapText('   ', 5, 3)).toEqual([]);
+});
+
+test('wrapText cuts a fourth line away and shortens the third to width minus one plus an ellipsis', () => {
+  expect(wrapText('aaaa bbbb cccc dddd', 4, 3)).toEqual(['aaaa', 'bbbb', 'ccc…']);
+  expect(wrapText('aaaa bbbb cccc', 4, 3)).toEqual(['aaaa', 'bbbb', 'cccc']);
+  expect(wrapText('aaaa bbbb cccc dddd', 4, 2)).toEqual(['aaaa', 'bbb…']);
+});
+
+test('a typed row lists the text of its filters', async () => {
+  const { setup, press, settle } = await mountFilters(80);
+
+  await press('f');
+  await typeText(setup, settle, 'author:octo kind:pr');
+
+  const lines = setup.captureCharFrame().split('\n');
+
+  expect(lines.some((line) => /^│\s+author:octo kind:pr\s+2\s*│$/.test(line))).toBe(true);
+});
+
+const tickCount = (frame: string): number => frame.split('✓').length - 1;
+
+test('the check mark shows only on rows for chips already applied', async () => {
+  const mounted = await mountFilters(80);
+  const { setup, press, settle } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await typeText(setup, settle, 'author:');
+
+  const valueRows = setup.captureCharFrame().split('\n');
+
+  expect(valueRows.filter((line) => line.includes('✓'))).toHaveLength(1);
+  expect(valueRows.find((line) => line.includes('✓'))).toContain('author:mona');
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'auth');
+
+  const fieldFrame = setup.captureCharFrame();
+
+  expect(fieldFrame.split('\n').map(innerOf)).toContain('author:');
+  expect(tickCount(fieldFrame)).toBe(1);
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'author:mona kind:pr');
+
+  expect(tickCount(setup.captureCharFrame())).toBe(0);
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'age:>3');
+  await press('return');
+
+  const errorFrame = setup.captureCharFrame();
+
+  expect(errorFrame).toContain('age takes');
+  expect(tickCount(errorFrame)).toBe(0);
+
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'octo');
+
+  const plainFrame = setup.captureCharFrame();
+
+  expect(plainFrame).toContain('author:octo');
+  expect(tickCount(plainFrame)).toBe(0);
+});
+
+test('a draft with leading spaces still shows the value hint of its field', async () => {
+  const { setup, press, settle } = await mountFilters(80);
+
+  await press('f');
+  await typeText(setup, settle, '  age:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('<N or >N with m h d w');
+  expect(frame).not.toContain('Enter apply');
+});
+
+test('a draft that matches rows lists them and shows no No matches row', async () => {
+  const { setup, press, settle } = await mountFilters(80);
+
+  await press('f');
+  await typeText(setup, settle, 'mona');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toMatch(/author:mona\s+1/);
+  expect(frame).not.toContain('No matches');
+});
+
+test.each([5, 6, 7, 8, 9, 10, 11, 12])(
+  'in a terminal %i rows tall the composer keeps the input, a candidate, and the status line',
+  async (height) => {
+    const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 40, false, height);
+    const { setup, press, settle } = mounted;
+
+    await press('r');
+    await settle();
+    await press('f');
+    await typeText(setup, settle, 'author:');
+
+    const frame = setup.captureCharFrame();
+    const lines = frame.split('\n');
+    const shown = lines.filter((line) => /author:user\d+/.test(line));
+    const lone = lines.filter((line) => innerOf(line) === '…');
+
+    expect(composerInputOf(frame)).toBe('author:');
+    expect(shown.length).toBeGreaterThanOrEqual(1);
+    expect(lone).toEqual([]);
+    expect(lines.findLast((line) => line.trim() !== '')).toContain('? help');
+  },
+);

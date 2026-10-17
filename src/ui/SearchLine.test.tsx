@@ -177,3 +177,57 @@ test('under a search with more matches than rows, the last selected row stays fu
   expect(rowIndex).toBeLessThan(queryIndex);
   expect(lines[rowIndex]).toContain('3h');
 });
+
+const topicThreads = Array.from({ length: 9 }, (_, index) =>
+  treeThread(index + 1, `Fix topic${index + 1}`, { repository: 'acme/app' }),
+);
+
+test('with the search closed and empty the list uses every row above the status line', async () => {
+  const many = Array.from({ length: 20 }, (_, index) =>
+    makeThread(index + 1, `Thread ${String(index + 1).padStart(2, '0')}`),
+  );
+
+  const { setup, press } = await mount('dark', threadsEffects(many), 60, false, 10);
+
+  await press('r');
+  await press('G');
+
+  const lines = setup.captureCharFrame().split('\n');
+
+  expect(lines[8]).toContain('Thread 20');
+  expect(lines[9]).toContain('? help');
+});
+
+test('in a short terminal the completions, the / line, and the status line all fit', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(topicThreads), 60, false, 9);
+
+  await press('r');
+  await press('/');
+  await typeText(setup, settle, 'topic');
+
+  const lines = setup.captureCharFrame().split('\n');
+  const queryIndex = lines.findIndex((line) => line.startsWith('/topic'));
+  const completions = lines.filter((line) => /^\s+topic\d+\s+1\s*$/.test(line));
+
+  expect(queryIndex).toBe(7);
+  expect(lines[8]).toContain('? help');
+  expect(completions).toHaveLength(4);
+  expect(lines.slice(3, 7)).toEqual(completions);
+});
+
+test('in a terminal with no room for completions the / line keeps its own row above the status line', async () => {
+  const { setup, press, settle } = await mount('dark', threadsEffects(topicThreads), 60, false, 4);
+
+  await press('r');
+  await press('G');
+  await press('/');
+  await typeText(setup, settle, 'topic');
+
+  const lines = setup.captureCharFrame().split('\n');
+
+  expect(lines[1]).toContain('Fix topic9');
+  expect(lines[2]).toMatch(/^\/topic/);
+  expect(lines[3]).toContain('? help');
+  expect(lines[0]).not.toMatch(/^\/topic/);
+  expect(lines[1]).not.toMatch(/^\/topic/);
+});

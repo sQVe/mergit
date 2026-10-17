@@ -89,3 +89,52 @@ test('with narrow width the chip bar shows the first chip before +N more', async
   expect(chipRow).toContain('…');
   expect(chipRow).toContain('more');
 });
+
+const chipRowAt = async (width: number, draft: string): Promise<string> => {
+  const { setup, press, settle } = await mountFilters(width);
+
+  await press('f');
+  await typeText(setup, settle, draft);
+  await press('return');
+
+  return (setup.captureCharFrame().split('\n')[0] ?? '').trimEnd();
+};
+
+test('chips on two fields show each chip once, apart by two spaces', async () => {
+  const chipRow = await chipRowAt(100, 'repo:a author:octo');
+
+  expect(chipRow).toBe('repo:a  author:octo');
+});
+
+test('chips of different fields and a negated chip of the same field are apart by two spaces', async () => {
+  const chipRow = await chipRowAt(100, 'repo:a -repo:c author:octo kind:pr');
+
+  expect(chipRow).toBe('repo:a  -repo:c  author:octo  kind:pr');
+});
+
+test('chips that exactly fit show all of them with no +N more', async () => {
+  const chipRow = await chipRowAt(28, 'repo:a author:octo kind:pr');
+
+  expect(chipRow).toBe('repo:a  author:octo  kind:pr');
+});
+
+test('one column less shows the chips that fit and the exact count of the rest', async () => {
+  const chipRow = await chipRowAt(27, 'repo:a author:octo kind:pr');
+
+  expect(chipRow).toBe('repo:a  +2 more');
+});
+
+test('two chips that fit with one hidden show the exact count of one', async () => {
+  const chipRow = await chipRowAt(19, 'repo:a author:octo');
+  const narrowRow = await chipRowAt(18, 'repo:a author:octo');
+
+  expect(chipRow).toBe('repo:a  author:octo');
+  expect(narrowRow).toBe('repo:a  +1 more');
+});
+
+test('a single chip wider than the bar is cut at the bar width', async () => {
+  const chipRow = await chipRowAt(30, `repo:acme/${'a'.repeat(40)}`);
+
+  expect(chipRow).toBe(`repo:acme/${'a'.repeat(19)}…`);
+  expect(chipRow).toHaveLength(30);
+});
