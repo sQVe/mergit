@@ -265,3 +265,92 @@ test('a saved Release thread that changed since it was seen is new at start', ()
 
   expect([...harness.session.getSnapshot().newThreadIds]).toEqual([thread.id]);
 });
+
+test('moving the cursor before the first load with a saved login and no seen record does not throw', () => {
+  const harness = makeHarness(
+    {
+      savedSnapshot: {
+        viewer: { login: octocat, etag: null },
+        savedAt,
+        feed: makeFeed('saved', [makeThread('1'), makeThread('2')]),
+        threads: [makeThread('1'), makeThread('2')],
+      },
+      savedState: stateWithSeen(new Map()),
+    },
+    { holdViewer: true },
+  );
+
+  const before = harness.selected();
+
+  harness.session.send({ kind: 'selectNext' });
+  harness.session.send({ kind: 'selectNext' });
+  harness.session.send({ kind: 'selectPrevious' });
+
+  expect(before).not.toBeNull();
+  expect(harness.selected()).not.toBe(before);
+  expect(harness.session.getSnapshot().newThreadIds.size).toBe(0);
+});
+
+test('a selected new thread stays new after cycleGrouping and after an unchanged poll', async () => {
+  const { a, b, savedState } = newThreadsFixture();
+  const harness = makeHarness({ savedState });
+
+  await harness.load(a, b);
+  harness.selectThread(b);
+  harness.session.send({ kind: 'cycleGrouping' });
+
+  expect(harness.selected()).toBe(`thread:${b.id}`);
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([b.id]);
+
+  await harness.fireTimer();
+  await harness.answerPoll({ ok: true, value: { kind: 'unchanged', pollInterval: null } });
+
+  expect(harness.selected()).toBe(`thread:${b.id}`);
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([b.id]);
+});
+
+test('a refresh that drops the new thread and makes another one new replaces the new set', async () => {
+  const [a, b] = [releaseOf('1'), releaseOf('2')];
+
+  const harness = makeHarness({
+    savedState: stateWithSeen(seenFor(octocat, [a, '2026-01-01T10:00:00Z'], [b, b.updatedAt])),
+  });
+
+  await harness.load(a, b);
+
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([a.id]);
+
+  const changedB = releaseOf('2', '2026-01-05T10:00:00Z');
+
+  await harness.loadWith('feed2', [changedB]);
+
+  expect([...harness.session.getSnapshot().newThreadIds]).toEqual([b.id]);
+});
+
+test('an intent that changes nothing notifies no subscriber while a thread is new', async () => {
+  const { a, b, savedState } = newThreadsFixture();
+  const harness = makeHarness({ savedState });
+  let calls = 0;
+
+  await harness.load(a, b);
+  harness.session.send({ kind: 'selectFirst' });
+
+  expect(harness.session.getSnapshot().newThreadIds.size).toBe(1);
+
+  harness.session.subscribe(() => {
+    calls += 1;
+  });
+
+  harness.session.send({ kind: 'selectPrevious' });
+
+  expect(calls).toBe(0);
+});
+
+test('the first load with no new threads sets the snapshot viewer login', async () => {
+  const harness = makeHarness();
+
+  await harness.load(releaseOf('1'));
+
+  expect(harness.session.getSnapshot().newThreadIds.size).toBe(0);
+  expect(harness.session.getSnapshot().viewerLogin).toBe(octocat);
+});

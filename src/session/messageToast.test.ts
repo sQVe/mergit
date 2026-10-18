@@ -94,3 +94,16 @@ test('the message history keeps at most 100 entries and drops the oldest', () =>
   expect(messages[0]?.title).toBe('Unknown command: command104');
   expect(messages.at(-1)?.title).toBe('Unknown command: command5');
 });
+
+test('stop leaves no active toast timer', async () => {
+  const { session, activeTimers } = makeHarness();
+
+  session.send({ kind: 'cycleGrouping' });
+  session.reportStateWrite({ ok: false, reason: 'first', path: '~/state.json' });
+
+  expect(activeTimers()).toHaveLength(1);
+
+  await session.stop(new AbortController().signal);
+
+  expect(activeTimers()).toEqual([]);
+});

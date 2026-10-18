@@ -7,6 +7,7 @@ import {
   accountKeyOf,
   addFilters,
   doneFor,
+  failure,
   makeHarness,
   fireDoneTimerAt,
   makeThread,
@@ -436,3 +437,29 @@ test('markThreadsDone from a node row under filters marks only that node visible
 
   expect(harness.sends.map((send) => send.threadId)).toEqual([toThreadId('1'), toThreadId('3')]);
 });
+
+test.each(['read', 'viewer'] as const)(
+  'a %s failure that arrives after stop leaves the snapshot unchanged',
+  async (stage) => {
+    const harness = makeHarness({}, { holdViewer: stage === 'viewer' });
+
+    if (stage === 'read') {
+      await harness.load(makeThread('1'));
+    }
+
+    harness.session.send({ kind: 'refresh' });
+    await settle();
+
+    const before = harness.session.getSnapshot();
+
+    await harness.session.stop(new AbortController().signal);
+
+    if (stage === 'read') {
+      await harness.answerRead(failure('offline'));
+    } else {
+      await harness.answerViewer(failure('offline'));
+    }
+
+    expect(harness.session.getSnapshot()).toBe(before);
+  },
+);

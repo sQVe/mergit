@@ -151,3 +151,43 @@ test('no open starts after stop and no toast shows', async () => {
   expect(opens.started).toEqual([repoPage('acme/a')]);
   expect(harness.session.getSnapshot().toast).toBeNull();
 });
+
+test('a page whose open fails after stop shows no toast', async () => {
+  const resolvers: ((result: { ok: false; message: string }) => void)[] = [];
+
+  const harness = makeHarness({
+    openInBrowser: () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve);
+      }),
+  });
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/a')] });
+  await settle();
+  await harness.session.stop(new AbortController().signal);
+  resolvers[0]?.({ ok: false, message: 'broken' });
+  await settle();
+
+  expect(harness.session.getSnapshot().toast).toBeNull();
+  expect(harness.session.getSnapshot().messages).toHaveLength(0);
+});
+
+test('stop aborts the signal of an open in flight', async () => {
+  const signals: AbortSignal[] = [];
+
+  const harness = makeHarness({
+    openInBrowser: (_page, signal) =>
+      new Promise(() => {
+        signals.push(signal);
+      }),
+  });
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/a')] });
+  await settle();
+
+  expect(signals[0]?.aborted).toBe(false);
+
+  await harness.session.stop(new AbortController().signal);
+
+  expect(signals[0]?.aborted).toBe(true);
+});

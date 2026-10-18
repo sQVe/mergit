@@ -149,3 +149,46 @@ test('marking done on a folded node that a refresh grew keeps the node selected'
   expect(selected).not.toBeNull();
   expect(harness.session.getSnapshot().selectedRowKey).toBe(selected);
 });
+
+test('undo of a thread alone in a folded group selects that group row after the selection moved elsewhere', async () => {
+  const harness = makeHarness();
+  const other = makeThread('1');
+  const target = makeThread('2', { reason: 'mention', repository: 'acme/lib' });
+
+  await harness.load(other, target);
+  harness.session.send({ kind: 'selectLast' });
+  harness.session.send({ kind: 'selectPreviousGroup' });
+  harness.selectThread(target);
+  harness.session.send({ kind: 'selectPrevious' });
+
+  const groupKey = harness.selected();
+
+  expect(groupKey).toBe('node:mention/acme/lib');
+
+  harness.session.send({ kind: 'toggleFold' });
+  harness.session.send({ kind: 'markThreadsDone', threadIds: [target.id] });
+
+  expect(harness.selected()).not.toBe(groupKey);
+
+  harness.session.send({ kind: 'undoDone' });
+
+  const snapshot = harness.session.getSnapshot();
+
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${target.id}`);
+  expect(snapshot.selectedRowKey).toBe(groupKey);
+});
+
+test('undo of a thread that a refresh dropped keeps the current selection', async () => {
+  const harness = makeHarness();
+  const [one, two, three] = [makeThread('1'), makeThread('2'), makeThread('3')];
+
+  await harness.load(one, two, three);
+  harness.selectThread(two);
+  harness.session.send({ kind: 'markDone' });
+  await harness.loadWith('fresh', [one, three]);
+  harness.selectThread(one);
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(harness.selected()).toBe(`thread:${one.id}`);
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${two.id}`);
+});
