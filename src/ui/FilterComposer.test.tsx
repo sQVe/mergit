@@ -4,7 +4,6 @@ import { RGBA } from '@opentui/core';
 
 import type { createSession } from '../session/session.ts';
 import { describeFilterRow, filterCursorOf, filterRowsOf } from '../session/session.ts';
-import { wrapText } from './CandidateList.tsx';
 import { pickPalette } from './palette.ts';
 import {
   threadsEffects,
@@ -616,19 +615,150 @@ test('a field row shows no count after its label', async () => {
   expect(innerOf(row)).toBe('author:');
 });
 
-test('wrapText gives the exact lines for a word wider than the box, an exact-width line, and no text', () => {
-  expect(wrapText('abcdefghij kl', 5, 3)).toEqual(['abcd…', 'kl']);
-  expect(wrapText('abc def', 7, 3)).toEqual(['abc def']);
-  expect(wrapText('abcde fghij', 5, 3)).toEqual(['abcde', 'fghij']);
-  expect(wrapText('  abc   def ', 20, 3)).toEqual(['abc def']);
-  expect(wrapText('', 5, 3)).toEqual([]);
-  expect(wrapText('   ', 5, 3)).toEqual([]);
+const boxRowsOf = (frame: string): string[] => {
+  const lines = frame.split('\n');
+  const top = lines.findIndex((line) => line.startsWith('╭'));
+  const bottom = lines.findIndex((line) => line.startsWith('╰'));
+
+  return lines.slice(top + 1, bottom).map(innerOf);
+};
+
+const describedOf = async (
+  width: number,
+  height: number,
+  draft: string,
+  rowCount: number,
+): Promise<{ rows: string[]; text: string }> => {
+  const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
+  const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
+
+  const { setup, press, settle, session } = await mount(
+    'dark',
+    factsEffects(threads, facts),
+    width,
+    false,
+    height,
+  );
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, draft);
+
+  return {
+    rows: boxRowsOf(setup.captureCharFrame()).slice(-rowCount),
+    text: selectedDescriptionOf(session),
+  };
+};
+
+const composerChrome = 4;
+
+const mountFiltersFor = async (draft: string) => {
+  const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
+  const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
+  const mounted = await mount('dark', factsEffects(threads, facts), 60, false, 30);
+
+  await mounted.press('r');
+  await mounted.settle();
+  await mounted.press('f');
+  await typeText(mounted.setup, mounted.settle, draft);
+
+  return mounted;
+};
+
+const wordsOf = (text: string): string[] => text.split(' ');
+
+test('a description line exactly as wide as the box is neither broken nor cut', async () => {
+  const { text } = await describedOf(60, 30, 'author:sQVe', 1);
+  const firstFour = wordsOf(text).slice(0, 4).join(' ');
+  const { rows } = await describedOf(firstFour.length + composerChrome, 30, 'author:sQVe', 3);
+
+  expect(rows[0]).toBe(firstFour);
+  expect(rows).toHaveLength(3);
+  expect(rows.join(' ')).toBe(text);
 });
 
-test('wrapText cuts a fourth line away and shortens the third to width minus one plus an ellipsis', () => {
-  expect(wrapText('aaaa bbbb cccc dddd', 4, 3)).toEqual(['aaaa', 'bbbb', 'ccc…']);
-  expect(wrapText('aaaa bbbb cccc', 4, 3)).toEqual(['aaaa', 'bbbb', 'cccc']);
-  expect(wrapText('aaaa bbbb cccc dddd', 4, 2)).toEqual(['aaaa', 'bbb…']);
+test('a description of more than three lines ends the third line with an ellipsis', async () => {
+  const { setup, resize, settle, session } = await mountFiltersFor('author:sQVe');
+  const text = selectedDescriptionOf(session);
+  const narrowest = wordsOf(text).slice(0, 2).join(' ').length;
+  let cutAtFullWidth = false;
+
+  for (let inner = narrowest; inner <= narrowest + 4; inner += 1) {
+    await resize(inner + composerChrome, 30);
+    await settle();
+
+    const rows = boxRowsOf(setup.captureCharFrame()).slice(-3);
+
+    expect(rows.every((row) => row !== '' && row.length <= inner)).toBe(true);
+
+    if (rows.join(' ') === text) {
+      continue;
+    }
+
+    const kept = rows.slice(0, 2).join(' ');
+
+    expect(rows[2]?.endsWith('…')).toBe(true);
+    expect(text.startsWith(`${kept} ${rows[2]?.slice(0, -1)}`)).toBe(true);
+    cutAtFullWidth ||= rows[2]?.length === inner;
+  }
+
+  expect(cutAtFullWidth).toBe(true);
+});
+
+test('a short terminal limits the description to the lines it has room for', async () => {
+  const one = await describedOf(30, 6, 'author:sQVe', 1);
+  const two = await describedOf(30, 7, 'author:sQVe', 2);
+  const inner = 30 - composerChrome;
+
+  expect(one.rows).toHaveLength(1);
+  expect(one.rows[0]?.length).toBeLessThanOrEqual(inner);
+  expect(one.rows[0]?.endsWith('…')).toBe(true);
+  expect(one.text.startsWith(one.rows[0]?.slice(0, -1) ?? '')).toBe(true);
+
+  expect(two.rows).toHaveLength(2);
+  expect(two.rows[1]?.length).toBeLessThanOrEqual(inner);
+  expect(two.rows[1]?.endsWith('…')).toBe(true);
+  expect(two.text.startsWith(`${two.rows[0]} ${two.rows[1]?.slice(0, -1)}`)).toBe(true);
+});
+
+test('a word wider than the box ends with an ellipsis on a line of its own', async () => {
+  const token = 'abcdefghij'.repeat(4);
+  const { rows } = await describedOf(40, 30, `author:${token}`, 3);
+  const inner = 40 - composerChrome;
+
+  expect(rows.find((row) => row.includes('abcdefghij'))).toBe(`${token.slice(0, inner - 1)}…`);
+  expect(rows.every((row) => row !== '')).toBe(true);
+});
+
+test('a word exactly as wide as the box shows in full', async () => {
+  const token = 'abcdefghij'.repeat(4);
+  const probe = await describedOf(100, 30, `author:${token}`, 1);
+  const word = wordsOf(probe.text).find((candidate) => candidate.includes(token)) ?? '';
+  const { rows } = await describedOf(word.length + composerChrome, 30, `author:${token}`, 3);
+
+  expect(rows).toContain(word);
+  expect(rows.some((row) => row.endsWith('…'))).toBe(false);
+});
+
+test('a first word wider than the box leaves no empty line above it', async () => {
+  const { rows, text } = await describedOf(7, 30, 'author:x', 3);
+  const inner = 7 - composerChrome;
+  const words = wordsOf(text);
+
+  expect(rows.every((row) => row !== '')).toBe(true);
+  expect(rows[0]).toBe(words[0]?.slice(0, inner));
+  expect(rows[1]).toBe(words[1]?.slice(0, inner));
+  expect(rows[2]).toHaveLength(inner);
+  expect(rows[2]?.endsWith('…')).toBe(true);
+});
+
+test('a row without a description shows no description line and no blank line', async () => {
+  const rows = (await describedOf(40, 30, 'zzzqq', 3)).rows;
+
+  expect(rows[0]).toBe('zzzqq');
+  expect(rows).toHaveLength(3);
+  expect(rows[2]).toContain('No matches');
 });
 
 test('a typed row lists the text of its filters', async () => {
