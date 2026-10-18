@@ -258,3 +258,100 @@ test('requestGh still reports rateLimited for a 403 when it sends an ETag', asyn
     failure: { kind: 'rateLimited', resetAt: new Date('2026-01-01T00:00:00Z') },
   });
 });
+
+test('createGhRunner returns missing when gh on PATH cannot be executed', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'zeta-gh-'));
+  directories.push(directory);
+  await writeFile(join(directory, 'gh'), 'not an executable format\n', { mode: 0o755 });
+
+  const run = await withPath(directory, () => createGhRunner()(['api'], signal));
+
+  expect(run).toEqual({ kind: 'missing' });
+});
+
+test('requestGh reports invalidResponse for a header line without a colon', async () => {
+  const result = await failureOf(exited(0, 'HTTP/2.0 200 OK\r\nnot a header\r\n\r\n{}'));
+
+  expect(result.ok).toBe(false);
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+test('requestGh reports the status as the message when the error body has no message', async () => {
+  const result = await failureOf(exited(1, 'HTTP/2.0 404 Not Found\r\n\r\n{}'));
+
+  expect(result).toEqual({
+    ok: false,
+    failure: { kind: 'requestFailed', status: 404, message: 'HTTP 404' },
+  });
+});
+
+test('requestGh reports requestFailed for a 503 that carries retry-after', async () => {
+  const text = 'HTTP/2.0 503 Service Unavailable\r\nRetry-After: 30\r\n\r\n{}';
+
+  const result = await failureOf(exited(1, text));
+
+  expect(result).toEqual({
+    ok: false,
+    failure: { kind: 'requestFailed', status: 503, message: 'HTTP 503' },
+  });
+});
+
+test('requestGh reports requestFailed for a 403 with remaining quota and a reset header', async () => {
+  const text =
+    'HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 5\r\nX-RateLimit-Reset: 1767225600\r\n\r\n{"message":"Resource not accessible by integration"}';
+
+  const result = await failureOf(exited(1, text));
+
+  expect(result).toEqual({
+    ok: false,
+    failure: {
+      kind: 'requestFailed',
+      status: 403,
+      message: 'Resource not accessible by integration',
+    },
+  });
+});
+
+test('requestGh reports rateLimited two minutes out for retry-after 120', async () => {
+  const text = 'HTTP/2.0 429 Too Many Requests\r\nRetry-After: 120\r\n\r\n{}';
+
+  const result = await failureOf(exited(1, text), new Date('2026-01-01T00:00:00Z'));
+
+  expect(result).toEqual({
+    ok: false,
+    failure: { kind: 'rateLimited', resetAt: new Date('2026-01-01T00:02:00Z') },
+  });
+});
+
+test('requestGh reports a success with a null body for a whitespace-only body', async () => {
+  const result = await failureOf(exited(0, 'HTTP/2.0 204 No Content\r\n\r\n\n'));
+
+  expect(result).toEqual({
+    ok: true,
+    value: { status: 204, headers: new Map(), body: null, bodyText: '\n' },
+  });
+});
+
+test('requestGh reports notSignedIn for exit 4 with only a newline as output', async () => {
+  const result = await failureOf(exited(4, '\n'));
+
+  expect(result).toEqual({ ok: false, failure: { kind: 'notSignedIn' } });
+});
+
+test('requestGh reports requestFailed without a status for exit 4 with other output', async () => {
+  const result = await failureOf(exited(4, 'oops', 'broken\n'));
+
+  expect(result).toEqual({
+    ok: false,
+    failure: { kind: 'requestFailed', status: null, message: 'broken' },
+  });
+});
+
+test('requestGh reports requestFailed for a 300 response with a JSON body', async () => {
+  const result = await failureOf(exited(0, 'HTTP/2.0 300 Multiple Choices\r\n\r\n{"a":1}'));
+
+  expect(result).toEqual({
+    ok: false,
+    failure: { kind: 'requestFailed', status: 300, message: 'HTTP 300' },
+  });
+});

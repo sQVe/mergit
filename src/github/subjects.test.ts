@@ -304,3 +304,147 @@ test('stores a bot author login with the bot suffix', async () => {
   expect(sentQuery).toContain('author { __typename login }');
   expect(result[0]?.facts?.author).toBe('dependabot[bot]');
 });
+
+const readVariables = (args: readonly string[], flag: '-f' | '-F'): Map<string, string> => {
+  const variables = new Map<string, string>();
+
+  for (const [index, argument] of args.entries()) {
+    const assignment = args[index + 1] ?? '';
+    const separator = assignment.indexOf('=');
+
+    if (argument === flag && separator > 0) {
+      variables.set(assignment.slice(0, separator), assignment.slice(separator + 1));
+    }
+  }
+
+  return variables;
+};
+
+const answerWithSentSubject = (args: readonly string[]): GhRun => {
+  const strings = readVariables(args, '-f');
+  const integers = readVariables(args, '-F');
+  const data: Record<string, unknown> = {};
+
+  for (let index = 0; index < countAliases(args); index += 1) {
+    const sent = `${strings.get(`o${index}`)}/${strings.get(`r${index}`)}#${integers.get(`n${index}`)}`;
+
+    data[`t${index}`] = repositoryWith({ ...pullRequestFacts, author: { login: sent } });
+  }
+
+  return httpResponse({ data });
+};
+
+test('sends each owner and name as a string and each number as an integer to gh', async () => {
+  const { effects } = makeEffects(answerWithSentSubject);
+
+  const threads = [
+    makeThread(1),
+    makeThread(2, { subjectUrl: 'https://api.github.com/repos/mona/lisa/pulls/42' }),
+  ];
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(result.map((entry) => entry.facts?.author)).toEqual(['octo/widgets#1', 'mona/lisa#42']);
+});
+
+test('makes no lookup for a subject URL with a suffix', async () => {
+  const { effects, calls } = makeEffects(answerEveryAlias);
+
+  const thread = makeThread(12, {
+    subjectUrl: 'https://api.github.com/repos/o/r/pulls/12/comments',
+  });
+
+  const result = await lookUpSubjects(effects, [thread], signal);
+
+  expect(calls).toEqual([]);
+  expect(result).toEqual([]);
+});
+
+test('sends no empty batch for exactly 50 threads', async () => {
+  const { effects, calls } = makeEffects(answerEveryAlias);
+  const threads = Array.from({ length: 50 }, (_, index) => makeThread(index + 1));
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(calls.map(countAliases)).not.toContain(0);
+  expect(result).toHaveLength(50);
+});
+
+test('makes no call for zero threads', async () => {
+  const { effects, calls } = makeEffects(answerEveryAlias);
+
+  const result = await lookUpSubjects(effects, [], signal);
+
+  expect(calls).toEqual([]);
+  expect(result).toEqual([]);
+});
+
+test('gives a null latest actor when the last timeline node is null', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith({
+          state: 'OPEN',
+          author: { login: 'octo' },
+          timelineItems: { nodes: [null] },
+        }),
+      },
+    }),
+  );
+
+  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(result[0]?.facts).toEqual({ state: 'open', author: 'octo', latestActor: null });
+});
+
+test('gives a null latest actor for a commit without an author or user', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith(subject({ commit: { author: null } })),
+        t1: repositoryWith(subject({ commit: { author: { user: null } } })),
+      },
+    }),
+  );
+
+  const result = await lookUpSubjects(effects, [makeThread(1), makeThread(2)], signal);
+
+  expect(result.map((entry) => entry.facts?.latestActor)).toEqual([null, null]);
+});
+
+test('gives facts null for an alias with null data and no errors', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: null,
+        t1: { pullRequest: null },
+        t2: repositoryWith(pullRequestFacts),
+      },
+    }),
+  );
+
+  const threads = [makeThread(1), makeThread(2), makeThread(3)];
+
+  const result = await lookUpSubjects(effects, threads, signal);
+
+  expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2', '3']);
+  expect(result[0]?.facts).toBeNull();
+  expect(result[1]?.facts).toBeNull();
+  expect(result[2]?.facts?.state).toBe('merged');
+});
+
+test('keeps other facts when a GraphQL error has no path', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({
+      data: {
+        t0: repositoryWith(pullRequestFacts),
+        t1: repositoryWith(pullRequestFacts),
+      },
+      errors: [{ type: 'RATE_LIMITED', message: 'Slow down' }],
+    }),
+  );
+
+  const result = await lookUpSubjects(effects, [makeThread(1), makeThread(2)], signal);
+
+  expect(result.map((entry) => entry.facts?.state)).toEqual(['merged', 'merged']);
+});
