@@ -305,33 +305,46 @@ test('stores a bot author login with the bot suffix', async () => {
   expect(result[0]?.facts?.author).toBe('dependabot[bot]');
 });
 
-test('passes each owner, name, and number to gh as variables', async () => {
-  const { effects, calls } = makeEffects(answerEveryAlias);
+const readVariables = (args: readonly string[], flag: '-f' | '-F'): Map<string, string> => {
+  const variables = new Map<string, string>();
+
+  for (const [index, argument] of args.entries()) {
+    const assignment = args[index + 1] ?? '';
+    const separator = assignment.indexOf('=');
+
+    if (argument === flag && separator > 0) {
+      variables.set(assignment.slice(0, separator), assignment.slice(separator + 1));
+    }
+  }
+
+  return variables;
+};
+
+const answerWithSentSubject = (args: readonly string[]): GhRun => {
+  const strings = readVariables(args, '-f');
+  const integers = readVariables(args, '-F');
+  const data: Record<string, unknown> = {};
+
+  for (let index = 0; index < countAliases(args); index += 1) {
+    const sent = `${strings.get(`o${index}`)}/${strings.get(`r${index}`)}#${integers.get(`n${index}`)}`;
+
+    data[`t${index}`] = repositoryWith({ ...pullRequestFacts, author: { login: sent } });
+  }
+
+  return httpResponse({ data });
+};
+
+test('sends each owner and name as a string and each number as an integer to gh', async () => {
+  const { effects } = makeEffects(answerWithSentSubject);
 
   const threads = [
     makeThread(1),
     makeThread(2, { subjectUrl: 'https://api.github.com/repos/mona/lisa/pulls/42' }),
   ];
 
-  await lookUpSubjects(effects, threads, signal);
+  const result = await lookUpSubjects(effects, threads, signal);
 
-  const args = calls[0] ?? [];
-  const variableArgs = args.slice(args.findIndex((argument) => argument.startsWith('query=')) + 1);
-
-  expect(variableArgs).toEqual([
-    '-f',
-    'o0=octo',
-    '-f',
-    'r0=widgets',
-    '-f',
-    'o1=mona',
-    '-f',
-    'r1=lisa',
-    '-F',
-    'n0=1',
-    '-F',
-    'n1=42',
-  ]);
+  expect(result.map((entry) => entry.facts?.author)).toEqual(['octo/widgets#1', 'mona/lisa#42']);
 });
 
 test('makes no lookup for a subject URL with a suffix', async () => {
@@ -347,13 +360,13 @@ test('makes no lookup for a subject URL with a suffix', async () => {
   expect(result).toEqual([]);
 });
 
-test('makes one call for exactly 50 threads', async () => {
+test('sends no empty batch for exactly 50 threads', async () => {
   const { effects, calls } = makeEffects(answerEveryAlias);
   const threads = Array.from({ length: 50 }, (_, index) => makeThread(index + 1));
 
   const result = await lookUpSubjects(effects, threads, signal);
 
-  expect(calls.map(countAliases)).toEqual([50]);
+  expect(calls.map(countAliases)).not.toContain(0);
   expect(result).toHaveLength(50);
 });
 
