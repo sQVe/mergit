@@ -2,7 +2,6 @@ import { afterEach, expect, test } from 'bun:test';
 
 import { act } from 'react';
 
-import { formatAge, scrollTop } from './threadRow.ts';
 import type { Setup } from './uiHarness.tsx';
 import {
   makeThread,
@@ -572,25 +571,145 @@ test('moving the selection inside the window leaves the window where it is', asy
   expect(selectedRowText(setup)).toContain('Subscribed or manual');
 });
 
-test('scrollTop keeps the selection in view and the window where it is when it can', () => {
-  expect(scrollTop(10, 8, 5, 12)).toBe(7);
-  expect(scrollTop(5, 2, 5, 20)).toBe(2);
-  expect(scrollTop(3, 3, 5, 20)).toBe(3);
-  expect(scrollTop(0, 4, 5, 20)).toBe(0);
-  expect(scrollTop(0, 5, 5, 20)).toBe(1);
-  expect(scrollTop(0, 19, 5, 20)).toBe(15);
-  expect(scrollTop(0, 0, 5, 3)).toBe(0);
+const pressRepeated = async (
+  setup: Setup,
+  settle: () => Promise<void>,
+  key: string,
+  count: number,
+) => {
+  await act(async () => {
+    for (let step = 0; step < count; step += 1) {
+      setup.mockInput.pressKey(key);
+    }
+  });
+
+  await settle();
+};
+
+const numberedThreads = (count: number) =>
+  Array.from({ length: count }, (_, index) =>
+    makeThread(index + 1, `Thread ${String(index + 1).padStart(2, '0')}`),
+  );
+
+const threadRowsOf = (setup: Setup): string[] =>
+  frameLines(setup).filter((line) => line.includes('Thread '));
+
+test('jumping to the last row shows the last rows at the bottom of the window, and g returns to the top', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(numberedThreads(11)), 60, false, 8);
+
+  await press('r');
+  await press('G');
+
+  const lines = frameLines(setup);
+
+  expect(lines[0]).toContain('Thread 05');
+  expect(lines.at(-2)).toContain('Thread 11');
+  expect(selectedRowText(setup)).toContain('Thread 11');
+
+  await press('g');
+
+  expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 11');
+  expect(threadRowsOf(setup)).toHaveLength(5);
+  expect(selectedRowText(setup)).toContain('Subscribed or manual');
 });
 
-test('formatAge shows minutes under an hour, hours under a day, and days from a day', () => {
-  const now = new Date('1970-01-10T00:00:00Z');
-  const ago = (minutes: number): string => new Date(now.getTime() - minutes * 60_000).toISOString();
+test('the window scrolls one row when the selection leaves it below, and one row when it leaves it above', async () => {
+  const { setup, press, settle } = await mount(
+    'dark',
+    threadsEffects(numberedThreads(11)),
+    60,
+    false,
+    8,
+  );
 
-  expect(formatAge(ago(0), now)).toBe('0m');
-  expect(formatAge(ago(59), now)).toBe('59m');
-  expect(formatAge(ago(60), now)).toBe('1h');
-  expect(formatAge(ago(23 * 60 + 59), now)).toBe('23h');
-  expect(formatAge(ago(24 * 60), now)).toBe('1d');
-  expect(formatAge(ago(50 * 60), now)).toBe('2d');
-  expect(formatAge(ago(-30), now)).toBe('0m');
+  await press('r');
+  await pressRepeated(setup, settle, 'j', 6);
+
+  expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 11');
+  expect(selectedRowText(setup)).toContain('Thread 05');
+
+  await press('j');
+
+  expect(frameLines(setup)[0]).toContain('example/repo');
+  expect(selectedRowText(setup)).toContain('Thread 06');
+
+  await press('G');
+  await pressRepeated(setup, settle, 'k', 6);
+
+  expect(frameLines(setup)[0]).toContain('Thread 05');
+  expect(selectedRowText(setup)).toContain('Thread 05');
+
+  await press('k');
+
+  expect(frameLines(setup)[0]).toContain('Thread 04');
+  expect(selectedRowText(setup)).toContain('Thread 04');
+});
+
+test('when the list shrinks below the window the window moves up to keep every row in use', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(numberedThreads(11)), 60, false, 8);
+
+  await press('r');
+  await press('G');
+  await press('d');
+
+  const lines = frameLines(setup);
+
+  expect(lines[0]).toContain('Thread 04');
+  expect(threadRowsOf(setup)).toHaveLength(7);
+  expect(selectedRowText(setup)).toContain('Thread 10');
+});
+
+test('a list shorter than the window never scrolls', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+
+  await press('r');
+  await press('G');
+
+  expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 3');
+  expect(selectedRowText(setup)).toContain('Third');
+
+  await press('g');
+
+  expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 3');
+});
+
+test('ages show minutes under an hour, hours under a day, and days from a day', async () => {
+  const feedTime = 3 * 3_600_000;
+  const minute = 60_000;
+
+  const aged = (id: number, title: string, millisecondsAgo: number) => ({
+    ...makeThread(id, title),
+    updatedAt: new Date(feedTime - millisecondsAgo).toISOString(),
+  });
+
+  const threads = [
+    aged(1, 'Just now', 0),
+    aged(2, 'Under a minute', minute - 1),
+    aged(3, 'One minute', minute),
+    aged(4, 'Under an hour', 59 * minute),
+    aged(5, 'One hour', 60 * minute),
+    aged(6, 'Under a day', (23 * 60 + 59) * minute),
+    aged(7, 'One day', 24 * 60 * minute),
+    aged(8, 'Two days', 50 * 60 * minute),
+    aged(9, 'In the future', -30 * minute),
+  ];
+
+  const { setup, press } = await mount('dark', threadsEffects(threads));
+
+  await press('r');
+
+  const ageOf = (title: string): string | undefined =>
+    new RegExp(`${title}\\s+(\\S+)$`).exec(
+      frameLines(setup).find((line) => line.includes(title)) ?? '',
+    )?.[1];
+
+  expect(ageOf('Just now')).toBe('0m');
+  expect(ageOf('Under a minute')).toBe('0m');
+  expect(ageOf('One minute')).toBe('1m');
+  expect(ageOf('Under an hour')).toBe('59m');
+  expect(ageOf('One hour')).toBe('1h');
+  expect(ageOf('Under a day')).toBe('23h');
+  expect(ageOf('One day')).toBe('1d');
+  expect(ageOf('Two days')).toBe('2d');
+  expect(ageOf('In the future')).toBe('0m');
 });
