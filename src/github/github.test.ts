@@ -553,3 +553,51 @@ test('markThreadDone maps a failed status to a failure', async () => {
     failure: { kind: 'requestFailed', status: 500, message: 'Boom' },
   });
 });
+
+test('readViewer returns ghMissing when gh is missing', async () => {
+  const effects: GitHubEffects = {
+    runGh: async () => ({ kind: 'missing' }),
+    now: () => new Date('2026-01-01T00:00:00Z'),
+  };
+
+  const result = await readViewer(effects, null, signal);
+
+  expect(result).toEqual({ ok: false, failure: { kind: 'ghMissing' } });
+});
+
+test('pollNotificationFeed returns invalidResponse for a feed without pages', async () => {
+  const { effects, calls } = makeEffects({});
+
+  const result = await pollNotificationFeed(effects, { pages: [] }, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+  expect(calls).toEqual([]);
+});
+
+test('readNotificationFeed returns invalidResponse for a 304 on a page with no stored copy', async () => {
+  const { effects } = makeEffects({ [firstUrl]: notModified() });
+
+  const result = await readNotificationFeed(effects, { previous: null }, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+test('readNotificationFeed follows a next link with spaces around the semicolon', async () => {
+  const spaced: GhRun = {
+    kind: 'exited',
+    exitCode: 0,
+    stdout: `HTTP/2.0 200 OK\r\nLink: <${secondUrl}> ;rel="next"\r\n\r\n${JSON.stringify([rawThread('101')])}`,
+    stderr: '',
+  };
+
+  const { effects, endpoints } = makeEffects({
+    [firstUrl]: spaced,
+    [secondUrl]: page([rawThread('102')]),
+  });
+
+  const result = await readNotificationFeed(effects, { previous: null }, signal);
+
+  expect(endpoints).toEqual([firstUrl, secondUrl]);
+  expect(result.ok && result.value.feed.pages[0]?.next).toBe(secondUrl);
+  expect(result.ok && result.value.threads).toEqual([expectedThread('101'), expectedThread('102')]);
+});
