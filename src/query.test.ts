@@ -406,3 +406,98 @@ test('is:new parses to new:true and -is:new to -new:true', () => {
   expect(filtersOf('is:new')).toEqual([{ field: 'new', value: 'true', negated: false }]);
   expect(filtersOf('-is:new')).toEqual([{ field: 'new', value: 'true', negated: true }]);
 });
+
+test('a star matches an empty run', () => {
+  expect(runFilters('repo:sqve/zeta*', { thread: { repository: 'sqve/zeta' } })).toBe(true);
+});
+
+test('an age filter without a clock is unknown', () => {
+  const query: Query = { type: 'age', operator: '>', milliseconds: 7_200_000 };
+
+  const result = evaluate(query, makeThread(), {
+    facts: undefined,
+    isNew: false,
+    viewerLogin: null,
+    now: null,
+  });
+
+  expect(result).toBe('unknown');
+});
+
+test('a thread exactly as old as the age filter is neither older nor newer', () => {
+  const thread = { updatedAt: '2026-01-10T10:00:00Z' };
+  const older: Query = { type: 'age', operator: '>', milliseconds: 7_200_000 };
+  const newer: Query = { type: 'age', operator: '<', milliseconds: 7_200_000 };
+
+  expect(run(older, { thread })).toBe(false);
+  expect(run(newer, { thread })).toBe(false);
+});
+
+test('age text with extra characters is an error', () => {
+  expect(parseFilters('age:x>3d').ok).toBe(false);
+  expect(parseFilters('age:>3dx').ok).toBe(false);
+});
+
+test('an age amount of 0 is an error and 1 is a filter', () => {
+  expect(parseFilters('age:>0d').ok).toBe(false);
+  expect(parseFilters('age:>1d').ok).toBe(true);
+});
+
+test('only repo, org, and author take at most one star', () => {
+  expect(parseFilters('org:a*b*c').ok).toBe(false);
+  expect(parseFilters('author:a*b*c').ok).toBe(false);
+  expect(parseFilters('repo:a*b*c').ok).toBe(false);
+  expect(parseFilters('title:a*b*c').ok).toBe(true);
+});
+
+test('an unread value other than true or false is an error', () => {
+  expect(parseFilters('unread:maybe').ok).toBe(false);
+});
+
+test('the app/ rewrite applies only to author', () => {
+  expect(filtersOf('repo:app/x')).toEqual([{ field: 'repo', value: 'app/x', negated: false }]);
+  expect(filtersOf('author:app/x')).toEqual([{ field: 'author', value: 'x[bot]', negated: false }]);
+});
+
+test('a token without a colon that starts with a field name is an error', () => {
+  expect(parseFilters('titlex').ok).toBe(false);
+  expect(parseFilters('repox').ok).toBe(false);
+});
+
+test('is: aliases apply only to is:', () => {
+  expect(filtersOf('repo:unread')).toEqual([{ field: 'repo', value: 'unread', negated: false }]);
+  expect(filtersOf('is:unread')).toEqual([{ field: 'unread', value: 'true', negated: false }]);
+});
+
+test('parsed new and unread filters keep their false value when evaluated', () => {
+  expect(runFilters('unread:false', { thread: { unread: true } })).toBe(false);
+  expect(runFilters('unread:false', { thread: { unread: false } })).toBe(true);
+  expect(runFilters('new:false', { isNew: true })).toBe(false);
+  expect(runFilters('new:false', { isNew: false })).toBe(true);
+});
+
+test('the @me author candidate counts only the viewer threads and needs a login', () => {
+  const threads = [
+    makeThread({ id: toThreadId('1') }),
+    makeThread({ id: toThreadId('2') }),
+    makeThread({ id: toThreadId('3') }),
+  ];
+
+  const factsOf = (thread: NotificationThread) =>
+    facts({ author: thread.id === toThreadId('3') ? 'someone' : 'Mona' });
+
+  const countsFor = (viewerLogin: string | null) =>
+    filterCandidates(threads, { factsOf, isNew: () => false, viewerLogin }).values.filter(
+      (candidate) => candidate.field === 'author' && candidate.value === '@me',
+    );
+
+  expect(countsFor('mona').map((candidate) => candidate.count)).toEqual([2]);
+  expect(countsFor(null)).toEqual([]);
+});
+
+test('parsed new:true and unread:true match only a thread with the flag set', () => {
+  expect(runFilters('unread:true', { thread: { unread: true } })).toBe(true);
+  expect(runFilters('unread:true', { thread: { unread: false } })).toBe(false);
+  expect(runFilters('new:true', { isNew: true })).toBe(true);
+  expect(runFilters('new:true', { isNew: false })).toBe(false);
+});

@@ -318,3 +318,47 @@ test('pagesOfRow maps a group node to one repo page per distinct repo in listed 
     { kind: 'repo', repository: 'octo/c' },
   ]);
 });
+
+test('buildTree by reason puts each reason in its own group', () => {
+  const reasons = [
+    ['mention', 'mention'],
+    ['assign', 'assigned'],
+    ['author', 'author'],
+    ['comment', 'comment'],
+    ['state_change', 'state'],
+    ['subscribed', 'subscribed'],
+    ['manual', 'subscribed'],
+    ['ci_activity', 'ci'],
+  ] as const;
+
+  for (const [reason, key] of reasons) {
+    const tree = buildTree([makeThread('1', { reason })], 'reason');
+
+    expect(tree.map((node) => node.key)).toEqual([key]);
+    expect(readIds(tree[0]?.threads ?? [])).toEqual(['1']);
+  }
+});
+
+test('buildTree sorts repo nodes by thread count, then by name', () => {
+  const threads = [
+    makeThread('1', { repository: 'acme/zed' }),
+    makeThread('2', { repository: 'acme/zed' }),
+    makeThread('3', { repository: 'acme/mid' }),
+    makeThread('4', { repository: 'acme/alpha' }),
+  ];
+
+  const [group] = buildTree(threads, 'reason');
+
+  expect(group?.children.map((node) => node.title)).toEqual(['acme/zed', 'acme/alpha', 'acme/mid']);
+});
+
+test('pageOfThread ignores subject URLs with trailing text after the number or SHA', () => {
+  const base = 'https://api.github.com/repos/acme/app';
+  const repositoryPage: BrowserPage = { kind: 'repo', repository: 'acme/app' };
+
+  const pull = makeThread('1', { subjectUrl: `${base}/pulls/12x` });
+  const commit = makeThread('2', { subjectType: 'Commit', subjectUrl: `${base}/commits/0a1bzz` });
+
+  expect(pageOfThread(pull)).toEqual(repositoryPage);
+  expect(pageOfThread(commit)).toEqual(repositoryPage);
+});

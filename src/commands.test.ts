@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { Command, Intent } from './commands.ts';
 import { catalog } from './commands.ts';
+import type { ApplicationIntent, Filter } from './session/session.ts';
 import { createSession, visibleRows } from './session/session.ts';
 import type { BrowserPage } from './work/work.ts';
 import { toThreadId, toViewerLogin } from './work/work.ts';
@@ -313,4 +314,62 @@ test('the command line opens on colon and its commands run, close, clear, and qu
   expect(emptyClose?.preventDefault).toBe(false);
   expect(emptyClose?.disabledReason(snapshot)).toBeUndefined();
   expect(emptyClose?.disabledReason({ ...snapshot, commandLineText: 'a' })).toBeDefined();
+});
+
+test('the completion keys are disabled only when the last word has no candidates', () => {
+  const withCandidates = { ...loadedSnapshot, searchText: 'on' };
+  const withoutCandidates = { ...loadedSnapshot, searchText: 'zzz' };
+
+  for (const id of ['nextSearchCompletion', 'previousSearchCompletion']) {
+    expect(byId(id)?.disabledReason(withoutCandidates)).toBeDefined();
+    expect(byId(id)?.disabledReason(withCandidates)).toBeUndefined();
+  }
+});
+
+test('shift+f clears filters and is disabled without filters', () => {
+  const command = byId('clearFilters');
+  const filters: Filter[] = [{ field: 'repo', value: 'acme/app', negated: false }];
+
+  expect(command?.keys).toEqual(['shift+f']);
+  expect(command?.disabledReason({ ...snapshot, filters: [] })).toBeDefined();
+  expect(command?.disabledReason({ ...snapshot, filters })).toBeUndefined();
+});
+
+const application = (intent: ApplicationIntent): Intent => ({ kind: 'application', intent });
+
+test('each remaining command returns its intent', () => {
+  const quit: Intent = { kind: 'terminal', action: 'quit' };
+
+  const expected = [
+    ['openSearch', application({ kind: 'openSearch' })],
+    ['clearSearch', application({ kind: 'clearSearch' })],
+    ['openFilters', application({ kind: 'openFilters' })],
+    ['clearFilters', application({ kind: 'clearFilters' })],
+    ['nextSearchCompletion', application({ kind: 'nextSearchCompletion' })],
+    ['previousSearchCompletion', application({ kind: 'previousSearchCompletion' })],
+    ['quitFromInput', quit],
+    ['closeEmptyInput', application({ kind: 'keepSearch' })],
+    ['closeEmptyCommandLine', application({ kind: 'closeCommandLine' })],
+    ['closeHelp', { kind: 'ui', action: 'closeHelp' }],
+    ['showMessages', { kind: 'ui', action: 'openMessages' }],
+    ['closeMessages', { kind: 'ui', action: 'closeMessages' }],
+    ['scrollMessagesDown', { kind: 'ui', action: 'scrollMessages', lines: 1 }],
+    ['scrollMessagesUp', { kind: 'ui', action: 'scrollMessages', lines: -1 }],
+    ['scrollHelpDown', { kind: 'ui', action: 'scrollHelp', lines: 1 }],
+    ['scrollHelpUp', { kind: 'ui', action: 'scrollHelp', lines: -1 }],
+    ['confirmOpen', { kind: 'ui', action: 'confirmOpen' }],
+    ['cancelOpen', { kind: 'ui', action: 'cancelOpen' }],
+    ['applyFilterRow', application({ kind: 'applyFilterRow' })],
+    ['takeFilterRow', application({ kind: 'takeFilterRow' })],
+    ['moveFilterUp', application({ kind: 'moveFilterCursor', direction: 'up' })],
+    ['moveFilterDown', application({ kind: 'moveFilterCursor', direction: 'down' })],
+    ['closeFilters', application({ kind: 'closeFilters' })],
+    ['clearFilterDraft', application({ kind: 'editFilterDraft', text: '' })],
+    ['closeEmptyFilterDraft', application({ kind: 'leaveFilters' })],
+    ['quitFromFilters', quit],
+  ] satisfies [string, Intent][];
+
+  for (const [id, intent] of expected) {
+    expect(byId(id)?.intent(snapshot)).toEqual(intent);
+  }
 });
