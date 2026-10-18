@@ -244,3 +244,45 @@ test('when the list changes between Tabs the next Tab moves from the chosen valu
   expect(session.getSnapshot().searchText).toBe(values[(index + 1) % values.length] ?? '');
   expect(session.getSnapshot().searchText).not.toBe(chosen);
 });
+
+test('title words lose punctuation at both edges and keep digits', async () => {
+  const harness = makeHarness();
+
+  await harness.load(
+    makeThread('1', { title: '((lexer re-render parser:)', repository: 'acme/app' }),
+    makeThread('2', { title: '2fast fast2 (v3)', repository: 'acme/app' }),
+  );
+
+  harness.session.send({ kind: 'openSearch' });
+
+  const offeredFor = (text: string): string[] => {
+    harness.session.send({ kind: 'editSearch', text });
+
+    return valuesOf(harness.session.getSnapshot());
+  };
+
+  expect(offeredFor('lex')).toEqual(['lexer']);
+  expect(offeredFor('re-')).toEqual(['re-render']);
+  expect(offeredFor('pars')).toEqual(['parser']);
+  expect(offeredFor('fast')).toEqual(['2fast', 'fast2']);
+  expect(offeredFor('v')).toEqual(['v3']);
+});
+
+test('a chosen value that drops out of the list has no index', async () => {
+  const harness = makeHarness();
+  const { session } = harness;
+
+  await harness.load(...threads());
+  session.send({ kind: 'openSearch' });
+  session.send({ kind: 'editSearch', text: 'pla' });
+  session.send({ kind: 'nextSearchCompletion' });
+  session.send({ kind: 'nextSearchCompletion' });
+
+  expect(session.getSnapshot().searchText).toBe('plan');
+  expect(chosenCandidateIndexOf(session.getSnapshot())).toBe(1);
+
+  await harness.load(makeThread('1', { title: 'Fix parser', repository: 'hups-co/platform' }));
+
+  expect(valuesOf(session.getSnapshot())).not.toContain('plan');
+  expect(chosenCandidateIndexOf(session.getSnapshot())).toBeNull();
+});

@@ -463,3 +463,28 @@ test.each(['read', 'viewer'] as const)(
     expect(harness.session.getSnapshot()).toBe(before);
   },
 );
+
+test('an intent that changes nothing does not notify subscribers', async () => {
+  const { session, load } = makeHarness();
+
+  await load(makeThread('1'), makeThread('2'), makeThread('3'));
+  session.send({ kind: 'selectLast' });
+
+  const last = session.getSnapshot();
+  let notifications = 0;
+
+  session.subscribe(() => {
+    notifications += 1;
+  });
+
+  session.send({ kind: 'selectNext' });
+  session.send({ kind: 'selectLast' });
+
+  expect(notifications).toBe(0);
+  expect(session.getSnapshot()).toBe(last);
+
+  session.send({ kind: 'selectPrevious' });
+
+  expect(notifications).toBe(1);
+  expect(session.getSnapshot().selectedRowKey).not.toBe(last.selectedRowKey);
+});
