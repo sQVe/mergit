@@ -61,6 +61,20 @@ const openMessages = async (mounted: Awaited<ReturnType<typeof mount>>) => {
   await press('return');
 };
 
+const pressMany = async (
+  mounted: Awaited<ReturnType<typeof mount>>,
+  key: string,
+  repeats: number,
+) => {
+  await act(async () => {
+    for (let index = 0; index < repeats; index += 1) {
+      mounted.setup.mockInput.pressKey(key);
+    }
+  });
+
+  await mounted.settle();
+};
+
 const rowOf = (frame: string, text: string): string =>
   frame.split('\n').find((line) => line.includes(text)) ?? '';
 
@@ -164,9 +178,7 @@ test('j scrolls the overlay to an older message that was out of view', async () 
 
   expect(mounted.setup.captureCharFrame()).not.toContain('Unknown command: aaa');
 
-  for (let index = 0; index < 5; index += 1) {
-    await mounted.press('j');
-  }
+  await pressMany(mounted, 'j', 5);
 
   const frame = mounted.setup.captureCharFrame();
 
@@ -290,17 +302,13 @@ test('a long message wraps in a narrow terminal and scrolling reaches its end', 
   expect(first).toMatch(/\d\d:\d\d:\d\d\s+error/);
   expect(first).not.toContain('ENDMARKER');
 
-  for (let index = 0; index < 20; index += 1) {
-    await mounted.press('j');
-  }
+  await pressMany(mounted, 'j', 20);
 
   const last = mounted.setup.captureCharFrame();
 
   expect(last).toContain('ENDMARKER');
 
-  for (let index = 0; index < 20; index += 1) {
-    await mounted.press('k');
-  }
+  await pressMany(mounted, 'k', 20);
 
   expect(mounted.setup.captureCharFrame()).toBe(first);
 });
@@ -313,9 +321,7 @@ test('a message of wide characters wraps by cell width and scrolling reaches its
   await sendUnknownCommands(mounted, [`${'界'.repeat(55)}ENDMARKER`]);
   await openMessages(mounted);
 
-  for (let index = 0; index < 30; index += 1) {
-    await mounted.press('j');
-  }
+  await pressMany(mounted, 'j', 30);
 
   expect(mounted.setup.captureCharFrame()).toContain('ENDMARKER');
 });
@@ -339,9 +345,7 @@ test('a message with line breaks shows each line as its own row and scrolling re
   await mounted.press('o');
   await openMessages(mounted);
 
-  for (let index = 0; index < 20; index += 1) {
-    await mounted.press('j');
-  }
+  await pressMany(mounted, 'j', 20);
 
   expect(mounted.setup.captureCharFrame()).toContain('ENDMARKER');
 });
@@ -370,4 +374,109 @@ test('the empty messages overlay at 80x24 is a readable box with nothing from th
   for (const row of lines.slice(2, bottom)) {
     expect(row.slice(1, 79).trim()).toBe('');
   }
+});
+
+test('a list that exactly fills the box shows no position and one row more shows it', async () => {
+  calls = 0;
+
+  const mounted = await mount('dark', effects, 80, false, 4);
+
+  await sendUnknownCommands(mounted, ['aaa', 'bbb']);
+  await openMessages(mounted);
+
+  const exact = mounted.setup.captureCharFrame();
+
+  expect(exact).toContain('Unknown command: bbb');
+  expect(exact).toContain('Unknown command: aaa');
+  expect(exact).not.toMatch(/\d+-\d+ of \d+/);
+
+  await mounted.press('escape');
+  await sendUnknownCommands(mounted, ['ccc']);
+  await openMessages(mounted);
+
+  const over = mounted.setup.captureCharFrame();
+
+  expect(over).toMatch(/│ 1-1 of 3\s+│/);
+  expect(over).toContain('Unknown command: ccc');
+  expect(over).not.toContain('Unknown command: aaa');
+});
+
+test('the overlay says No messages yet only while there are no messages', async () => {
+  calls = 0;
+
+  const mounted = await mount('dark', effects, 80, false, 12);
+
+  await openMessages(mounted);
+
+  expect(mounted.setup.captureCharFrame()).toContain('No messages yet');
+
+  await mounted.press('escape');
+  await sendUnknownCommands(mounted, ['aaa']);
+  await openMessages(mounted);
+
+  const frame = mounted.setup.captureCharFrame();
+
+  expect(frame).toContain('Unknown command: aaa');
+  expect(frame).not.toContain('No messages yet');
+});
+
+test('a wrapped title shows its time and tone on the first row only', async () => {
+  calls = 0;
+
+  const mounted = await mount('dark', effects, 40, false, 12);
+
+  await sendUnknownCommands(mounted, [`${'long'.repeat(20)}ENDMARKER`]);
+  await openMessages(mounted);
+
+  const frame = mounted.setup.captureCharFrame();
+  const rows = frame.split('\n').filter((line) => /long|ENDMARKER/.test(line));
+
+  expect(rows.length).toBeGreaterThan(1);
+  expect(frame.match(/\d\d:\d\d:\d\d/g)).toHaveLength(1);
+  expect(frame.match(/error/g)).toHaveLength(1);
+  expect(rows[0]).toMatch(/\d\d:\d\d:\d\d\s+error/);
+  expect(rows[1]).not.toMatch(/\d\d:\d\d:\d\d|error/);
+});
+
+test('a character wider than the box column gets its own row with no empty row before it', async () => {
+  calls = 0;
+
+  const mounted = await mount('dark', effects, 20, false, 40);
+
+  await sendUnknownCommands(mounted, ['界']);
+  await openMessages(mounted);
+
+  const inner = mounted.setup
+    .captureCharFrame()
+    .split('\n')
+    .slice(1)
+    .map((line) => line.replace(/^│/, '').replace(/│$/, '').trim());
+
+  expect(inner[0]).toMatch(/U$/);
+  expect(inner[15]).toBe(':');
+  expect(inner[17]).toBe('界');
+  expect(inner[18]).toBe('');
+});
+
+test('a detail line that starts with a wide character gets no empty row before it', async () => {
+  const mounted = await mount(
+    'dark',
+    {
+      ...effects,
+      openInBrowser: () => Promise.resolve({ ok: false, message: 'head\r\n界' }),
+    },
+    20,
+    false,
+    70,
+  );
+
+  await mounted.press('r');
+  await mounted.press('o');
+  await openMessages(mounted);
+
+  const lines = mounted.setup.captureCharFrame().split('\n');
+  const wideIndex = lines.findIndex((line) => line.includes('界'));
+
+  expect(wideIndex).toBeGreaterThan(0);
+  expect(lines[wideIndex - 1]).toMatch(/│\s+d\s+│/);
 });

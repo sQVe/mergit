@@ -12,6 +12,7 @@ import {
   statusLineColor,
   selectedRowText,
   threeThreads,
+  treeThread,
   pressAll,
   paneWidthAt,
   paneText,
@@ -512,3 +513,218 @@ test('Enter and j in one burst open the detail and leave the list selection alon
   expect(setup.captureCharFrame()).toMatch(/Repo\s+example\/repo/);
   expect(session.getSnapshot().selectedRowKey).toBe(selected);
 });
+
+test('search-line keys do nothing in the list when no search is open', async () => {
+  const { press, sent, setup, settle } = await mount('dark', threadsEffects(threeThreads));
+
+  await press('r');
+  sent.length = 0;
+
+  await act(async () => {
+    setup.mockInput.pressKey('u', { ctrl: true });
+  });
+
+  await settle();
+  await press('backspace');
+
+  expect(sent).toEqual([]);
+});
+
+const slideMilliseconds = 200;
+
+const mountShort = async (height: number) => {
+  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, height);
+
+  await mounted.press('r');
+  await mounted.settle();
+
+  return mounted;
+};
+
+test('in a composer too short for any candidate row Enter and Tab change nothing and Escape closes it', async () => {
+  const { press, session } = await mountShort(4);
+
+  await press('f');
+  await press('return');
+  await press('tab');
+  await press('down');
+  await press('return');
+  await press('tab');
+
+  expect(session.getSnapshot().filters).toEqual([]);
+  expect(session.getSnapshot().filterDraft).toBe('');
+  expect(session.getSnapshot().filtersOpen).toBe(true);
+
+  await press('escape');
+
+  expect(session.getSnapshot().filters).toEqual([]);
+  expect(session.getSnapshot().filterDraft).toBe('');
+  expect(session.getSnapshot().filtersOpen).toBe(false);
+});
+
+test('ctrl+c quits in a composer too short for any candidate row', async () => {
+  const { press, setup, settle, terminalIntents } = await mountShort(4);
+
+  await press('f');
+
+  await act(async () => {
+    setup.mockInput.pressKey('c', { ctrl: true });
+  });
+
+  await settle();
+
+  expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
+});
+
+test('Enter on the command line closes it and runs a known name with padding', async () => {
+  const { press, setup, settle, session } = await mount('dark', threadsEffects(threeThreads));
+
+  await press('r');
+  await press(':');
+  await typeText(setup, settle, '  messages ');
+  await press('return');
+
+  expect(session.getSnapshot().commandLineOpen).toBe(false);
+  expect(setup.captureCharFrame()).toContain('No messages yet');
+});
+
+test('Enter on the command line reports an unknown name in a toast', async () => {
+  const { press, setup, settle, session, advance } = await mount(
+    'dark',
+    threadsEffects(threeThreads),
+    60,
+    true,
+  );
+
+  await press('r');
+  await press(':');
+  await typeText(setup, settle, 'nope');
+  await press('return');
+  await advance(0);
+  await advance(slideMilliseconds);
+
+  expect(session.getSnapshot().commandLineOpen).toBe(false);
+  expect(setup.captureCharFrame()).toContain('nope');
+});
+
+test('Enter on an empty command line closes it and shows no toast', async () => {
+  const { press, setup, session, advance } = await mount(
+    'dark',
+    threadsEffects(threeThreads),
+    60,
+    true,
+  );
+
+  await press('r');
+
+  const before = setup.captureCharFrame();
+
+  await press(':');
+  await press('return');
+  await advance(0);
+  await advance(slideMilliseconds);
+
+  expect(session.getSnapshot().commandLineOpen).toBe(false);
+  expect(setup.captureCharFrame()).toBe(before);
+});
+
+test('a key with no command that is not one visible character does not reach the draft', async () => {
+  const { setup, settle, press, session } = await mountFilters();
+
+  await press('r');
+
+  await act(async () => {
+    setup.mockInput.pressKey('f');
+    setup.mockInput.pressArrow('left');
+  });
+
+  await settle();
+
+  expect(session.getSnapshot().filtersOpen).toBe(true);
+  expect(session.getSnapshot().filterDraft).toBe('');
+});
+
+const lastNonEmptyLine = (setup: Setup): string | undefined =>
+  setup
+    .captureCharFrame()
+    .split('\n')
+    .findLast((line) => line.trim() !== '');
+
+const addChip = async (mounted: Awaited<ReturnType<typeof mountShort>>, text: string) => {
+  await mounted.press('f');
+  await typeText(mounted.setup, mounted.settle, text);
+  await mounted.press('return');
+  await mounted.press('escape');
+};
+
+test('with a chip bar the last selected row stays visible', async () => {
+  const mounted = await mountShort(9);
+
+  await addChip(mounted, 'kind:pr');
+  await mounted.press('G');
+
+  expect(selectedRowText(mounted.setup)).toContain('Change');
+  expect(lastNonEmptyLine(mounted.setup)).toContain('? help');
+});
+
+test('with kept search text and an open command line the last selected row stays visible', async () => {
+  const mounted = await mountShort(9);
+
+  await mounted.press('/');
+  await typeText(mounted.setup, mounted.settle, 'Change');
+  await mounted.press('return');
+  await mounted.press('G');
+
+  expect(selectedRowText(mounted.setup)).toContain('Change');
+
+  await mounted.press(':');
+
+  expect(selectedRowText(mounted.setup)).toContain('Change');
+  const lines = mounted.setup.captureCharFrame().split('\n');
+  const searchLine = lines.find((line) => line.startsWith('/Change'));
+  const commandLine = lines.find((line) => line.startsWith(':'));
+
+  expect(searchLine).not.toContain('PR');
+  expect(commandLine).not.toContain('PR');
+});
+
+const topics = Array.from({ length: 9 }, (_, index) =>
+  treeThread(index + 1, `Fix topic${index + 1}`, { repository: 'acme/app' }),
+);
+
+test('with chips and many search completions the status line stays on the last row', async () => {
+  const mounted = await mount('dark', factsEffects(topics, new Map()), 60, false, 7);
+
+  await mounted.press('r');
+  await addChip(mounted, 'kind:pr');
+  await mounted.press('/');
+  await typeText(mounted.setup, mounted.settle, 'topic');
+
+  const lines = mounted.setup.captureCharFrame().split('\n');
+
+  expect(lines[0]).toContain('kind:pr');
+  expect(lines.some((line) => line.includes('#1 '))).toBe(true);
+  expect(lines.some((line) => line.startsWith('/topic'))).toBe(true);
+  expect(lastNonEmptyLine(mounted.setup)).toContain('? help');
+});
+
+test.each(['chip', 'search'] as const)(
+  'with a %s the open composer keeps the status line on screen in a short terminal',
+  async (kind) => {
+    const mounted = await mountShort(10);
+
+    if (kind === 'chip') {
+      await addChip(mounted, 'author:user00');
+    } else {
+      await mounted.press('/');
+      await typeText(mounted.setup, mounted.settle, 'Change');
+      await mounted.press('return');
+    }
+
+    await mounted.press('f');
+    await typeText(mounted.setup, mounted.settle, 'author:');
+
+    expect(composerInputOf(mounted.setup.captureCharFrame())).toBe('author:');
+    expect(lastNonEmptyLine(mounted.setup)).toContain('? help');
+  },
+);

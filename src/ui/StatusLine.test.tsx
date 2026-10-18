@@ -260,3 +260,31 @@ test('a gh missing toast shows the install text and the key r at 80x24 with rows
   expect(toastText).toContain('InstallGitHubCLI');
   expect(toastText).toContain('thenpressr');
 });
+
+test('the status line shows refreshing... while a refresh runs and drops it when the refresh ends', async () => {
+  const { promise: gate, resolve: release } = Promise.withResolvers<undefined>();
+  const base = threadsEffects(threeThreads);
+
+  const effects: SessionEffects = {
+    ...base,
+    readFeed: async (request, signal) => {
+      await gate;
+
+      return base.readFeed(request, signal);
+    },
+  };
+
+  const { setup, press, settle } = await mount('dark', effects);
+
+  expect(setup.captureCharFrame()).not.toContain('refreshing...');
+
+  await press('r');
+
+  expect(setup.captureCharFrame()).toContain('refreshing...');
+
+  release(undefined);
+  await settle();
+
+  expect(setup.captureCharFrame()).not.toContain('refreshing...');
+  expect(setup.captureCharFrame()).toContain('First');
+});

@@ -255,3 +255,17 @@ test('the side pane of a node with new threads shows their count on a New line',
   expect(paneText(withNew.setup, 100)).toMatch(/New\s+1/);
   expect(paneText(without.setup, 100)).not.toMatch(/New\s/);
 });
+
+test('the side pane counts are whole numbers at the start of their line', async () => {
+  const { setup, press } = await mount('dark', threadsEffects(mixedThreads), 100);
+
+  await press('r');
+
+  const group = paneText(setup, 100);
+
+  expect(group).toMatch(/^│?\s*2\s+ISS\s*$/m);
+  expect(group).toMatch(/^│?\s*1\s+PR\s*$/m);
+  expect(group).toMatch(/^│?\s*1\s+manual\s*$/m);
+  expect(group).toMatch(/^│?\s*2\s+subscribed\s*$/m);
+  expect(group).not.toMatch(/-\d/);
+});

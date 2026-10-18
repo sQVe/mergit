@@ -16,6 +16,11 @@ type Viewer = Extract<Awaited<ReturnType<SessionEffects['readViewer']>>, { ok: t
 type ThemeMode = 'light' | 'dark' | null;
 type ThemeListener = (mode: ThemeMode) => void;
 
+interface RenderedProps {
+  themeSource: { getThemeMode: () => ThemeMode; subscribe: (listener: () => void) => () => void };
+  onTerminalIntent: (intent: { kind: 'terminal'; action: 'quit' }) => void;
+}
+
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
   host: 'github.com',
@@ -50,10 +55,11 @@ const idleEffects: SessionEffects = {
 const createHarness = (initialTheme: ThemeMode) => {
   const listeners = new Set<ThemeListener>();
   const handlers = new Map<string, (reason?: unknown) => void>();
-  const rendered: ReactElement<{ themeSource: { getThemeMode: () => ThemeMode } }>[] = [];
+  const rendered: ReactElement<RenderedProps>[] = [];
   const exitCodes: number[] = [];
   const printed: unknown[] = [];
   const calls = { destroy: 0, unmount: 0 };
+  const failures: { unmount?: Error; printError?: Error } = {};
 
   const renderer: TerminalRenderer = {
     waitForThemeMode: () => Promise.resolve(initialTheme),
@@ -70,10 +76,13 @@ const createHarness = (initialTheme: ThemeMode) => {
         renderer,
         keymap: {} as AppProps['keymap'],
         root: {
-          render: (node) =>
-            rendered.push(node as ReactElement<{ themeSource: { getThemeMode: () => ThemeMode } }>),
+          render: (node) => rendered.push(node as ReactElement<RenderedProps>),
           unmount: () => {
             calls.unmount += 1;
+
+            if (failures.unmount !== undefined) {
+              throw failures.unmount;
+            }
           },
         },
       }),
@@ -83,7 +92,13 @@ const createHarness = (initialTheme: ThemeMode) => {
       return () => handlers.delete(event);
     },
     exit: (code) => exitCodes.push(code),
-    printError: (error) => printed.push(error),
+    printError: (error) => {
+      if (failures.printError !== undefined) {
+        throw failures.printError;
+      }
+
+      printed.push(error);
+    },
   };
 
   const session = createSession(idleEffects);
@@ -91,6 +106,8 @@ const createHarness = (initialTheme: ThemeMode) => {
 
   return {
     effects,
+    renderer,
+    failures,
     session,
     handlers,
     listeners,
@@ -516,4 +533,107 @@ test('shutdown never waits past 1000 ms in total when stop ignores the deadline 
   expect(harness.exitCodes).toEqual([0]);
   expect(elapsed).toBeGreaterThanOrEqual(950);
   expect(elapsed).toBeLessThan(1100);
+});
+
+test('a root that throws on unmount prints that error, still destroys the renderer, and exits 1', async () => {
+  const harness = createHarness('dark');
+  const failure = new Error('unmount failed');
+
+  harness.failures.unmount = failure;
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+
+  expect(harness.printed).toEqual([failure]);
+  expect(harness.exitCodes).toEqual([1]);
+  expect(harness.calls.destroy).toBe(1);
+});
+
+test('a fatal error still exits 1 when printing the error throws', async () => {
+  const harness = createHarness('dark');
+
+  harness.failures.printError = new Error('stderr closed');
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
+  harness.handlers.get('uncaughtException')?.(new Error('boom'));
+  await settle();
+
+  expect(harness.exitCodes).toEqual([1]);
+  expect(harness.printed).toEqual([]);
+});
+
+test('a terminal intent from the UI quits once and exits 0', async () => {
+  const harness = createHarness('dark');
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
+  harness.rendered[0]?.props.onTerminalIntent({ kind: 'terminal', action: 'quit' });
+  await settle();
+
+  expect(harness.calls).toEqual({ destroy: 1, unmount: 1 });
+  expect(harness.exitCodes).toEqual([0]);
+});
+
+test('a theme subscriber hears the renderer theme until it unsubscribes', async () => {
+  const harness = createHarness('dark');
+
+  await startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
+  let heard = 0;
+
+  const off = harness.rendered[0]?.props.themeSource.subscribe(() => {
+    heard += 1;
+  });
+
+  for (const listener of harness.listeners) {
+    listener('light');
+  }
+
+  expect(heard).toBe(1);
+
+  off?.();
+
+  for (const listener of harness.listeners) {
+    listener('dark');
+  }
+
+  expect(heard).toBe(1);
+});
+
+test('a SIGINT while the theme query is pending renders nothing and exits 0', async () => {
+  const harness = createHarness('dark');
+  const { promise: gate, resolve: release } = Promise.withResolvers<ThemeMode>();
+
+  harness.renderer.waitForThemeMode = () => gate;
+
+  const started = startTerminal(
+    { session: harness.session, catalog, flushState: () => Promise.resolve() },
+    harness.effects,
+  );
+
+  await settle();
+  harness.handlers.get('SIGINT')?.();
+  await settle();
+  release('dark');
+  await started;
+  await settle();
+
+  expect(harness.rendered).toHaveLength(0);
+  expect(harness.listeners.size).toBe(0);
+  expect(harness.exitCodes).toEqual([0]);
 });

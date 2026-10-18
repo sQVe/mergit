@@ -180,3 +180,53 @@ test('in a short terminal the completion list leaves the / line and the status l
   expect(lines.some((line) => line.startsWith('/pla'))).toBe(true);
   expect(lastLine.at(-1)).toContain('? help');
 });
+
+const topics = Array.from({ length: 9 }, (_, index) =>
+  treeThread(index + 1, `Fix topic${index + 1}`, { repository: 'acme/app' }),
+);
+
+const topicsWith = async (height: number) => {
+  const app = await mount('dark', threadsEffects(topics), 60, false, height);
+
+  await app.press('r');
+  await app.press('/');
+  await typeText(app.setup, app.settle, 'topic');
+
+  return app;
+};
+
+const completionLines = (setup: Setup): string[] =>
+  frameLines(setup).filter((line) => /^\s+topic\d+\s+1$/.test(line));
+
+test('tab past the visible rows keeps every row shown and the window follows the chosen one', async () => {
+  const app = await topicsWith(9);
+
+  const before = completionLines(app.setup);
+
+  expect(before).toHaveLength(4);
+
+  for (let step = 0; step < 5; step += 1) {
+    await app.press('tab');
+  }
+
+  const after = completionLines(app.setup);
+  const chosen = frameLines(app.setup).find((line) => line.startsWith('/'));
+  const marked = highlightedAboveLine(app.setup);
+
+  expect(after).toHaveLength(4);
+  expect(after).not.toEqual(before);
+  expect(marked).toHaveLength(1);
+  expect(marked[0]).toContain('topic5');
+  expect(chosen).toContain('/topic5');
+});
+
+test('the completion list is gone once Enter closes the search line', async () => {
+  const app = await topicsWith(24);
+
+  expect(completionLines(app.setup).length).toBeGreaterThan(0);
+
+  await app.press('return');
+
+  expect(completionLines(app.setup)).toEqual([]);
+  expect(frameLines(app.setup).find((line) => line.startsWith('/topic'))).toContain('matches');
+});
