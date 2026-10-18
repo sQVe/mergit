@@ -222,17 +222,21 @@ test('a negated row counts the threads it keeps, before and after it is applied'
 });
 
 test('a value row of a field outside repo, org, and author describes the field', async () => {
-  const session = await loadInbox([{ id: '1' }]);
-  const snapshot = session.getSnapshot();
-  const filter = { field: 'title' as const, value: 'bug', negated: false };
+  const session = await loadInbox([{ id: '1', overrides: { title: 'bug in the parser' } }]);
 
-  const fieldText = describeFilterRow(snapshot, { kind: 'field', field: 'title' });
-  const candidate = describeFilterRow(snapshot, { kind: 'candidate', filter, count: 1 });
-  const active = describeFilterRow(snapshot, { kind: 'active', filter, count: 1 });
+  const fieldText = describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'title' });
 
   expect(fieldText).not.toBe('');
-  expect(candidate).toBe(fieldText);
-  expect(active).toBe(fieldText);
+  expect(descriptionOfDraft(session, 'title:bug')).toBe(fieldText);
+
+  session.send({ kind: 'applyFilterRow' });
+  session.send({ kind: 'editFilterDraft', text: 'title' });
+
+  const snapshot = session.getSnapshot();
+  const activeRow = filterRowsOf(snapshot).find((row) => row.kind === 'active');
+
+  expect(activeRow?.kind).toBe('active');
+  expect(describeFilterRow(snapshot, activeRow)).toBe(fieldText);
 });
 
 test('candidate and active rows describe their own filter, not the draft', async () => {
@@ -242,17 +246,42 @@ test('candidate and active rows describe their own filter, not the draft', async
     { id: '3', overrides: { repository: 'acme/web' } },
   ]);
 
-  session.send({ kind: 'editFilterDraft', text: 'author:' });
+  const repoText = describeFilterRow(session.getSnapshot(), { kind: 'field', field: 'repo' });
 
-  const snapshot = session.getSnapshot();
-  const filter = { field: 'repo' as const, value: 'acme/app', negated: false };
+  const describeRepoRow = (draft: string, kind: 'candidate' | 'active', value: string): string => {
+    session.send({ kind: 'editFilterDraft', text: draft });
 
-  for (const kind of ['candidate', 'active'] as const) {
-    const description = describeFilterRow(snapshot, { kind, filter, count: 2 });
+    const snapshot = session.getSnapshot();
 
-    expect(description).toContain('acme/app');
-    expect(description).toContain('2 in your inbox');
-  }
+    const row = filterRowsOf(snapshot).find(
+      (candidate) =>
+        candidate.kind === kind &&
+        candidate.filter.field === 'repo' &&
+        candidate.filter.value === value,
+    );
+
+    expect(row).toBeDefined();
+
+    return describeFilterRow(snapshot, row);
+  };
+
+  const candidateText = describeRepoRow('app', 'candidate', 'acme/app');
+
+  expect(candidateText).toContain('acme/app');
+  expect(candidateText).not.toBe('');
+  expect(candidateText).not.toBe(repoText);
+  expect(candidateText).toBe(describeRepoRow('repo:', 'candidate', 'acme/app'));
+  expect(candidateText).not.toBe(describeRepoRow('repo:', 'candidate', 'acme/web'));
+
+  session.send({ kind: 'editFilterDraft', text: 'repo:acme/app' });
+  session.send({ kind: 'applyFilterRow' });
+
+  const activeText = describeRepoRow('app', 'active', 'acme/app');
+
+  expect(activeText).toContain('acme/app');
+  expect(activeText).not.toBe(repoText);
+  expect(activeText).not.toBe('');
+  expect(activeText).not.toBe(describeRepoRow('repo:', 'candidate', 'acme/web'));
 });
 
 test('an error row describes nothing', async () => {
