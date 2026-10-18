@@ -740,3 +740,381 @@ test('markThreadsDone with hidden or unknown ids changes nothing and sends nothi
   expect(harness.timers.length).toBe(timersBefore);
   expect(harness.sends).toHaveLength(0);
 });
+
+const sendAndRelease = async (harness: ReturnType<typeof makeHarness>, before: number) => {
+  await fireDoneTimerAt(harness, before);
+  harness.sends.at(-1)?.resolve(sentOk);
+  await settle();
+  await settle();
+};
+
+test('a sent done leaves the hidden set after the next refresh and shows again with a newer updated_at', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await sendAndRelease(harness, before);
+  await harness.answerRead(readOf('fresh', [one, two]));
+  await harness.answerVerify(stable);
+
+  expect(harness.session.getSnapshot().hiddenThreadIds.has(one.id)).toBe(false);
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
+
+  const newer = { ...one, updatedAt: '2026-01-09T10:00:00Z' };
+
+  await harness.loadWith('newer', [newer, two]);
+
+  expect(rowKeysOf(harness.session)).toContain(`thread:${one.id}`);
+});
+
+test('a loaded refresh that drops a done record saves state even when no seen value changes', async () => {
+  const [two, three] = [makeThread('2'), makeThread('3')];
+  const missing = makeThread('1');
+
+  const savedState: SavedState = {
+    grouping: 'reason',
+    done: doneFor(octocat, missing),
+    seen: new Map([
+      [
+        accountKeyOf(octocat),
+        new Map([
+          [two.id, two.updatedAt],
+          [three.id, three.updatedAt],
+        ]),
+      ],
+    ]),
+  };
+
+  const harness = makeHarness({ savedState });
+
+  await harness.load(two, three);
+
+  expect(harness.saves).toHaveLength(1);
+  expect(harness.saves[0]?.done.get(accountKeyOf(octocat))?.has(missing.id)).toBe(false);
+});
+
+test('a thread marked done again after it returned newer stays hidden through a refresh in the undo window', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  const first = markSelectedDone(harness);
+
+  await sendAndRelease(harness, first);
+  await harness.answerRead(readOf('released', [one, two]));
+  await harness.answerVerify(stable);
+
+  const newer = { ...one, updatedAt: '2026-01-09T10:00:00Z' };
+
+  await harness.loadWith('newer', [newer, two]);
+  harness.selectThread(newer);
+
+  const second = markSelectedDone(harness);
+
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
+  expect(harness.timers[second]?.active).toBe(true);
+
+  await harness.loadWith('during', [newer, two]);
+
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${one.id}`);
+});
+
+test.each(['ghMissing', 'rateLimited'] as const)(
+  'a %s failure stops the bulk done and sends nothing more',
+  async (kind) => {
+    const harness = makeHarness();
+    const threads = await startBulkDone(harness);
+
+    await resolveSend(
+      harness,
+      0,
+      kind === 'rateLimited'
+        ? { ok: false, failure: { kind, resetAt: new Date('2026-02-01T13:00:00Z') } }
+        : { ok: false, failure: { kind } },
+    );
+
+    await settle();
+
+    const keys = rowKeysOf(harness.session);
+
+    expect(harness.sends).toHaveLength(1);
+
+    for (const thread of threads) {
+      expect(keys).toContain(`thread:${thread.id}`);
+    }
+
+    expect(harness.session.getSnapshot().toast?.title).toContain('5 of 5');
+  },
+);
+
+test('a markThreadDone that throws counts as a failed send', async () => {
+  const harness = makeHarness({
+    markThreadDone: () => {
+      throw new Error('kaboom');
+    },
+  });
+
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+
+  const savesAfterLoad = harness.saves.length;
+
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+  await settle();
+
+  const toast = harness.session.getSnapshot().toast;
+
+  expect(rowKeysOf(harness.session)).toContain(`thread:${one.id}`);
+  expect(toast?.tone).toBe('error');
+  expect(toast?.lines).toContain('kaboom');
+  expect(harness.saves).toHaveLength(savesAfterLoad);
+});
+
+test('aborting the deadline during the first send of a bulk done at stop starts no second send', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+  const deadline = new AbortController();
+
+  await harness.load(one, two);
+  harness.session.send({ kind: 'markThreadsDone', threadIds: [one.id, two.id] });
+
+  const stopped = harness.session.stop(deadline.signal);
+
+  expect(harness.sends).toHaveLength(1);
+
+  deadline.abort();
+  await stopped;
+
+  expect(harness.sends).toHaveLength(1);
+});
+
+test('a done whose every send fails starts no full refresh', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+  const readsBefore = harness.countOf('read');
+
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(failure('Boom'));
+  await settle();
+  await settle();
+
+  expect(harness.countOf('read')).toBe(readsBefore);
+});
+
+test('undo after a single done failed does nothing', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(failure('Boom'));
+  await settle();
+
+  const snapshot = harness.session.getSnapshot();
+
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(harness.session.getSnapshot()).toBe(snapshot);
+});
+
+test('when the sending done fails, undo still brings back the done that waits', async () => {
+  const harness = makeHarness();
+  const [one, two, three] = [makeThread('1'), makeThread('2'), makeThread('3')];
+
+  await harness.load(one, two, three);
+  harness.selectThread(one);
+
+  const first = markSelectedDone(harness);
+
+  harness.selectThread(two);
+  markSelectedDone(harness);
+  await fireDoneTimerAt(harness, first);
+  harness.sends[0]?.resolve(failure('Boom'));
+  await settle();
+
+  expect(rowKeysOf(harness.session)).not.toContain(`thread:${two.id}`);
+
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(rowKeysOf(harness.session)).toContain(`thread:${two.id}`);
+});
+
+test('a second done sends when its timer fires after the first send finished', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two, makeThread('3'));
+  harness.selectThread(one);
+
+  const first = markSelectedDone(harness);
+
+  await sendAndRelease(harness, first);
+  harness.selectThread(two);
+
+  const second = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, second);
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id, two.id]);
+});
+
+test('a second undo after the only waiting done was undone does nothing, and stop sends nothing', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+  harness.session.send({ kind: 'undoDone' });
+
+  const snapshot = harness.session.getSnapshot();
+
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(harness.session.getSnapshot()).toBe(snapshot);
+
+  await harness.session.stop(new AbortController().signal);
+
+  expect(harness.sends).toHaveLength(0);
+});
+
+test('undoing the latest of two waiting dones leaves the first one to send', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two, makeThread('3'));
+  harness.selectThread(one);
+
+  const first = markSelectedDone(harness);
+
+  harness.selectThread(two);
+  markSelectedDone(harness);
+  harness.session.send({ kind: 'undoDone' });
+  await fireDoneTimerAt(harness, first);
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
+});
+
+test('a send that fails during stop shows no error toast and adds no message', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+
+  const messagesBefore = harness.session.getSnapshot().messages.length;
+  const stopped = harness.session.stop(new AbortController().signal);
+
+  harness.sends[0]?.resolve(failure('Boom'));
+  await stopped;
+
+  const snapshot = harness.session.getSnapshot();
+
+  expect(snapshot.toast?.tone).not.toBe('error');
+  expect(snapshot.messages).toHaveLength(messagesBefore);
+});
+
+test('stop with an already aborted deadline sends no waiting done', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+  markSelectedDone(harness);
+  await harness.session.stop(AbortSignal.abort());
+
+  expect(harness.sends).toHaveLength(0);
+});
+
+test('stop does not send a done again that was already sent', async () => {
+  const harness = makeHarness();
+  const one = makeThread('1');
+
+  await harness.load(one, makeThread('2'));
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await sendAndRelease(harness, before);
+  await harness.session.stop(new AbortController().signal);
+
+  expect(harness.sends.map((call) => call.threadId)).toEqual([one.id]);
+});
+
+test('undo of a done thread that is not first in its unfolded group selects its own row', async () => {
+  const harness = makeHarness();
+  const [one, two, three] = [makeThread('1'), makeThread('2'), makeThread('3')];
+
+  await harness.load(one, two, three);
+  harness.selectThread(two);
+  markSelectedDone(harness);
+  harness.selectThread(one);
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(harness.selected()).toBe(`thread:${two.id}`);
+});
+
+test('a refresh after one done was sent keeps another waiting done hidden', async () => {
+  const harness = makeHarness();
+  const [one, two, three] = [makeThread('1'), makeThread('2'), makeThread('3')];
+
+  await harness.load(one, two, three);
+  harness.selectThread(one);
+
+  const first = markSelectedDone(harness);
+
+  harness.selectThread(two);
+  markSelectedDone(harness);
+  await sendAndRelease(harness, first);
+  await harness.answerRead(readOf('fresh', [one, two, three]));
+  await harness.answerVerify(stable);
+
+  const keys = rowKeysOf(harness.session);
+
+  expect(keys).not.toContain(`thread:${two.id}`);
+  expect(keys).toContain(`thread:${three.id}`);
+});
+
+test.each(['ghMissing', 'notSignedIn'] as const)(
+  'a done that fails with %s shows an error toast with a line',
+  async (kind) => {
+    const harness = makeHarness();
+    const one = makeThread('1');
+
+    await harness.load(one, makeThread('2'));
+    harness.selectThread(one);
+
+    const before = markSelectedDone(harness);
+
+    await fireDoneTimerAt(harness, before);
+    harness.sends[0]?.resolve({ ok: false, failure: { kind } });
+    await settle();
+
+    const toast = harness.session.getSnapshot().toast;
+
+    expect(toast?.tone).toBe('error');
+    expect(toast?.lines).toHaveLength(1);
+    expect(toast?.lines[0]?.length).toBeGreaterThan(0);
+  },
+);

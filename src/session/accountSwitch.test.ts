@@ -138,3 +138,32 @@ test('a changed login saves the new viewer etag', async () => {
 
   expect(saves).toEqual([{ login: hubot, etag: '"hubot-tag"' }]);
 });
+
+test('a second manual refresh after the first load sends no previous feed', async () => {
+  const harness = makeSavedHarness(octocat);
+
+  await harness.send();
+  await harness.answerViewer(viewerOf(octocat));
+  await harness.answerRead(readOf('fresh', []));
+  await harness.answerVerify(stable);
+  await harness.send();
+  await harness.answerViewer(viewerOf(octocat));
+
+  expect(harness.take('read').request.previous).toBeNull();
+});
+
+test('an account switch marks the list as not loaded until the new feed loads', async () => {
+  const { session, send, answerViewer, answerRead, answerVerify } = makeSavedHarness(octocat);
+
+  expect(session.getSnapshot().hasLoaded).toBe(true);
+
+  await send();
+  await answerViewer(viewerOf(toViewerLogin('hubot')));
+
+  expect(session.getSnapshot().hasLoaded).toBe(false);
+
+  await answerRead(readOf('fresh', [makeThread('7')]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().hasLoaded).toBe(true);
+});

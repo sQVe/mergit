@@ -1,6 +1,14 @@
 import { expect, test } from 'bun:test';
 
-import { failure, makeHarness, makeThread, readOf, settle, stable } from './sessionHarness.ts';
+import {
+  failure,
+  makeHarness,
+  makeThread,
+  readOf,
+  settle,
+  stable,
+  unchanged,
+} from './sessionHarness.ts';
 
 test('a failed second pass keeps the list and shows the error', async () => {
   const { session, load, answerRead, answerVerify } = makeHarness();
@@ -84,6 +92,21 @@ test('ghMissing and notSignedIn set the notice and a later success clears it', a
   expect(session.getSnapshot().notice).toBe('notSignedIn');
 
   await load(thread);
+
+  expect(session.getSnapshot().notice).toBeNull();
+});
+
+test('an unchanged poll after a notSignedIn poll failure clears the notice', async () => {
+  const { session, load, fireTimer, answerPoll } = makeHarness();
+
+  await load(makeThread('1'));
+  await fireTimer();
+  await answerPoll({ ok: false, failure: { kind: 'notSignedIn' } });
+
+  expect(session.getSnapshot().notice).toBe('notSignedIn');
+
+  await fireTimer();
+  await answerPoll(unchanged());
 
   expect(session.getSnapshot().notice).toBeNull();
 });

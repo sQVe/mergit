@@ -137,3 +137,19 @@ test('stop aborts a running lookup and drops its result', async () => {
 
   expect(session.getSnapshot().subjectFacts.size).toBe(0);
 });
+
+test('a refresh that returns a thread with the same updated_at keeps its subject facts', async () => {
+  const { session, load, lookups } = makeHarness();
+  const thread = makeThread('1');
+
+  await load(thread);
+  lookups[0]?.resolve([factsOf(thread)]);
+  await settle();
+  await load(thread);
+
+  expect(session.getSnapshot().subjectFacts.get(thread.id)).toEqual({
+    state: 'open',
+    author: 'hubot',
+    latestActor: null,
+  });
+});

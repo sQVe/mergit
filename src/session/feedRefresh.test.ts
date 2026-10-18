@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { NotificationFeed, Viewer } from '../github/github.ts';
+import { visibleRows } from './session.ts';
 import {
   changed,
   failure,
@@ -590,4 +591,94 @@ test('a save that throws does not stop the session', async () => {
   await fireTimer();
 
   expect(countOf('poll')).toBe(1);
+});
+
+test('a changed verification retries the read with the first read feed as previous', async () => {
+  const harness = makeHarness();
+
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerRead(readOf('first', [makeThread('1')]));
+  await harness.answerVerify(changed);
+
+  expect(harness.take('read').request.previous).toEqual(makeFeed('first', [makeThread('1')]));
+});
+
+test('a viewer answer after stop starts no feed read', async () => {
+  const harness = makeHarness({}, { holdViewer: true });
+
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.session.stop(new AbortController().signal);
+  await harness.answerViewer(viewerOf(octocat));
+
+  expect(harness.pending).toHaveLength(0);
+  expect(harness.countOf('read')).toBe(0);
+});
+
+test('a poll failure after stop leaves the snapshot unchanged', async () => {
+  const harness = makeHarness();
+
+  await harness.load(makeThread('1'));
+  await harness.fireTimer();
+
+  const before = harness.session.getSnapshot();
+
+  await harness.session.stop(new AbortController().signal);
+  await harness.answerPoll(failure('offline'));
+
+  expect(harness.session.getSnapshot()).toBe(before);
+});
+
+test('the timer after a first feed read that failed with no saved feed runs a full read', async () => {
+  const harness = makeHarness();
+
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerRead(failure('offline'));
+  await harness.fireTimer();
+
+  expect(harness.countOf('poll')).toBe(0);
+  expect(harness.countOf('read')).toBe(2);
+});
+
+test('the full refresh due after 10 minutes sends the stored feed as previous', async () => {
+  const harness = makeHarness();
+  const thread = makeThread('1');
+
+  await harness.load(thread);
+
+  for (let poll = 0; poll < 9; poll += 1) {
+    await harness.fireTimer();
+    await harness.answerPoll(unchanged());
+  }
+
+  await harness.fireTimer();
+
+  expect(harness.take('read').request.previous).toEqual(makeFeed('feed', [thread]));
+});
+
+test('a saved snapshot with no open threads starts with no selection', () => {
+  const harness = makeHarness(
+    {
+      savedSnapshot: {
+        viewer: { login: octocat, etag: null },
+        savedAt,
+        feed: makeFeed('saved', []),
+        threads: [],
+      },
+    },
+    { holdViewer: true },
+  );
+
+  expect(harness.session.getSnapshot().threads).toEqual([]);
+  expect(harness.session.getSnapshot().selectedRowKey).toBeNull();
+});
+
+test('a saved snapshot with threads selects its first row at start', () => {
+  const { session } = makeSavedHarness(octocat);
+  const snapshot = session.getSnapshot();
+
+  expect(snapshot.selectedRowKey).not.toBeNull();
+  expect(snapshot.selectedRowKey).toBe(visibleRows(snapshot)[0]?.key ?? null);
 });
