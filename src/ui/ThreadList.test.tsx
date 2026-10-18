@@ -82,13 +82,17 @@ test('the selected row stays in view when the list is taller than the screen', a
     makeThread(index + 1, `Thread ${index + 1}`),
   );
 
-  const { setup, press } = await mount('dark', threadsEffects(many));
+  const { setup, press, settle } = await mount('dark', threadsEffects(many));
 
   await press('r');
 
-  for (let step = 0; step < 32; step += 1) {
-    await press('j');
-  }
+  await act(async () => {
+    for (let step = 0; step < 32; step += 1) {
+      setup.mockInput.pressKey('j');
+    }
+  });
+
+  await settle();
 
   expect(selectedRowText(setup)).toContain('Thread 31');
 });

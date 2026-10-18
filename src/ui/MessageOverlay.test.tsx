@@ -61,6 +61,20 @@ const openMessages = async (mounted: Awaited<ReturnType<typeof mount>>) => {
   await press('return');
 };
 
+const pressMany = async (
+  mounted: Awaited<ReturnType<typeof mount>>,
+  key: string,
+  repeats: number,
+) => {
+  await act(async () => {
+    for (let index = 0; index < repeats; index += 1) {
+      mounted.setup.mockInput.pressKey(key);
+    }
+  });
+
+  await mounted.settle();
+};
+
 const rowOf = (frame: string, text: string): string =>
   frame.split('\n').find((line) => line.includes(text)) ?? '';
 
@@ -164,9 +178,7 @@ test('j scrolls the overlay to an older message that was out of view', async () 
 
   expect(mounted.setup.captureCharFrame()).not.toContain('Unknown command: aaa');
 
-  for (let index = 0; index < 5; index += 1) {
-    await mounted.press('j');
-  }
+  await pressMany(mounted, 'j', 5);
 
   const frame = mounted.setup.captureCharFrame();
 
@@ -277,20 +289,6 @@ test('? over the messages overlay closes it and j then scrolls help', async () =
   expect(frame).not.toContain('Messages');
 });
 
-const pressMany = async (
-  mounted: Awaited<ReturnType<typeof mount>>,
-  key: string,
-  repeats: number,
-) => {
-  await act(async () => {
-    for (let index = 0; index < repeats; index += 1) {
-      mounted.setup.mockInput.pressKey(key);
-    }
-  });
-
-  await mounted.settle();
-};
-
 test('a long message wraps in a narrow terminal and scrolling reaches its end', async () => {
   calls = 0;
 
@@ -323,9 +321,7 @@ test('a message of wide characters wraps by cell width and scrolling reaches its
   await sendUnknownCommands(mounted, [`${'界'.repeat(55)}ENDMARKER`]);
   await openMessages(mounted);
 
-  for (let index = 0; index < 30; index += 1) {
-    await mounted.press('j');
-  }
+  await pressMany(mounted, 'j', 30);
 
   expect(mounted.setup.captureCharFrame()).toContain('ENDMARKER');
 });
@@ -349,9 +345,7 @@ test('a message with line breaks shows each line as its own row and scrolling re
   await mounted.press('o');
   await openMessages(mounted);
 
-  for (let index = 0; index < 20; index += 1) {
-    await mounted.press('j');
-  }
+  await pressMany(mounted, 'j', 20);
 
   expect(mounted.setup.captureCharFrame()).toContain('ENDMARKER');
 });
