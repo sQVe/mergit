@@ -681,3 +681,40 @@ test('seen records of two accounts, one empty, load back unchanged', async () =>
     seen: { 'github.com/octocat': { '11': '2026-01-02T10:00:00Z' }, 'github.com/hubot': {} },
   });
 });
+
+test('a state file that cannot be read loads as invalid, not missing', () => {
+  const path = join(directory, 'state.json');
+  mkdirSync(path, { recursive: true });
+
+  const result = loadState(directory);
+
+  expect(result.kind).toBe('invalid');
+  expect(result.kind === 'invalid' ? result.path : null).toBe(path);
+  expect(result.kind === 'invalid' ? result.reason : '').not.toBe('');
+});
+
+test('an empty HOME gives no state or cache directory', () => {
+  expect(stateDirectory({ HOME: '' })).toBeNull();
+  expect(cacheDirectory({ HOME: '' })).toBeNull();
+});
+
+test('recreates a cache whose page body is not text', () => {
+  writeVersionTwoCache([
+    createLast,
+    createPages,
+    "INSERT INTO last VALUES (1, 'github.com', 'octocat', NULL, 0)",
+    "INSERT INTO pages VALUES ('github.com', 'octocat', 0, '/p', NULL, NULL, x'0102')",
+  ]);
+
+  expect(loadSnapshot(directory)).toEqual({ ok: true, value: null });
+});
+
+test('a cache written by saveSnapshot is schema-checked on the next open', () => {
+  expect(saveSnapshot(directory, makeSnapshot('octocat', ['a'])).ok).toBe(true);
+
+  const database = new Database(join(directory, 'cache.db'));
+  database.run('DROP TABLE pages');
+  database.close();
+
+  expect(loadSnapshot(directory)).toEqual({ ok: true, value: null });
+});
