@@ -849,7 +849,7 @@ test.each(['ghMissing', 'rateLimited'] as const)(
       expect(keys).toContain(`thread:${thread.id}`);
     }
 
-    expect(harness.session.getSnapshot().toast?.title).toContain('5 of 5');
+    expect(harness.session.getSnapshot().toast?.tone).toBe('error');
   },
 );
 
