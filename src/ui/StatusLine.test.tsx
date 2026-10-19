@@ -306,7 +306,7 @@ test('the status line leaves the notice to the screen body when no rows are show
   expect(statusRowOf(frame)).not.toContain('press r');
 });
 
-test('the status line adds no gap for a warning, a marker, or an error that is absent', async () => {
+const busyStatusRowAt = async (width: number): Promise<string> => {
   let hang = false;
 
   const effects: SessionEffects = {
@@ -330,13 +330,21 @@ test('the status line adds no gap for a warning, a marker, or an error that is a
     },
   };
 
-  const { setup, press } = await mount('dark', effects, 70, false, 24);
+  const { setup, press } = await mount('dark', effects, width, false, 24);
 
   await press('r');
   hang = true;
   await press('r');
 
-  const row = statusRowOf(setup.captureCharFrame());
+  return statusRowOf(setup.captureCharFrame()).trimEnd();
+};
 
-  expect(row).toContain('? help  saved 0m ago  refreshing...  feed busy, showing the last list');
+// At the exact width the row needs, any extra gap cuts off the last segment.
+test('the status line adds no gap for a warning, a marker, or an error that is absent', async () => {
+  const wideRow = await busyStatusRowAt(120);
+  const exactRow = await busyStatusRowAt(wideRow.length + 1);
+  const wideGaps = wideRow.match(/ {3,}/g);
+
+  expect(exactRow).toBe(wideRow);
+  expect(wideGaps).toBeNull();
 });
