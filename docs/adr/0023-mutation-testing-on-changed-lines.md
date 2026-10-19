@@ -1,7 +1,8 @@
 # ADR 0023: Mutation testing gates changed lines on pull requests
 
 **Date**: 2026-10-18\
-**Status**: Accepted\
+**Status**: Accepted; the local copy of the script superseded by
+[ADR 0024 (Run mutation testing through the shared package)](./0024-shared-mutation-package.md)\
 **Related**: [ADR 0002 (Bun as runtime, package manager, and test runner)](./0002-bun-toolchain.md),
 [ADR 0014 (Results for expected failures, exceptions for bugs, and checked boundaries)](./0014-coding-conventions.md)
 
@@ -23,13 +24,13 @@ rewrites `tsconfig.json` through the TypeScript JavaScript API, which TypeScript
 ## Decision
 
 Mergit runs Stryker only on the lines a pull request changes. A surviving mutant on a changed line
-fails the command and the CI job `Mutation`. The job is advisory: it lists survivors on pull
-requests and is not a required check. The command is `mutation` from the `@sqve/mutation` package, a
-pinned dev dependency, and `.pi/tau.json` names it under `mutation.argv`.
+fails the script and the CI job `Mutation`. The job is advisory: it lists survivors on pull requests
+and is not a required check. The script is `scripts/mutation.ts`, and `.pi/tau.json` names it under
+`mutation`.
 
-The package is shared with Tau and the other projects, so a fix reaches Mergit through a version
-bump. Mergit keeps no copy of the script. The package's `--same-folder-tests` switch is off in
-Mergit. See the tuning note for why.
+The script follows Koja's version (sQVe/koja f15ae9b) until the shared package from Tau replaces it,
+so projects can take fixes from each other. The only differences are the `sameFolderTests` switch
+and the ignorer name `tauMessageIgnorer`. The switch is off in Mergit. See the tuning note for why.
 
 Noise is removed by configuration, not by a score threshold:
 
@@ -37,13 +38,11 @@ Noise is removed by configuration, not by a score threshold:
 - `ignoreStatic: true` skips mutants in code that runs while a test file loads. A test file must not
   build state at the top level, because Stryker would then count that state's mutants as static and
   skip them.
-- The package's `tauMessageIgnorer`, which it always adds, skips message wording such as error,
-  toast, and disabled-reason text.
+- The wording ignorer in `scripts/mutationIgnorer.ts` skips the text of plain error messages.
 
 Production code has no `// Stryker disable` comments. A mutant that no test can tell from the
-original, and a wording survivor the ignorer does not reach, such as text built with a conditional,
-stays in the advisory list. The tuning note names them. A reader who finds a real gap resolves it
-with a test.
+original, and a wording survivor such as a toast title or a disabled-reason text, stays in the
+advisory list. The tuning note names them. A reader who finds a real gap resolves it with a test.
 
 Mergit keeps TypeScript 7.0.2 and accepts the runner's peer warning. Bun installs with the warning,
 and `bun install --frozen-lockfile` succeeds. The runner reads `typescript` only when the
@@ -60,9 +59,9 @@ exist, so Stryker core skips its `tsconfig` rewrite.
 
 ### Negative
 
-- The job needs Node next to Bun, because the package command and Stryker core run on Node.
+- The job needs Node next to Bun, because Stryker core starts through its Node shebang.
 - A very large refactor can exceed the job's `timeout-minutes`. The job then fails and a reviewer
-  reads the failure as advisory. The package sets no mutant cap, so the timeout is the only bound.
+  reads the failure as advisory. The cap is `--max-mutants 100000`, so no pull request reaches it.
 - The peer warning stays until the runner allows TypeScript 7.
 - Equivalent and wording survivors stay in the list, so a reader must tell them from real gaps.
 
