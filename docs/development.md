@@ -42,6 +42,13 @@ Configure linting, formatting, and staged checks in [vite.config.ts](../vite.con
 installed command-line tools with `bunx --bun`, as the scripts do. The tools start with a Node
 shebang, so without `--bun` they run on Node instead of Bun.
 
+`bun run mutation` runs the `mutation` command of the
+[`@sqve/mutation`](https://www.npmjs.com/package/@sqve/mutation) package with the root
+[stryker.config.json](../stryker.config.json). The package README lists the report, the exit codes,
+and the defaults it adds to the config, such as its message ignorer and `ignoreStatic`. The config
+sets only Mergit's own policy. The command runs on Node 24.21 or newer, not on Bun. Bump the pinned
+package version to get a fix.
+
 ## Versioning
 
 Add a changeset for user-facing changes:
