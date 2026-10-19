@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { NotificationFeed, Viewer } from '../github/github.ts';
+import { showSavedThreads } from './feedTransitions.ts';
 import { visibleRows } from './session.ts';
 import {
   changed,
@@ -20,6 +21,7 @@ import {
   verified,
   viewerOf,
 } from './sessionHarness.ts';
+import { initialSnapshot } from './sessionState.ts';
 
 test('an unchanged poll sends one request and changes nothing', async () => {
   const { session, load, fireTimer, answerPoll, countOf, pending } = makeHarness();
@@ -681,4 +683,12 @@ test('a saved snapshot with threads selects its first row at start', () => {
 
   expect(snapshot.selectedRowKey).not.toBeNull();
   expect(snapshot.selectedRowKey).toBe(visibleRows(snapshot)[0]?.key ?? null);
+});
+
+test('showing saved threads selects the first visible row', () => {
+  const shown = showSavedThreads(initialSnapshot, savedThreads, new Map(), savedAt);
+
+  expect(shown.selectedRowKey).toBe('node:review');
+  expect(shown.selectedRowKey).toBe(visibleRows(shown)[0]?.key ?? null);
+  expect(shown.hasLoaded).toBe(true);
 });

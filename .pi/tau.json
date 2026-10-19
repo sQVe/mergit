@@ -1,0 +1,5 @@
+{
+  "mutation": {
+    "argv": ["bun", "scripts/mutation.ts"]
+  }
+}

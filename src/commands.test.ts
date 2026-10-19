@@ -35,9 +35,11 @@ const idleEffects = {
   setTimer: () => () => undefined,
 };
 
-const snapshot = createSession(idleEffects).getSnapshot();
+const createSnapshot = () => createSession(idleEffects).getSnapshot();
 
 test('quit returns a terminal intent and help returns a UI intent', () => {
+  const snapshot = createSnapshot();
+
   const intents = Object.fromEntries(
     catalog.map((command) => [command.id, command.intent(snapshot)]),
   );
@@ -47,6 +49,8 @@ test('quit returns a terminal intent and help returns a UI intent', () => {
 });
 
 test('list commands return the matching application intents on j, k, and r', () => {
+  const snapshot = createSnapshot();
+
   const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
 
   expect(byId['selectNext']?.keys).toEqual(['j', 'down']);
@@ -70,6 +74,8 @@ test('list commands return the matching application intents on j, k, and r', () 
 });
 
 test('tree commands list their keys and return their intents', () => {
+  const snapshot = createSnapshot();
+
   const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
 
   const expected = [
@@ -100,7 +106,7 @@ const loadedThread = {
   repository: 'acme/app',
 };
 
-const loadedSnapshot = { ...snapshot, threads: [loadedThread] };
+const createLoadedSnapshot = () => ({ ...createSnapshot(), threads: [loadedThread] });
 
 const lineScopes = new Set<Command['scope']>(['input', 'filter', 'command']);
 
@@ -131,6 +137,8 @@ test('no key is bound to two commands whose scopes can be active together', () =
 });
 
 test('return folds a group on a node row and opens the detail on a thread row', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+
   const bound = catalog.filter(
     (candidate) => candidate.scope === 'list' && candidate.keys.includes('return'),
   );
@@ -152,6 +160,8 @@ test('return folds a group on a node row and opens the detail on a thread row', 
 });
 
 test('closeDetail has the escape key, the preview scope, and a ui intent', () => {
+  const snapshot = createSnapshot();
+
   const close = catalog.find((command) => command.id === 'closeDetail');
 
   expect(close?.keys).toEqual(['escape']);
@@ -161,6 +171,8 @@ test('closeDetail has the escape key, the preview scope, and a ui intent', () =>
 });
 
 test('markDone marks one thread on a thread row and every shown thread on a node row', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+
   const command = catalog.find((candidate) => candidate.id === 'markDone');
   const nodeRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'node');
   const threadRow = visibleRows(loadedSnapshot).find((row) => row.kind === 'thread');
@@ -187,6 +199,8 @@ test('markDone marks one thread on a thread row and every shown thread on a node
 });
 
 test('undo is bound to u and returns the undoDone intent', () => {
+  const snapshot = createSnapshot();
+
   const command = catalog.find((candidate) => candidate.id === 'undoDone');
 
   expect(command?.keys).toEqual(['u']);
@@ -200,6 +214,8 @@ const intentOf = (pages: BrowserPage[]): Intent => ({
 });
 
 test('o on a thread row, a repo node, and a group node sends the expected open intent', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+
   const command = catalog.find((candidate) => candidate.id === 'openInBrowser');
 
   const threads = [
@@ -239,6 +255,8 @@ test('o on a thread row, a repo node, and a group node sends the expected open i
 });
 
 test('o on a group node over 3 repos opens at once, and over 4 repos opens the dialog', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+
   const command = catalog.find((candidate) => candidate.id === 'openInBrowser');
 
   const groupOf = (repositories: number) => {
@@ -265,6 +283,8 @@ test('o on a group node over 3 repos opens at once, and over 4 repos opens the d
 });
 
 test('the input commands act on the search line and clearSearch is disabled without a search', () => {
+  const snapshot = createSnapshot();
+
   const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
 
   expect(byId['openSearch']?.keys).toEqual(['/']);
@@ -296,6 +316,8 @@ test('the input commands act on the search line and clearSearch is disabled with
 const byId = (id: string) => catalog.find((command) => command.id === id);
 
 test('the command line opens on colon and its commands run, close, clear, and quit', () => {
+  const snapshot = createSnapshot();
+
   const commandIntentOf = (id: string) => byId(id)?.intent(snapshot);
   const open = byId('openCommandLine');
   const emptyClose = byId('closeEmptyCommandLine');
@@ -317,6 +339,8 @@ test('the command line opens on colon and its commands run, close, clear, and qu
 });
 
 test('the completion keys are disabled only when the last word has no candidates', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+
   const withCandidates = { ...loadedSnapshot, searchText: 'on' };
   const withoutCandidates = { ...loadedSnapshot, searchText: 'zzz' };
 
@@ -327,6 +351,8 @@ test('the completion keys are disabled only when the last word has no candidates
 });
 
 test('shift+f clears filters and is disabled without filters', () => {
+  const snapshot = createSnapshot();
+
   const command = byId('clearFilters');
   const filters: Filter[] = [{ field: 'repo', value: 'acme/app', negated: false }];
 
@@ -338,6 +364,8 @@ test('shift+f clears filters and is disabled without filters', () => {
 const application = (intent: ApplicationIntent): Intent => ({ kind: 'application', intent });
 
 test('each remaining command returns its intent', () => {
+  const snapshot = createSnapshot();
+
   const quit: Intent = { kind: 'terminal', action: 'quit' };
 
   const expected = [

@@ -1,4 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["scripts/*.ts"]
+  "entry": ["scripts/*.ts"],
+  "stryker": false,
+  "ignoreDependencies": ["@hughescr/stryker-bun-runner", "@stryker-mutator/core"]
 }
