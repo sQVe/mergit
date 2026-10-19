@@ -49,3 +49,4 @@ line that links to the replacement.
   superseded by 0021
 - [0021: Chips of one field combine by how many values a thread holds](./0021-chip-logic-by-field.md)
 - [0022: Owner files inside modules, thin coordinators, and owner-first file names](./0022-owner-files-and-owner-first-names.md)
+- [0023: Mutation testing gates changed lines on pull requests](./0023-mutation-testing-on-changed-lines.md)

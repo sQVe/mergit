@@ -28,6 +28,7 @@ checks on staged files.
 | `bun run lint`                    | Run ordinary lint diagnostics, as editors do.                             |
 | `bun run format`                  | Format files.                                                             |
 | `bun run knip`                    | Find unused files, exports, and dependencies.                             |
+| `bun run mutation changed <base>` | Mutate the lines changed since `<base>` and list surviving mutants.       |
 
 House style comes from the [`@sqve/seam`](https://www.npmjs.com/package/@sqve/seam) package. Its
 `seam` command turns on the house rules for its own lint run, so editors and `bun run lint` show the
