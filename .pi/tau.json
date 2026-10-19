@@ -1,5 +1,5 @@
 {
   "mutation": {
-    "argv": ["bunx", "mutation"]
+    "argv": ["bunx", "--bun", "mutation"]
   }
 }
