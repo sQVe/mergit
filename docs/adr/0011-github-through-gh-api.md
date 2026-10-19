@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-03\
 **Status**: Accepted\
-**Related**: [ADR 0013: Hand-written sync over a SQLite cache](./0013-local-sync-cache.md),
+**Related**: [ADR 0016: A SQLite snapshot with a checked full refresh](./0016-snapshot-and-full-refresh.md),
 [`gh api` manual](https://cli.github.com/manual/gh_api),
 [GitHub GraphQL rate limits](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api),
 [GitHub notifications API](https://docs.github.com/en/rest/activity/notifications),

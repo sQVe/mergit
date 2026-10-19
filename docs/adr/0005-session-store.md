@@ -48,8 +48,8 @@ tests drive the same way production does.
 - A failed refresh keeps the previous items and shows the error.
 - A rate-limit response pauses polling until the reset time. Manual refresh does not bypass the
   pause.
-- Cached data and its sync follow [ADR 0013](./0013-local-sync-cache.md). A manual refresh bypasses
-  every validator.
+- Cached data and its sync follow [ADR 0016](./0016-snapshot-and-full-refresh.md). A manual refresh
+  bypasses every validator.
 
 ### Actions
 

@@ -2,12 +2,13 @@
 
 **Date**: 2026-10-05\
 **Status**: Accepted\
+**Supersedes**: [ADR 0013: Hand-written sync over a SQLite cache](./README.md#retired)\
 **Related**: [GitHub REST API best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
 
 ## Context
 
-[ADR 0013](./0013-local-sync-cache.md) chose incremental sync with watermarks and removal checks for
-pull request searches. [ADR 0015](./0015-notifications-first.md) removes those searches.
+Incremental sync with watermarks and removal checks serves pull request searches.
+[ADR 0015](./0015-notifications-first.md) leaves those searches out.
 
 The notifications feed pages at 50 threads, sorted by update time. A 304 costs no rate limit.
 
@@ -50,9 +51,10 @@ page with its ETag, on change or on a timer. An unchanged poll costs one free re
 
 ## Alternatives considered
 
-### Keep ADR 0013
+### Incremental sync with watermarks
 
-Keep ADR 0013. Rejected because its watermarks and removal checks served the searches.
+Fetch only items updated since a saved watermark, and check cached items for removals. Rejected
+because its watermarks and removal checks served the searches.
 
 ### `If-Modified-Since` polling
 

@@ -1,15 +1,15 @@
 # ADR 0009: Versioned local state and config
 
 **Date**: 2026-10-01\
-**Status**: Superseded\
-**Superseded by**: [ADR 0018](./0018-local-state-and-config.md)\
+**Status**: Accepted\
 **Related**: [ADR 0006: One command catalog as data](./0006-command-catalog.md),
+[ADR 0015: Notifications first, with a batched subject lookup](./0015-notifications-first.md),
 [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
 
 ## Context
 
-Mergit saves dismissals between runs and reads a user config with key remaps and repository
-locations.
+Mergit saves local state between runs: the "new" markers, the chosen grouping, and the record of
+threads it marked done. It also reads a user config with key remaps and repository locations.
 
 A crash during a write, a corrupt file, or an older Mergit reading a newer file must not destroy
 saved data.
@@ -17,12 +17,14 @@ saved data.
 In Tau, a parse-once rule still produced four parsers for one value. Each file needs one parser
 owner.
 
-Mergit runs as one process per user. No use case needs two sessions writing one state file.
+Mergit can run as an always-open pane and as a quick check at once, so two processes can write one
+state file.
 
 ## Decision
 
 Config and local state are versioned JSON files, parsed once at startup by their owning module, with
-atomic writes. Each file has one owner, a version, and a write that cannot leave half a file.
+atomic writes. Each file has one owner, a version, and a write that cannot leave half a file. Two
+Mergit processes may write the same state file, and the last write wins.
 
 ### Files
 
@@ -36,7 +38,7 @@ atomic writes. Each file has one owner, a version, and a write that cannot leave
 
 - A missing file means defaults.
 - Invalid config stops startup with the path and the reason.
-- Invalid state shows a warning. Mergit runs without saved dismissals and does not write that file
+- Invalid state shows a warning. Mergit runs without saved local state and does not write that file
   until the user resets it.
 - An older version migrates forward in memory. State is saved in the current version on the next
   write.
@@ -46,9 +48,11 @@ atomic writes. Each file has one owner, a version, and a write that cannot leave
 
 - Mergit writes state to a unique temporary file beside the target, flushes and closes it, then
   renames it over the target. A failed write keeps the last valid file.
-- Writes run one at a time. A dismissal takes effect in memory at once and shows as unsaved until a
-  write succeeds.
-- One Mergit process writes a state file. Concurrent processes can lose each other's dismissals.
+- Writes run one at a time.
+- A failed write shows a short-lived message that names what was not saved. Mergit does not mark the
+  change as unsaved.
+- Two Mergit processes may write one state file. The last write wins, so concurrent processes can
+  lose each other's changes.
 
 ### Compatibility
 
@@ -59,14 +63,15 @@ atomic writes. Each file has one owner, a version, and a write that cannot leave
 
 ### Positive
 
-- Saved dismissals survive crashes, corrupt files, and older versions.
+- Saved state survives crashes, corrupt files, and older versions.
 - Every format change has a version and a tested migration.
 
 ### Negative
 
 - Users must add a `version` field to their config.
-- Running two Mergit processes at once can lose dismissals.
-- Invalid state needs a manual reset before Mergit saves dismissals again.
+- Two processes can lose each other's markers, grouping, or done entries, so a thread already marked
+  done can show again.
+- Invalid state needs a manual reset before Mergit saves state again.
 
 ## Alternatives considered
 
@@ -77,12 +82,28 @@ Use unversioned JSON. Rejected because a reader cannot tell an older format from
 ### Overwrite invalid state
 
 Start with empty state and overwrite a file that fails to parse. Rejected because it silently
-destroys saved dismissals.
+destroys saved state.
 
 ### A database
 
 Use a database such as SQLite. Rejected because one small file per user needs no query engine.
 
-### Several writers with locks or merging
+### One writer per state file
 
-Use locks or merging for several writers. Deferred because no second-session use case exists.
+Allow only one Mergit process to write a state file. Rejected because Mergit runs as an always-open
+pane and as a quick check at once.
+
+### Locks or merging
+
+Use locks or merging between writers. Deferred because a lost entry costs a marker, the grouping, or
+one more done.
+
+### Mark unsaved changes until a write succeeds
+
+Mark a change as unsaved until a later write succeeds. Rejected because a lost entry costs little,
+and a lasting marker takes status-line space.
+
+### TOML for config
+
+Use TOML for config. Deferred because it helps long queries in saved views, which are not in the
+first version.
