@@ -1,0 +1,25 @@
+{
+  "testRunner": "bun",
+  "bun": { "timeout": 600000, "bunArgs": ["--timeout", "60000"] },
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/index.ts",
+    "!src/**/*Harness.ts",
+    "!src/**/*Harness.tsx"
+  ],
+  "tsconfigFile": "stryker-no-tsconfig.json",
+  "checkers": [],
+  "ignoreStatic": true,
+  "plugins": ["@hughescr/stryker-bun-runner", "./scripts/mutationIgnorer.ts"],
+  "ignorers": ["tauMessageIgnorer"],
+  "concurrency": 4,
+  "timeoutMS": 10000,
+  "fileLogLevel": "info",
+  "ignorePatterns": [".tau", "docs", "tests/*.test.ts", "dist", "CHANGELOG.md"],
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true
+}
