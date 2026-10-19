@@ -5,11 +5,11 @@ change a setting that changes the mutants or their results.
 
 ## Method
 
-Each run checked out one commit of `main` in a separate worktree, copied in `scripts/mutation*.ts`,
-`tests/gitRepository.ts`, and `stryker.config.json`, and ran
-`bun scripts/mutation.ts changed <commit>~1`. The commit's own tests ran, so the results show what
-that commit's tests killed. They do not show what `main` kills today. The runs went two at a time on
-a 32-core machine that also ran other jobs, so the times are rough. Production code has no
+Each run checked out one commit of `main` in a separate worktree, copied in the mutation scripts
+that Mergit kept before the `@sqve/mutation` package, and `stryker.config.json`, and ran the
+`changed <commit>~1` mode of that copy. The commit's own tests ran, so the results show what that
+commit's tests killed. They do not show what `main` kills today. The runs went two at a time on a
+32-core machine that also ran other jobs, so the times are rough. Production code has no
 `// Stryker disable` comment, so every mutant the config does not skip is in the counts.
 
 Each survivor was sorted by reading its line:
@@ -73,10 +73,12 @@ texts, and the unknown-field message:
 
 They stay in the advisory list. Production code has no disable comment for them.
 
-The ignorer skips an error message only when it has no expression. Mergit returns typed results and
-builds most messages from templates, as in `Invalid filter "${token}": ...`. Across the 46 mutated
-files, the ignorer skips 2 of 4,949 mutants. It skips only plain error messages. The shared package
-ME-742 will skip these wording survivors for every project.
+The ignorer of the copied script skipped an error message only when it had no expression. Mergit
+returns typed results and builds most messages from templates, as in
+`Invalid filter "${token}": ...`. Across the 46 mutated files, that ignorer skipped 2 of 4,949
+mutants. The ignorer of the `@sqve/mutation` package also skips the text of `message`, `title`,
+`text`, and `disabledReason` values and of templates built from plain values. These six commits were
+not run again with it.
 
 ## Settings
 
@@ -89,14 +91,14 @@ ME-742 will skip these wording survivors for every project.
 | `mutate` excludes `src/index.ts` | `!src/index.ts`                                 | With `src/index.ts` in `mutate`, the run of `220fe60` reported 17 mutants. Without it, 43. A run of `Notice.tsx` alone had 3 static mutants. With `src/index.ts` beside it, 24 were static and skipped. The cause is not known. The file is the process entry point, and its mutants have no unit test. |
 | `tsconfigFile`                   | `stryker-no-tsconfig.json` (does not exist)     | Stryker core rewrites `tsconfig.json` through the TypeScript JavaScript API. With TypeScript 7 it failed with `ts.parseConfigFileTextToJson is not a function`. A missing file skips the rewrite.                                                                                                       |
 | `checkers`                       | `[]`                                            | A TypeScript checker needs the same API. The six runs had 0 invalid mutants, so no checker is needed.                                                                                                                                                                                                   |
-| `ignoreStatic`                   | `true`                                          | A mutant in code that runs while a file loads is not a test gap. On `filterDescriptions.ts` of `39c9e06`, a table of module-level data, 131 mutants survived with it off and 51 with it on, and 147 were skipped.                                                                                       |
-| `ignorers`                       | `tauMessageIgnorer`                             | It skips error message text, as `AGENTS.md` asks. It is small here: 2 of 4,949 mutants. See above.                                                                                                                                                                                                      |
+| `ignoreStatic`                   | `true`, set by the package                      | A mutant in code that runs while a file loads is not a test gap. On `filterDescriptions.ts` of `39c9e06`, a table of module-level data, 131 mutants survived with it off and 51 with it on, and 147 were skipped.                                                                                       |
+| `ignorers`                       | `tauMessageIgnorer`, added by the package       | It skips message text, as `AGENTS.md` asks. The copied script's version skipped 2 of 4,949 mutants. See above.                                                                                                                                                                                          |
 | `concurrency`                    | `4`                                             | Chosen for a 4-core CI runner. This value was not measured.                                                                                                                                                                                                                                             |
 | `timeoutMS`                      | `10000`                                         | Runs had 0 to 2 timed-out mutants. A timeout counts as a kill, and no data argues for a change.                                                                                                                                                                                                         |
 | `ignorePatterns`                 | `.tau`, `docs`, `tests`, `dist`, `CHANGELOG.md` | Stryker does not copy these into the sandbox. `tests/` holds the lint and process checks, which are slow and not unit tests. The pilot made the same choice; this tuning did not measure it.                                                                                                            |
 | `tempDirName`, `cleanTempDir`    | `.stryker-tmp`, `true`                          | A fixed folder in the repository, ignored by Git, removed after a run.                                                                                                                                                                                                                                  |
-| `thresholds.break`               | set to `null` by the script                     | The report decides the exit code, not a score.                                                                                                                                                                                                                                                          |
-| Cap                              | `--max-mutants 100000` in the CI job            | See "Advisory CI job" below.                                                                                                                                                                                                                                                                            |
+| `thresholds.break`               | set to `null` by the package                    | The report decides the exit code, not a score.                                                                                                                                                                                                                                                          |
+| Cap                              | none, the package default                       | See "Advisory CI job" below.                                                                                                                                                                                                                                                                            |
 
 ## Test files that run code at load
 
@@ -105,11 +107,9 @@ it. `src/commands.test.ts` used to create a session at the top of the file. In a
 that made the session mutants static, and Stryker skipped them. The session is now created inside
 each test. Keep test files free of work at load.
 
-## Script source and the `sameFolderTests` switch
+## The `--same-folder-tests` switch
 
-`scripts/mutation*.ts` follow Koja's version (sQVe/koja f15ae9b) until the shared package from Tau
-replaces them. Two things differ: the ignorer is named `tauMessageIgnorer`, and the config key
-`sameFolderTests` selects Koja's per-folder runs. With it on, the script starts Stryker once per
+With the `@sqve/mutation` switch `--same-folder-tests` on, the command starts Stryker once per
 folder and runs only that folder's unit tests. With it off, the default, it starts Stryker once and
 every unit test can kill each mutant.
 
@@ -119,15 +119,14 @@ cross folder, for example `src/commands.test.ts` covers code in `src/session`, a
 extra rules about where a test lives. This was not measured on a Mergit commit. The cost is one dry
 run of all unit tests, 915 tests in about 2.5 minutes on the machine used here. Koja's
 `KOJA_MUTATION` variable and `bunfig.mutation.toml` are Koja policy, and Mergit needs neither.
-`tests/*.test.ts` is in `ignorePatterns` because those files are not unit tests, but the sandbox
-keeps `tests/gitRepository.ts`, which `tests/mutation.test.ts` imports.
+`tests/*.test.ts` is in `ignorePatterns` because those files are not unit tests.
 
 ## Advisory CI job
 
 The `Mutation` job runs on pull requests, lists survivors, and is not a required check. The user
 wants better tests without extra hoops.
 
-Run times with the script above, on the 4-concurrency config:
+Run times with the copied script, on the 4-concurrency config:
 
 | Run                             | Mutants | Result                        | Time        |
 | ------------------------------- | ------: | ----------------------------- | ----------- |
@@ -138,5 +137,5 @@ Run times with the script above, on the 4-concurrency config:
 The dry run costs about 2.5 minutes. The old per-commit runs of 3 to 275 mutants took 2 to 16
 minutes. `timeout-minutes: 60` covers ordinary pull requests such as those commits. A refactor as
 large as `39c9e06` would time out, and that is accepted: the job is advisory, and splitting a
-refactor is cheaper than waiting hours. `--max-mutants 100000` keeps the script's fail-closed cap
-but sets it above any real pull request, so the timeout is the only bound.
+refactor is cheaper than waiting hours. The package has no mutant cap by default, so the timeout is
+the only bound.

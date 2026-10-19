@@ -1,7 +1,8 @@
 # ADR 0023: Mutation testing gates changed lines on pull requests
 
 **Date**: 2026-10-18\
-**Status**: Accepted\
+**Status**: Accepted; the local copy of the script superseded by
+[ADR 0024 (Run mutation testing through the shared package)](./0024-shared-mutation-package.md)\
 **Related**: [ADR 0002 (Bun as runtime, package manager, and test runner)](./0002-bun-toolchain.md),
 [ADR 0014 (Results for expected failures, exceptions for bugs, and checked boundaries)](./0014-coding-conventions.md)
 

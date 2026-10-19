@@ -1,5 +1,5 @@
 {
   "mutation": {
-    "argv": ["bun", "scripts/mutation.ts"]
+    "argv": ["bunx", "mutation"]
   }
 }
