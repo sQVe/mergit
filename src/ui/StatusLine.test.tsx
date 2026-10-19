@@ -288,3 +288,55 @@ test('the status line shows refreshing... while a refresh runs and drops it when
   expect(setup.captureCharFrame()).not.toContain('refreshing...');
   expect(setup.captureCharFrame()).toContain('First');
 });
+
+test('the status line leaves the notice to the screen body when no rows are shown', async () => {
+  const effects: SessionEffects = {
+    ...idleEffects,
+    readFeed: feedEffects(() => ({ ok: false as const, failure: { kind: 'ghMissing' as const } }))
+      .readFeed,
+  };
+
+  const { setup, press } = await mount('dark', effects, 80, false, 24);
+
+  await press('r');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Install GitHub CLI');
+  expect(statusRowOf(frame)).not.toContain('press r');
+});
+
+test('the status line adds no gap for a warning, a marker, or an error that is absent', async () => {
+  let hang = false;
+
+  const effects: SessionEffects = {
+    ...savedEffects(new Date(), threeThreads),
+    ...threadsEffects(threeThreads),
+    savedSnapshot: savedEffects(new Date(), threeThreads).savedSnapshot,
+    verifyFeed: () =>
+      Promise.resolve({
+        ok: true as const,
+        value: { kind: 'changed' as const, pollInterval: null },
+      }),
+    readFeed: () => {
+      if (hang) {
+        return new Promise(() => {});
+      }
+
+      return Promise.resolve({
+        ok: true as const,
+        value: { feed: { pages: [] }, threads: [...threeThreads], pollInterval: null },
+      });
+    },
+  };
+
+  const { setup, press } = await mount('dark', effects, 70, false, 24);
+
+  await press('r');
+  hang = true;
+  await press('r');
+
+  const row = statusRowOf(setup.captureCharFrame());
+
+  expect(row).toContain('? help  saved 0m ago  refreshing...  feed busy, showing the last list');
+});
