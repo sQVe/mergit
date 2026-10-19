@@ -728,3 +728,75 @@ test.each(['chip', 'search'] as const)(
     expect(lastNonEmptyLine(mounted.setup)).toContain('? help');
   },
 );
+
+test('an open command line takes a row from the search completions', async () => {
+  const mounted = await mount('dark', factsEffects(topics, new Map()), 60, false, 9);
+
+  await mounted.press('r');
+  await mounted.press('/');
+  await typeText(mounted.setup, mounted.settle, 'topic');
+
+  const completionsOf = () =>
+    mounted.setup
+      .captureCharFrame()
+      .split('\n')
+      .filter((line) => /^\s+topic\d+\s+1\s*$/.test(line));
+
+  expect(completionsOf()).toHaveLength(4);
+
+  act(() => {
+    mounted.session.send({ kind: 'openCommandLine' });
+  });
+
+  await mounted.settle();
+
+  const lines = mounted.setup.captureCharFrame().split('\n');
+
+  expect(completionsOf()).toHaveLength(3);
+  expect(lines.some((line) => line.startsWith(':'))).toBe(true);
+  expect(lastNonEmptyLine(mounted.setup)).toContain('? help');
+});
+
+test('an open command line takes a row from the composer', async () => {
+  const mounted = await mountShort(10);
+
+  await mounted.press('f');
+  await typeText(mounted.setup, mounted.settle, 'author:');
+
+  const authorRowsOf = () =>
+    mounted.setup
+      .captureCharFrame()
+      .split('\n')
+      .filter((line) => /author:user\d+/.test(line));
+
+  const before = authorRowsOf().length;
+
+  act(() => {
+    mounted.session.send({ kind: 'openCommandLine' });
+  });
+
+  await mounted.settle();
+
+  const lines = mounted.setup.captureCharFrame().split('\n');
+
+  expect(before).toBe(6);
+  expect(authorRowsOf()).toHaveLength(5);
+  expect(lines.some((line) => line.startsWith(':'))).toBe(true);
+});
+
+test('a key whose text is several characters is not typed into a filter draft that is still opening', async () => {
+  const { setup, settle, press, session } = await mountFilters(undefined, true);
+
+  await press('r');
+
+  await act(async () => {
+    setup.mockInput.pressKey('f');
+    setup.mockInput.pressKey('\u001B[223;2u');
+  });
+
+  await settle();
+
+  expect(session.getSnapshot().filtersOpen).toBe(true);
+  expect(session.getSnapshot().filterDraft).toBe('');
+  expect(composerInputOf(setup.captureCharFrame())).toBe('');
+});

@@ -863,3 +863,15 @@ test.each([5, 6, 7, 8, 9, 10, 11, 12])(
     expect(lines.findLast((line) => line.trim() !== '')).toContain('? help');
   },
 );
+
+test('a field name with a dash inside shows the key hints, not the value form of the field without the dash', async () => {
+  const { setup, press, settle } = await mountFilters(80);
+
+  await press('f');
+  await typeText(setup, settle, 'sta-te:');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Enter apply');
+  expect(frame).not.toContain('open, closed, or merged');
+});
