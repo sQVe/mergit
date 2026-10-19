@@ -80,7 +80,6 @@ Stryker core skips its `tsconfig` rewrite.
 
 ### Negative
 
-- The job needs Node next to Bun, because Stryker core starts through its Node shebang.
 - A very large refactor can exceed the job's `timeout-minutes`. The job then fails and a reviewer
   reads the failure as advisory.
 - The peer warning stays until the runner allows TypeScript 7.
