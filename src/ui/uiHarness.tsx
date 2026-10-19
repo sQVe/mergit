@@ -437,7 +437,7 @@ export const mountWithGroup = async (
 };
 
 const queryThreadOverrides: readonly (readonly [string, Partial<NotificationThread>])[] = [
-  ['Zeta pull request', { repository: 'sqve/zeta' }],
+  ['Mergit pull request', { repository: 'sqve/mergit' }],
   ['App pull request', { repository: 'acme/app' }],
   ['Web pull request', { repository: 'acme/web' }],
   [

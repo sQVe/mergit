@@ -1,4 +1,4 @@
-# Zeta
+# Mergit
 
 Terminal UI for GitHub work that needs action. Read [the development guide](docs/development.md) for
 local setup and verification.
@@ -6,7 +6,7 @@ local setup and verification.
 - Run `bun run check` before finishing changes. It runs typechecking, lint with house style,
   formatting, Knip, and tests.
 - Format with `bun run format`, and fix style with `bun run style:fix`. House style comes from
-  `@sqve/seam`; Zeta's own lint rules live in `scripts/lintRules.ts`.
+  `@sqve/seam`; Mergit's own lint rules live in `scripts/lintRules.ts`.
 - Follow the decisions in [docs/adr](docs/adr/README.md), and record new decisions there. Read that
   guide before adding an ADR. Do not write documents that explain how a feature works; see
   [ADR 0001](docs/adr/0001-documentation-scope.md).
@@ -28,7 +28,7 @@ local setup and verification.
   `commands.ts`, `invariant.ts`, `query.ts`, `index.ts`, and `terminal.tsx`. See
   [ADR 0004](docs/adr/0004-capability-modules.md) and
   [ADR 0017](docs/adr/0017-local-query-language.md).
-- Imports follow the table in ADR 0004. `zeta/module-boundaries` enforces it in ordinary lint. Do
+- Imports follow the table in ADR 0004. `mergit/module-boundaries` enforces it in ordinary lint. Do
   not silence it; change the table in `scripts/lintRules.ts` when a new edge keeps the ADR's
   directions.
 - Put types beside the code that owns them. Do not add barrels, a shared `types.ts`, or `utils/`.

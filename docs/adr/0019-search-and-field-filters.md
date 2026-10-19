@@ -14,7 +14,7 @@ half-typed queries were invalid. To keep the list stable, the parser fell back t
 part of the query and showed an error row. Each fallback rule needed another rule for the next
 half-typed case, so the list still changed under the user while they typed a field.
 
-The notifications feed takes no query, so Zeta still evaluates every filter itself.
+The notifications feed takes no query, so Mergit still evaluates every filter itself.
 
 ## Decision
 
@@ -24,7 +24,7 @@ The `/` line is plain text search, and field filters come from a picker of compl
 
 - A thread matches when its title or repository contains every whitespace-separated word, ignoring
   case. Blank text means no search.
-- Zeta never parses the text. `repo:` is the text `repo:`, so no input is invalid and the line has
+- Mergit never parses the text. `repo:` is the text `repo:`, so no input is invalid and the line has
   no error row.
 - Backspace on an empty line closes it with no text applied.
 

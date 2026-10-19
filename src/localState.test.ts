@@ -32,8 +32,8 @@ let root = '';
 let directory = '';
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'zeta-local-state-'));
-  directory = join(root, 'zeta');
+  root = mkdtempSync(join(tmpdir(), 'mergit-local-state-'));
+  directory = join(root, 'mergit');
 });
 
 afterEach(() => {
@@ -157,16 +157,16 @@ test('recreates a cache whose pages table is damaged', () => {
 
 test('returns a failure when the directory cannot be created', () => {
   writeFileSync(join(root, 'blocker'), 'file');
-  const blocked = join(root, 'blocker', 'zeta');
+  const blocked = join(root, 'blocker', 'mergit');
 
   expect(loadSnapshot(blocked).ok).toBe(false);
   expect(saveSnapshot(blocked, makeSnapshot('octocat', ['a'])).ok).toBe(false);
 });
 
 test('resolves the cache directory from the environment', () => {
-  expect(cacheDirectory({ XDG_CACHE_HOME: '/xdg', HOME: '/home/a' })).toBe('/xdg/zeta');
-  expect(cacheDirectory({ HOME: '/home/a' })).toBe('/home/a/.cache/zeta');
-  expect(cacheDirectory({ XDG_CACHE_HOME: '', HOME: '/home/a' })).toBe('/home/a/.cache/zeta');
+  expect(cacheDirectory({ XDG_CACHE_HOME: '/xdg', HOME: '/home/a' })).toBe('/xdg/mergit');
+  expect(cacheDirectory({ HOME: '/home/a' })).toBe('/home/a/.cache/mergit');
+  expect(cacheDirectory({ XDG_CACHE_HOME: '', HOME: '/home/a' })).toBe('/home/a/.cache/mergit');
   expect(cacheDirectory({})).toBeNull();
 });
 
@@ -572,9 +572,13 @@ test('saves during a write collapse to the last one', async () => {
 });
 
 test('stateDirectory uses XDG_STATE_HOME, then HOME, then nothing', () => {
-  expect(stateDirectory({ XDG_STATE_HOME: '/xdg', HOME: '/home/a' })).toBe('/xdg/zeta');
-  expect(stateDirectory({ HOME: '/home/a' })).toBe('/home/a/.local/state/zeta');
-  expect(stateDirectory({ XDG_STATE_HOME: '', HOME: '/home/a' })).toBe('/home/a/.local/state/zeta');
+  expect(stateDirectory({ XDG_STATE_HOME: '/xdg', HOME: '/home/a' })).toBe('/xdg/mergit');
+  expect(stateDirectory({ HOME: '/home/a' })).toBe('/home/a/.local/state/mergit');
+
+  expect(stateDirectory({ XDG_STATE_HOME: '', HOME: '/home/a' })).toBe(
+    '/home/a/.local/state/mergit',
+  );
+
   expect(stateDirectory({})).toBeNull();
 });
 

@@ -1,5 +1,5 @@
 ---
-'zeta': minor
+'mergit': minor
 ---
 
 Press `o` to open the selected row in the browser. A thread opens its page, a repo row opens its

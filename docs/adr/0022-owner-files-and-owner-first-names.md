@@ -21,8 +21,8 @@ browser, and field filters all edited `session.ts`, `ui.tsx`, and both of their 
 search and filter slices also edited `sessionState.ts`. Shared editing paths make conflicts likely
 and make a reader scan one long file to find one feature. Size alone is not the cause.
 
-Phi decided the same question in its ADR 0016, and ADR 0010 keeps shared decisions in line. Zeta
-keeps Phi's rule. It differs only in which nouns turn out to be owners, because almost every Zeta
+Koja decided the same question in its ADR 0016, and ADR 0010 keeps shared decisions in line. Mergit
+keeps Koja's rule. It differs only in which nouns turn out to be owners, because almost every Mergit
 feature acts on one object, the notification thread.
 
 ## Decision
@@ -35,7 +35,7 @@ reason to review a file, never a check that fails.
 
 - An owner is a user-facing noun for behavior that changes on its own, whether an entity or a
   capability. Use the same noun for it in every module, so its session and UI files share a prefix.
-- In Zeta most owners are capabilities, such as `search`, `filter`, `done`, `marker`, `detail`,
+- In Mergit most owners are capabilities, such as `search`, `filter`, `done`, `marker`, `detail`,
   `feed`, `account`, and `message`. `thread` owns only the thread itself, such as its row and its
   identity, because a `thread` prefix on every feature would hide which feature a file belongs to.
 - Infrastructure that belongs to no feature has its own owner noun, such as `input`, `selection`, or
@@ -103,7 +103,7 @@ reason to review a file, never a check that fails.
   module.
 - Coordinators stay short because they hold dispatch, lifecycle, and ordering only.
 - Most current names already fit, so the rule needs few renames.
-- Zeta and Phi follow one rule, so an agent that works in both finds code the same way.
+- Mergit and Koja follow one rule, so an agent that works in both finds code the same way.
 
 ### Negative
 
@@ -125,13 +125,13 @@ and their tests already lie on the editing path of most slices.
 
 Let lint refuse files over 500 lines. Rejected because a count does not show ownership: it would
 force splits of cohesive files such as the done queue and the terminal lifetime, while a coordinator
-under the limit could still hold every feature. Zeta's lint denies warnings, so a warning level
+under the limit could still hold every feature. Mergit's lint denies warnings, so a warning level
 would block too.
 
 ### The thread as the owner of every feature
 
-Prefix every file that acts on threads with `thread`, the way Phi uses its pane for pane features.
-Rejected because almost every Zeta feature acts on threads, so the prefix would no longer tell
+Prefix every file that acts on threads with `thread`, the way Koja uses its pane for pane features.
+Rejected because almost every Mergit feature acts on threads, so the prefix would no longer tell
 search, filters, and done apart.
 
 ### One folder per feature across modules

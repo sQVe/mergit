@@ -31,7 +31,7 @@ keeps the composer open, so the user can remove several chips in a row.
 
 - A leading `-` negates a token. An unknown field name or a bad value is an error that names the
   problem, and `Enter` adds nothing.
-- Zeta accepts GitHub spellings as aliases and shows them in its own spelling: `is:pr` becomes
+- Mergit accepts GitHub spellings as aliases and shows them in its own spelling: `is:pr` becomes
   `kind:pr`, and `reason:review-requested` becomes `reason:review_requested`. GitHub users already
   type these, and one stored spelling keeps equal filters equal.
 - `repo:`, `org:`, and `author:` match exactly, or with one `*` as a wildcard. `age:` takes `<` or

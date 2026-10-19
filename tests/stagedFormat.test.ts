@@ -67,7 +67,7 @@ const createIgnoredFixture = async (name: string, contents: string) => {
 };
 
 const createTemporaryFixture = async (name: string, contents: string) => {
-  const directory = await mkdtemp(join(tmpdir(), 'zeta-staged-format-'));
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-staged-format-'));
   const path = join(directory, name);
   await writeFile(path, contents);
 

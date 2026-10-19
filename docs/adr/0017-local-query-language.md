@@ -14,7 +14,7 @@
 The `/` query line narrows the notification list as the user types. Saved views come later and will
 reuse the same language.
 
-The notifications feed takes no query, so Zeta evaluates every query itself.
+The notifications feed takes no query, so Mergit evaluates every query itself.
 
 The user already types GitHub search, such as `is:open author:@me`. GitHub's issue filters now
 support `AND`, `OR`, and parentheses, and its notification inbox uses the same qualifier shape.
@@ -24,8 +24,8 @@ this shape.
 
 ## Decision
 
-The query language uses GitHub's qualifier shape, evaluated locally. Zeta never sends it to GitHub.
-The language is short and familiar, with one syntax for the query line and saved views.
+The query language uses GitHub's qualifier shape, evaluated locally. Mergit never sends it to
+GitHub. The language is short and familiar, with one syntax for the query line and saved views.
 
 ### Query rules
 
@@ -33,7 +33,7 @@ The language is short and familiar, with one syntax for the query line and saved
 - A space means AND. `OR` and parentheses work as in GitHub's issue filters. A comma inside one
   qualifier means OR.
 - `@me` is the viewer. `is:` is an alias for `kind:`, `state:`, and `new:`.
-- A value must be complete. Zeta offers completion, but never matches a prefix.
+- A value must be complete. Mergit offers completion, but never matches a prefix.
 - Half-typed input keeps the last valid result. An invalid query shows its error at a position and
   never shows an empty list in its place.
 - Each term is true, false, or unknown. A thread shows when the whole query is true or unknown, so
@@ -55,7 +55,7 @@ only `session` imports it.
 
 - The line looks like GitHub search but adds local fields such as `new` and `age`, which GitHub
   would not accept.
-- Zeta owns a parser, its errors, and completion.
+- Mergit owns a parser, its errors, and completion.
 
 ## Alternatives considered
 

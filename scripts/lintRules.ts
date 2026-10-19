@@ -195,7 +195,7 @@ const literalSourceOf = (source: ESTree.Expression): string | undefined => {
 };
 
 const lintRules: Plugin = {
-  meta: { name: 'zeta' },
+  meta: { name: 'mergit' },
   rules: {
     'module-boundaries': {
       meta: {

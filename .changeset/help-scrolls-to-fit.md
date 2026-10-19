@@ -1,5 +1,5 @@
 ---
-'zeta': patch
+'mergit': patch
 ---
 
 Help scrolls when the terminal is too short to show every command. Press j or Down to scroll down,

@@ -373,7 +373,7 @@ test('shutdown waits for flushState before it unmounts', async () => {
   expect(harness.exitCodes).toEqual([0]);
 });
 
-test('a flushState that never settles still lets Zeta exit 0 after the bounded wait', async () => {
+test('a flushState that never settles still lets Mergit exit 0 after the bounded wait', async () => {
   const harness = createHarness('dark');
 
   await startTerminal(
@@ -433,7 +433,7 @@ test('shutdown waits for the stop promise before it calls flushState', async () 
   expect(harness.exitCodes).toEqual([0]);
 });
 
-test('a stop that never settles still lets Zeta exit 0 after the bounded wait', async () => {
+test('a stop that never settles still lets Mergit exit 0 after the bounded wait', async () => {
   const harness = createHarness('dark');
 
   harness.session.stop = () => Promise.withResolvers<undefined>().promise;

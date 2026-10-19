@@ -96,7 +96,7 @@ const makeDoneFeedScript = (logPath: string, alphaUpdatedAt: string): string => 
 const notSignedInScript = makeFakeGhScript('exit 4');
 
 const makeBinDirectory = (): string => {
-  const directory = mkdtempSync(join(tmpdir(), 'zeta-bin-'));
+  const directory = mkdtempSync(join(tmpdir(), 'mergit-bin-'));
 
   directories.push(directory);
 
@@ -110,7 +110,7 @@ const installFakeGh = (directory: string, script: string): void => {
   chmodSync(path, 0o755);
 };
 
-const startZeta = (binDirectory: string, stateHome: string = makeBinDirectory()): Child => {
+const startMergit = (binDirectory: string, stateHome: string = makeBinDirectory()): Child => {
   let output = '';
   const decoder = new TextDecoder();
 
@@ -166,7 +166,7 @@ const waitForExit = async (child: Child): Promise<number> => {
   const result = await Promise.race([child.processHandle.exited, timeout]);
 
   if (result === 'timeout') {
-    throw new Error('Timed out waiting for Zeta to exit.');
+    throw new Error('Timed out waiting for Mergit to exit.');
   }
 
   return result;
@@ -186,15 +186,15 @@ const startWithGh = (script: string, stateHome?: string): Child => {
 
   installFakeGh(directory, script);
 
-  return startZeta(directory, stateHome);
+  return startMergit(directory, stateHome);
 };
 
-const stateFilePath = (stateHome: string): string => join(stateHome, 'zeta', 'state.json');
+const stateFilePath = (stateHome: string): string => join(stateHome, 'mergit', 'state.json');
 
 const writeStateFile = (stateHome: string, content: string): string => {
   const path = stateFilePath(stateHome);
 
-  mkdirSync(join(stateHome, 'zeta'), { recursive: true });
+  mkdirSync(join(stateHome, 'mergit'), { recursive: true });
   writeFileSync(path, content);
 
   return path;
@@ -209,7 +209,7 @@ const pressAndQuit = async (child: Child, ready: string, keys: string): Promise<
   expect(await waitForExit(child)).toBe(0);
 };
 
-test('Zeta shows every thread from both pages', async () => {
+test('Mergit shows every thread from both pages', async () => {
   const child = startWithGh(twoPagesScript);
 
   await waitForOutput(child, 'First page thread');
@@ -218,7 +218,7 @@ test('Zeta shows every thread from both pages', async () => {
 
 test('a missing gh shows the install notice, and r reads threads once gh exists', async () => {
   const directory = makeBinDirectory();
-  const child = startZeta(directory);
+  const child = startMergit(directory);
 
   await waitForOutput(child, 'Install GitHub CLI from https://cli.github.com');
   expect(child.processHandle.killed).toBe(false);

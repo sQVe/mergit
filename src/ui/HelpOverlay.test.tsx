@@ -271,7 +271,14 @@ test('a command without keys renders its label', async () => {
 
 test('a command with a name and no keys is listed as :<name>', async () => {
   const quit = catalog.find((command) => command.id === 'quit') as Command;
-  const named: Command = { ...quit, id: 'quitByName', label: 'Leave Zeta', name: 'bye', keys: [] };
+
+  const named: Command = {
+    ...quit,
+    id: 'quitByName',
+    label: 'Leave Mergit',
+    name: 'bye',
+    keys: [],
+  };
 
   const { setup, press } = await mount(null, idleEffects, 60, false, tallRows + 1, false, [
     ...catalog,
@@ -281,7 +288,7 @@ test('a command with a name and no keys is listed as :<name>', async () => {
   await press('?');
 
   const frame = setup.captureCharFrame();
-  const row = frame.split('\n').find((line) => line.includes('Leave Zeta'));
+  const row = frame.split('\n').find((line) => line.includes('Leave Mergit'));
 
   expect(row).toContain(':bye');
 });

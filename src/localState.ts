@@ -200,13 +200,13 @@ export const stateDirectory = (environment: Record<string, string | undefined>):
   const stateHome = environment['XDG_STATE_HOME'];
 
   if (stateHome !== undefined && stateHome !== '') {
-    return join(stateHome, 'zeta');
+    return join(stateHome, 'mergit');
   }
 
   const home = environment['HOME'];
 
   if (home !== undefined && home !== '') {
-    return join(home, '.local', 'state', 'zeta');
+    return join(home, '.local', 'state', 'mergit');
   }
 
   return null;
@@ -284,7 +284,7 @@ export const loadState = (directory: string): StateLoad => {
   const body = stateBody.safeParse(json);
 
   if (!body.success) {
-    return { kind: 'invalid', path, reason: 'The file does not have the shape Zeta saves.' };
+    return { kind: 'invalid', path, reason: 'The file does not have the shape Mergit saves.' };
   }
 
   return {
@@ -381,13 +381,13 @@ export const cacheDirectory = (environment: Record<string, string | undefined>):
   const cacheHome = environment['XDG_CACHE_HOME'];
 
   if (cacheHome !== undefined && cacheHome !== '') {
-    return join(cacheHome, 'zeta');
+    return join(cacheHome, 'mergit');
   }
 
   const home = environment['HOME'];
 
   if (home !== undefined && home !== '') {
-    return join(home, '.cache', 'zeta');
+    return join(home, '.cache', 'mergit');
   }
 
   return null;

@@ -133,7 +133,7 @@ test('the status line shows the age of the saved list, and not without one', asy
 
 const startupWarning = {
   reason: 'The file is not valid JSON.',
-  path: '~/.local/state/zeta/state.json',
+  path: '~/.local/state/mergit/state.json',
 };
 
 const statusRowOf = (frame: string) => {
@@ -166,7 +166,7 @@ test('the status line keeps every item whole at 80 columns with a state warning'
   expect(row).toContain('saved 0m ago');
   expect(row).toContain('refreshing...');
   expect(row).toContain('state not saved');
-  expect(row).not.toContain('Zeta will not save');
+  expect(row).not.toContain('Mergit will not save');
 });
 
 test('the status line names the key r in full at 80 columns when gh is missing and rows are shown', async () => {

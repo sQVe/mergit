@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const unixFormat = ['--format', 'unix'];
 
 it('rejects lint warnings in project checks', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'zeta-lint-'));
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-lint-'));
   onTestFinished(() => rm(directory, { recursive: true, force: true }));
 
   const fixture = join(directory, 'warning.js');
@@ -31,7 +31,7 @@ it('rejects lint warnings in project checks', async () => {
 }, 30_000);
 
 it('runs house style through the style command but not plain lint', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'zeta-style-'));
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-style-'));
   onTestFinished(() => rm(directory, { recursive: true, force: true }));
 
   const fixture = join(directory, 'style.ts');
@@ -59,7 +59,7 @@ it('runs house style through the style command but not plain lint', async () => 
 it.each(['lint', 'style:check'])(
   'keeps imports inside module boundaries through %s',
   async (script) => {
-    const directory = await mkdtemp(join(tmpdir(), 'zeta-boundaries-'));
+    const directory = await mkdtemp(join(tmpdir(), 'mergit-boundaries-'));
     onTestFinished(() => rm(directory, { recursive: true, force: true }));
 
     // The `src` segment above the project root must not count as the application source.
@@ -379,7 +379,7 @@ it.each(['lint', 'style:check'])(
 
     const diagnostics = result.stdout
       .split('\n')
-      .filter((line) => line.includes('zeta(module-boundaries)'));
+      .filter((line) => line.includes('mergit(module-boundaries)'));
 
     // The linter prints a path relative to its working directory when the file sits below it.
     const reportedPath = (diagnostic: string) => {

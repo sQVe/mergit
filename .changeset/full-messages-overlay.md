@@ -1,5 +1,5 @@
 ---
-'zeta': patch
+'mergit': patch
 ---
 
 The `:messages` overlay now fills the whole screen, so no part of the list shows beside it. Opening

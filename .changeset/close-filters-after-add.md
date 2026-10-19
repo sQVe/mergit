@@ -1,5 +1,5 @@
 ---
-'zeta': minor
+'mergit': minor
 ---
 
 The filter composer closes after `Enter` adds or replaces a filter, so you no longer press `Esc`

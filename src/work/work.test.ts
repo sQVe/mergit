@@ -209,46 +209,46 @@ test('flattenTree gives every row a unique key in each grouping', () => {
 });
 
 const pageOf = (overrides: Partial<NotificationThread>): BrowserPage =>
-  pageOfThread(makeThread('1', { repository: 'octo/zeta', ...overrides }));
+  pageOfThread(makeThread('1', { repository: 'octo/mergit', ...overrides }));
 
 test('pageOfThread maps a pull request or issue to its number', () => {
-  expect(pageOf({ subjectUrl: 'https://api.github.com/repos/octo/zeta/pulls/42' })).toEqual({
+  expect(pageOf({ subjectUrl: 'https://api.github.com/repos/octo/mergit/pulls/42' })).toEqual({
     kind: 'item',
-    repository: 'octo/zeta',
+    repository: 'octo/mergit',
     number: 42,
   });
 
   expect(
     pageOf({
       subjectType: 'Issue',
-      subjectUrl: 'https://api.github.com/repos/octo/zeta/issues/7',
+      subjectUrl: 'https://api.github.com/repos/octo/mergit/issues/7',
     }),
-  ).toEqual({ kind: 'item', repository: 'octo/zeta', number: 7 });
+  ).toEqual({ kind: 'item', repository: 'octo/mergit', number: 7 });
 });
 
 test('pageOfThread maps a commit to its SHA', () => {
   expect(
     pageOf({
       subjectType: 'Commit',
-      subjectUrl: 'https://api.github.com/repos/octo/zeta/commits/0a1b2c3d4e5f',
+      subjectUrl: 'https://api.github.com/repos/octo/mergit/commits/0a1b2c3d4e5f',
     }),
-  ).toEqual({ kind: 'commit', repository: 'octo/zeta', sha: '0a1b2c3d4e5f' });
+  ).toEqual({ kind: 'commit', repository: 'octo/mergit', sha: '0a1b2c3d4e5f' });
 });
 
 test('pageOfThread maps a release and a check suite to the repo pages that list them', () => {
   expect(pageOf({ subjectType: 'Release', subjectUrl: null })).toEqual({
     kind: 'releases',
-    repository: 'octo/zeta',
+    repository: 'octo/mergit',
   });
 
   expect(pageOf({ subjectType: 'CheckSuite', subjectUrl: null })).toEqual({
     kind: 'actions',
-    repository: 'octo/zeta',
+    repository: 'octo/mergit',
   });
 });
 
 test('pageOfThread falls back to the repo for other types and unreadable numbers or SHAs', () => {
-  const repo = { kind: 'repo', repository: 'octo/zeta' } as const;
+  const repo = { kind: 'repo', repository: 'octo/mergit' } as const;
 
   expect(pageOf({ subjectType: 'Discussion', subjectUrl: null })).toEqual(repo);
   expect(pageOf({ subjectType: 'PullRequest', subjectUrl: null })).toEqual(repo);
@@ -262,7 +262,7 @@ test('pageOfThread falls back to the repo for other types and unreadable numbers
   expect(
     pageOf({
       subjectType: 'Commit',
-      subjectUrl: 'https://api.github.com/repos/octo/zeta/commits/xyz',
+      subjectUrl: 'https://api.github.com/repos/octo/mergit/commits/xyz',
     }),
   ).toEqual(repo);
 });
@@ -279,7 +279,7 @@ const nodeRowOf = (threads: NotificationThread[]): NodeRow => ({
 });
 
 test('pagesOfRow maps a thread row to its one page', () => {
-  const thread = makeThread('1', { repository: 'octo/zeta' });
+  const thread = makeThread('1', { repository: 'octo/mergit' });
 
   const row: ThreadRow = {
     kind: 'thread',
@@ -295,11 +295,11 @@ test('pagesOfRow maps a thread row to its one page', () => {
 
 test('pagesOfRow maps a repo node to its repo', () => {
   const row = nodeRowOf([
-    makeThread('1', { repository: 'octo/zeta' }),
-    makeThread('2', { repository: 'octo/zeta' }),
+    makeThread('1', { repository: 'octo/mergit' }),
+    makeThread('2', { repository: 'octo/mergit' }),
   ]);
 
-  expect(pagesOfRow(row)).toEqual([{ kind: 'repo', repository: 'octo/zeta' }]);
+  expect(pagesOfRow(row)).toEqual([{ kind: 'repo', repository: 'octo/mergit' }]);
 });
 
 test('pagesOfRow maps a group node to one repo page per distinct repo in listed order', () => {

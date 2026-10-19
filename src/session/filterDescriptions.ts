@@ -12,10 +12,10 @@ const fieldDescriptions = new Map([
   ['reason', 'Why GitHub notified you.'],
   [
     'state',
-    'Open, closed, or merged. Unknown until Zeta looks it up, so every thread shows meanwhile.',
+    'Open, closed, or merged. Unknown until Mergit looks it up, so every thread shows meanwhile.',
   ],
-  ['new', 'Activity by someone else since you last viewed the thread in Zeta.'],
-  ['unread', 'Unread on GitHub. Viewing a thread in Zeta does not mark it read.'],
+  ['new', 'Activity by someone else since you last viewed the thread in Mergit.'],
+  ['unread', 'Unread on GitHub. Viewing a thread in Mergit does not mark it read.'],
   ['age', 'Time since the last update, such as >7d or <2h. Units: m, h, d, w.'],
   ['title', 'Text in the title, ignoring case. Quote text with spaces.'],
 ]);
@@ -32,18 +32,18 @@ const valueDescriptions = new Map([
   ['state:merged', 'Pull requests that were merged.'],
   [
     'new:true',
-    'Threads where someone else has been active since you last saw them in Zeta. The list marks them with ●.',
+    'Threads where someone else has been active since you last saw them in Mergit. The list marks them with ●.',
   ],
   [
     'new:false',
-    'Threads you have seen in Zeta since their last update, or whose last update was your own.',
+    'Threads you have seen in Mergit since their last update, or whose last update was your own.',
   ],
   [
     'unread:true',
     'Threads GitHub still marks as unread, because you have not opened them on GitHub since their last update.',
   ],
   ['unread:false', 'Threads you already opened on GitHub since their last update.'],
-  ['author:@me', 'Pull requests and issues you opened with the account Zeta is signed in to.'],
+  ['author:@me', 'Pull requests and issues you opened with the account Mergit is signed in to.'],
   [
     'reason:approval_requested',
     'You were asked to review and approve a deployment that waits on a protection rule.',

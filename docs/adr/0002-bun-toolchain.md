@@ -7,7 +7,7 @@
 
 ## Context
 
-Zeta will render its terminal UI with OpenTUI. OpenTUI's native renderer fails on Node 24 with
+Mergit will render its terminal UI with OpenTUI. OpenTUI's native renderer fails on Node 24 with
 "OpenTUI native FFI is not available for this runtime yet".
 
 OpenTUI supports Bun, and Node 26.4 or later only with experimental FFI enabled. Its testing docs
@@ -17,7 +17,7 @@ With Node tooling, app tests would need a second runtime and test runner next to
 
 ## Decision
 
-Zeta uses Bun as its runtime, package manager, and test runner. One runtime runs the tooling, the
+Mergit uses Bun as its runtime, package manager, and test runner. One runtime runs the tooling, the
 app, and every test.
 
 ### Toolchain

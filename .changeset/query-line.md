@@ -1,5 +1,5 @@
 ---
-'zeta': minor
+'mergit': minor
 ---
 
 Press `/` to open a search line under the list and narrow it as you type. A thread shows when its

@@ -1,4 +1,4 @@
-# ADR 0010: One project base shared with Phi
+# ADR 0010: One project base shared with Koja
 
 **Date**: 2026-10-03\
 **Status**: Accepted\
@@ -6,8 +6,8 @@
 
 ## Context
 
-Zeta and [Phi](https://github.com/sQVe/phi) are both Bun and TypeScript terminal apps with the same
-maintainer. They use the same toolchain, CI, release flow, and house style.
+Mergit and [Koja](https://github.com/sQVe/koja) are both Bun and TypeScript terminal apps with the
+same maintainer. They use the same toolchain, CI, release flow, and house style.
 
 When the two setups drift, each fix has to be found and made twice. Tooling that is set up a
 different way in each repository also costs time when switching between them.
@@ -17,7 +17,7 @@ comparing files by hand.
 
 ## Decision
 
-Zeta and Phi share one project base. A change to a shared file is made in both repositories.
+Mergit and Koja share one project base. A change to a shared file is made in both repositories.
 
 The base is kept by convention. Shared lint code lives in `@sqve/seam`, and the other shared files
 are compared by hand when one changes. This costs nothing to run, and the package holds the largest
@@ -36,7 +36,7 @@ shared part.
 ### What stays local
 
 - Project rules live in one local lint plugin, `scripts/lintRules.ts`, and in `vite.config.ts` rules
-  that refer to it or to Zeta's own dependencies.
+  that refer to it or to Mergit's own dependencies.
 - Runtime dependencies, ADRs after 0001, and the architecture section of `AGENTS.md` belong to each
   project.
 - A shared decision, such as the runtime or the UI framework, gets an ADR in each repository. Each
@@ -65,8 +65,8 @@ repository does not reach the other.
 
 ### A comparison script
 
-Add a script that compares the shared files with a Phi checkout. Rejected because it works only when
-both checkouts sit side by side, so CI cannot run it.
+Add a script that compares the shared files with a Koja checkout. Rejected because it works only
+when both checkouts sit side by side, so CI cannot run it.
 
 ### A template repository
 

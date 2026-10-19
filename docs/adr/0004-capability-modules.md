@@ -8,7 +8,7 @@
 
 ## Context
 
-Zeta reads GitHub, classifies work, coordinates a session, runs local actions, saves dismissals,
+Mergit reads GitHub, classifies work, coordinates a session, runs local actions, saves dismissals,
 reads config, and renders a terminal UI. Each job needs one clear owner before app code exists.
 
 Surveys of mature TUIs suggested layer folders such as `domain/`, `application/`, and `adapters/`.
@@ -22,7 +22,7 @@ Boundaries need a mechanical check.
 
 ## Decision
 
-`src/` holds capability modules. A lint rule, `zeta/module-boundaries`, enforces which module may
+`src/` holds capability modules. A lint rule, `mergit/module-boundaries`, enforces which module may
 import which. Modules name their owner, and lint refuses imports that cross the table.
 
 ### Modules

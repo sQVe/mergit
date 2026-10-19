@@ -199,7 +199,7 @@ const withPath = async <T>(directory: string, action: () => Promise<T>): Promise
 };
 
 test('createGhRunner returns missing when gh is not on PATH', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'zeta-gh-'));
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-gh-'));
   directories.push(directory);
 
   const run = await withPath(directory, () => createGhRunner()(['api'], signal));
@@ -208,7 +208,7 @@ test('createGhRunner returns missing when gh is not on PATH', async () => {
 });
 
 test('createGhRunner returns the exit code and output of gh', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'zeta-gh-'));
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-gh-'));
   directories.push(directory);
   await mkdir(directory, { recursive: true });
   const script = join(directory, 'gh');
@@ -260,7 +260,7 @@ test('requestGh still reports rateLimited for a 403 when it sends an ETag', asyn
 });
 
 test('createGhRunner returns missing when gh on PATH cannot be executed', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'zeta-gh-'));
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-gh-'));
   directories.push(directory);
   await writeFile(join(directory, 'gh'), 'not an executable format\n', { mode: 0o755 });
 

@@ -5,7 +5,7 @@ export default defineConfig({
   lint: {
     extends: [lint],
     jsPlugins: ['./scripts/lintRules.ts'],
-    rules: { 'zeta/module-boundaries': 'error' },
+    rules: { 'mergit/module-boundaries': 'error' },
   },
   fmt: {
     ...format,

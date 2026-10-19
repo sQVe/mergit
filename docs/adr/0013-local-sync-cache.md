@@ -9,11 +9,11 @@
 
 ## Context
 
-GitHub tools that fetch everything on each start feel slow. Zeta should show work at once and then
+GitHub tools that fetch everything on each start feel slow. Mergit should show work at once and then
 bring it up to date.
 
-GitHub is the source of truth, and Zeta controls no sync server. GitHub sends no change events, and
-a search never reports the items that left it.
+GitHub is the source of truth, and Mergit controls no sync server. GitHub sends no change events,
+and a search never reports the items that left it.
 
 `GET /notifications` answers `If-Modified-Since` with a 304 that GitHub says does not count against
 the rate limit. It asks clients to wait `X-Poll-Interval` seconds between polls. GraphQL search
@@ -34,19 +34,19 @@ dependency.
 
 ### Cache
 
-- The cache lives at `$XDG_CACHE_HOME/zeta/cache.db` and falls back to `~/.cache/zeta/cache.db`. It
-  uses `bun:sqlite`. `localState.ts` owns it, and its functions reach the session as an injected
+- The cache lives at `$XDG_CACHE_HOME/mergit/cache.db` and falls back to `~/.cache/mergit/cache.db`.
+  It uses `bun:sqlite`. `localState.ts` owns it, and its functions reach the session as an injected
   record.
-- Rows are scoped by host and account. Zeta never shows rows from another account.
+- Rows are scoped by host and account. Mergit never shows rows from another account.
 - The cache holds item facts, which source found each item, and the validators and watermarks for
   the next fetch.
-- The cache is disposable. When it is corrupt or has an unknown schema version, Zeta deletes it and
-  fetches again. It never holds dismissals or anything else a user would lose.
+- The cache is disposable. When it is corrupt or has an unknown schema version, Mergit deletes it
+  and fetches again. It never holds dismissals or anything else a user would lose.
 - Writes run in transactions, one at a time.
 
 ### Sync
 
-- On start, Zeta shows the cached items with their age, then refreshes.
+- On start, Mergit shows the cached items with their age, then refreshes.
 - Notifications send `If-Modified-Since` and wait at least `X-Poll-Interval` between polls. A manual
   refresh fetches without the validator.
 - Searches fetch only items updated since the last watermark. A watermark or validator is saved only
@@ -62,7 +62,7 @@ dependency.
   once under [ADR 0009](./0009-local-state-and-config.md).
 - An optimistic action adds an overlay keyed by its action ID. The snapshot shows facts with the
   overlays applied.
-- When the request fails, Zeta removes that overlay and shows the error. Other overlays and newer
+- When the request fails, Mergit removes that overlay and shows the error. Other overlays and newer
   facts stay.
 - When the request succeeds, the overlay stays until a fetch returns facts that agree with it.
 - Overlays live in memory only. A pending action is lost on restart, and there is no offline queue.
@@ -71,18 +71,18 @@ dependency.
 
 ### Positive
 
-- Zeta shows work from the cache before the network answers.
+- Mergit shows work from the cache before the network answers.
 - Most polls send small or unchanged responses, and unchanged notification polls cost no rate limit.
 - Actions show their result at once and roll back alone on failure.
 - No new dependency, and the session store stays the one owner of state.
 
 ### Negative
 
-- Zeta owns sync, removal checks, overlays, and their race tests.
+- Mergit owns sync, removal checks, overlays, and their race tests.
 - Between full fetches, an item that left a search can stay visible.
 - No guarantee was found that every check change updates a PR's `updatedAt`, so check status can lag
   until the next full fetch.
-- A pending action is lost when Zeta exits before it finishes.
+- A pending action is lost when Mergit exits before it finishes.
 
 ## Alternatives considered
 
