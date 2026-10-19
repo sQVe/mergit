@@ -259,6 +259,8 @@ const isStateValue = (value: string): value is StateValue => stateValues.has(val
 
 const isBooleanText = (value: string): boolean => value === 'true' || value === 'false';
 
+const maxAgeDigits = 9;
+
 const parseAge = (value: string): { operator: AgeOperator; milliseconds: number } | null => {
   const match = /^([<>])(\d+)([mhdw])$/.exec(value);
   const operator = match?.[1];
@@ -270,6 +272,10 @@ const parseAge = (value: string): { operator: AgeOperator; milliseconds: number 
   }
 
   if (Number(amount) < 1) {
+    return null;
+  }
+
+  if (amount.length > maxAgeDigits) {
     return null;
   }
 
