@@ -19,12 +19,12 @@ process, or the renderer. Everything else is data and functions over it.
 Every runtime dependency ships to every user. A version range would let a rebuild pick up new
 dependency code that nobody reviewed.
 
-Phi makes the same choices for the same reasons, and [ADR 0010](./0010-shared-project-base.md) keeps
-shared decisions in line.
+Koja makes the same choices for the same reasons, and [ADR 0010](./0010-shared-project-base.md)
+keeps shared decisions in line.
 
 ## Decision
 
-Expected failures return typed results, and bugs throw. Zeta parses untrusted data once, at the
+Expected failures return typed results, and bugs throw. Mergit parses untrusted data once, at the
 boundary, with zod. Invariants are always on.
 
 Expected failures are part of each signature, and bugs fail where they happen.
@@ -50,8 +50,8 @@ Expected failures are part of each signature, and bugs fail where they happen.
 ### State and classes
 
 - Code is pure and immutable by default.
-- Use a class only for a resource Zeta owns that needs a dispose step, such as the SQLite handle or
-  an OpenTUI renderable.
+- Use a class only for a resource Mergit owns that needs a dispose step, such as the SQLite handle
+  or an OpenTUI renderable.
 - Do not use inheritance, except where OpenTUI requires it.
 - OpenTUI subclasses use OpenTUI's lifecycle and need no dispose method.
 

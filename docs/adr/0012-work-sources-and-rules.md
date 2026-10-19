@@ -8,8 +8,8 @@
 
 ## Context
 
-Zeta shows GitHub work that needs action, with every reason for each item. It will grow more sources
-and reasons later, so both must grow without a redesign.
+Mergit shows GitHub work that needs action, with every reason for each item. It will grow more
+sources and reasons later, so both must grow without a redesign.
 
 The first version covers notifications, pull requests that request the viewer's review, the viewer's
 own pull requests, and pull requests assigned to the viewer.
@@ -22,7 +22,7 @@ are slow to test and hard to change.
 
 ## Decision
 
-Sources decide which subjects Zeta fetches, and rules in `work` decide why each one needs action.
+Sources decide which subjects Mergit fetches, and rules in `work` decide why each one needs action.
 Sources are a list that returns candidates, and named local rules run over plain facts. Sources and
 rules each grow by adding an entry, and the rules run in tests without GitHub.
 
@@ -53,8 +53,8 @@ rules each grow by adding an entry, and the rules run in tests without GitHub.
 
 - `work` owns the facts type. `github` fills it from responses. Rules never see GraphQL or REST
   shapes.
-- Facts for a subject type that Zeta cannot look up in a batch, such as a check suite, stay at what
-  the notification payload holds.
+- Facts for a subject type that Mergit cannot look up in a batch, such as a check suite, stay at
+  what the notification payload holds.
 - A rule that needs a new fact adds it to the facts type and to the query in the same change.
 
 ## Consequences

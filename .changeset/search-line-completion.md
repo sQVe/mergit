@@ -1,5 +1,5 @@
 ---
-'zeta': minor
+'mergit': minor
 ---
 
 The `/` line completes repository names and title words. Type part of a word, then press Tab or

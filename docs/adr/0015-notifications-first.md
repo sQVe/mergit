@@ -35,16 +35,16 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
 
 ### Threads and actions
 
-- A thread is done when GitHub shows it as done, or when Zeta marked it done and its `updated_at`
-  has not changed since. Zeta saves that record in local state under
+- A thread is done when GitHub shows it as done, or when Mergit marked it done and its `updated_at`
+  has not changed since. Mergit saves that record in local state under
   [ADR 0018](./0018-local-state-and-config.md).
-- Done is the only action, on one thread or a group. Zeta sends it after a short delay so undo can
+- Done is the only action, on one thread or a group. Mergit sends it after a short delay so undo can
   cancel it, because the API cannot return a thread to the inbox. Dismiss, mark read, and
   unsubscribe are dropped.
 
 ### Subject facts
 
-- For pull request and issue threads, Zeta looks up state and author in batched GraphQL requests,
+- For pull request and issue threads, Mergit looks up state and author in batched GraphQL requests,
   only for new or changed threads. A failed lookup leaves the fact unknown, and an unknown fact
   never hides a thread.
 - `work` owns the facts type, and only `github` sees GitHub's response shapes.
@@ -61,7 +61,7 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
 - Pull request work without a notification, such as a failed check on the user's own pull request,
   does not show.
 - Done detection relies on undocumented fields.
-- A thread read and then marked done outside Zeta stays until it is marked done in Zeta.
+- A thread read and then marked done outside Mergit stays until it is marked done in Mergit.
 - `all=true` is larger than the unread feed: 362 threads against 81 in the sampled account.
 
 ## Alternatives considered

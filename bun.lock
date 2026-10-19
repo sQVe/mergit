@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "zeta",
+      "name": "mergit",
       "dependencies": {
         "@opentui/core": "0.5.14",
         "@opentui/keymap": "0.5.14",

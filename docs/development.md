@@ -5,7 +5,7 @@ Set up a checkout and check changes before release.
 ## Local setup
 
 Use the Bun version specified by `packageManager` in [package.json](../package.json). Bun is the
-runtime, package manager, and test runner. Run these commands from the Zeta checkout:
+runtime, package manager, and test runner. Run these commands from the Mergit checkout:
 
 ```sh
 bun install --frozen-lockfile
@@ -32,7 +32,7 @@ checks on staged files.
 
 House style comes from the [`@sqve/seam`](https://www.npmjs.com/package/@sqve/seam) package. Its
 `seam` command turns on the house rules for its own lint run, so editors and `bun run lint` show the
-ordinary rules only. Zeta adds one local rule, `zeta/module-boundaries`, from
+ordinary rules only. Mergit adds one local rule, `mergit/module-boundaries`, from
 [scripts/lintRules.ts](../scripts/lintRules.ts). It runs in every lint command.
 
 Style commands accept file paths, for example `bun run style:fix tests/lint.test.ts`. Rename
@@ -57,4 +57,4 @@ The [changeset check](../.github/workflows/changeset.yml) requires a changeset w
 `src/`, but not for changes only to docs, tooling, or dependencies.
 
 The [release workflow](../.github/workflows/release.yml) opens version PRs and creates Git tags and
-GitHub releases. Zeta is private and is not published to npm.
+GitHub releases. Mergit is private and is not published to npm.

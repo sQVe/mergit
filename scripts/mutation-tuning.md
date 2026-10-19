@@ -73,7 +73,7 @@ texts, and the unknown-field message:
 
 They stay in the advisory list. Production code has no disable comment for them.
 
-The ignorer skips an error message only when it has no expression. Zeta returns typed results and
+The ignorer skips an error message only when it has no expression. Mergit returns typed results and
 builds most messages from templates, as in `Invalid filter "${token}": ...`. Across the 46 mutated
 files, the ignorer skips 2 of 4,949 mutants. It skips only plain error messages. The shared package
 ME-742 will skip these wording survivors for every project.
@@ -82,7 +82,7 @@ ME-742 will skip these wording survivors for every project.
 
 | Setting                          | Value                                           | Reason                                                                                                                                                                                                                                                                                                  |
 | -------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `testRunner`, `plugins`          | `bun`, `@hughescr/stryker-bun-runner`           | Zeta's tests use `bun:test`. The runner gives per-test coverage. All six runs worked.                                                                                                                                                                                                                   |
+| `testRunner`, `plugins`          | `bun`, `@hughescr/stryker-bun-runner`           | Mergit's tests use `bun:test`. The runner gives per-test coverage. All six runs worked.                                                                                                                                                                                                                 |
 | `bun.timeout`, `bun.bunArgs`     | `600000`, `--timeout 60000`                     | The pilot found that two `filterComposer` tests time out under instrumented code with the defaults. This tuning kept the setting and did not run without it.                                                                                                                                            |
 | `coverageAnalysis`               | `perTest`                                       | Stryker runs only the tests that cover a mutant. The dry run of 547 tests took 68 seconds, and the runs of 3 to 468 mutants took 2 to 16 minutes.                                                                                                                                                       |
 | `mutate`                         | `src/**/*.ts`, `src/**/*.tsx`, minus listed     | Every production file is under `src/`. Test files and `*Harness.ts(x)` test support are not production code.                                                                                                                                                                                            |
@@ -107,20 +107,20 @@ each test. Keep test files free of work at load.
 
 ## Script source and the `sameFolderTests` switch
 
-`scripts/mutation*.ts` follow Phi's version (sQVe/phi f15ae9b) until the shared package from Tau
+`scripts/mutation*.ts` follow Koja's version (sQVe/koja f15ae9b) until the shared package from Tau
 replaces them. Two things differ: the ignorer is named `tauMessageIgnorer`, and the config key
-`sameFolderTests` selects Phi's per-folder runs. With it on, the script starts Stryker once per
+`sameFolderTests` selects Koja's per-folder runs. With it on, the script starts Stryker once per
 folder and runs only that folder's unit tests. With it off, the default, it starts Stryker once and
 every unit test can kill each mutant.
 
-Zeta leaves the switch off. With it on, a mutant can only be killed by a unit test in its own
-folder, and a folder with no unit test reports every mutant as having no coverage. Zeta tests cross
-folder, for example `src/commands.test.ts` covers code in `src/session`, and the user wants no extra
-rules about where a test lives. This was not measured on a Zeta commit. The cost is one dry run of
-all unit tests, 915 tests in about 2.5 minutes on the machine used here. Phi's `PHI_MUTATION`
-variable and `bunfig.mutation.toml` are Phi policy, and Zeta needs neither. `tests/*.test.ts` is in
-`ignorePatterns` because those files are not unit tests, but the sandbox keeps
-`tests/gitRepository.ts`, which `tests/mutation.test.ts` imports.
+Mergit leaves the switch off. With it on, a mutant can only be killed by a unit test in its own
+folder, and a folder with no unit test reports every mutant as having no coverage. Mergit tests
+cross folder, for example `src/commands.test.ts` covers code in `src/session`, and the user wants no
+extra rules about where a test lives. This was not measured on a Mergit commit. The cost is one dry
+run of all unit tests, 915 tests in about 2.5 minutes on the machine used here. Koja's
+`KOJA_MUTATION` variable and `bunfig.mutation.toml` are Koja policy, and Mergit needs neither.
+`tests/*.test.ts` is in `ignorePatterns` because those files are not unit tests, but the sandbox
+keeps `tests/gitRepository.ts`, which `tests/mutation.test.ts` imports.
 
 ## Advisory CI job
 

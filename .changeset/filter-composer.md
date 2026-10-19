@@ -1,5 +1,5 @@
 ---
-'zeta': minor
+'mergit': minor
 ---
 
 Press `f` in the list to open the filter composer, a `Filter` box under the chip bar. Type a

@@ -21,7 +21,7 @@ const makeEffects = (run: GhRun = exitedClean) => {
 };
 
 const signal = new AbortController().signal;
-const repository = 'octo/zeta';
+const repository = 'octo/mergit';
 
 test('each page kind runs gh browse with its own arguments', async () => {
   const pages: [BrowserPage, string[]][] = [

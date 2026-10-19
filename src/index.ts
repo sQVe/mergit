@@ -108,7 +108,7 @@ if (loadedState?.kind === 'invalid') {
 }
 
 if (loadedState?.kind === 'newer') {
-  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Zeta reads version ${stateVersion}.`;
+  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Mergit reads version ${stateVersion}.`;
 }
 
 if (newerVersion !== null) {

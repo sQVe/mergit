@@ -8,7 +8,7 @@
 ## Context
 
 Line coverage shows that a test ran a line. It does not show that a test would fail if the line were
-wrong. Agents write much of Zeta, and a test that only runs code passes review easily.
+wrong. Agents write much of Mergit, and a test that only runs code passes review easily.
 
 Stryker changes the code one small step at a time and runs the tests. A change that no test notices
 is a surviving mutant, and it points at a missing assertion. A run over the whole code base takes
@@ -17,19 +17,19 @@ and module-level data. The `AGENTS.md` rule "Do not test wording, constants, typ
 calls" means such a survivor is correct, not a gap.
 
 `@hughescr/stryker-bun-runner` is the Stryker test runner that runs `bun test` with per-test
-coverage. Its peer dependency is `typescript <7`, and Zeta uses TypeScript 7. Stryker core also
+coverage. Its peer dependency is `typescript <7`, and Mergit uses TypeScript 7. Stryker core also
 rewrites `tsconfig.json` through the TypeScript JavaScript API, which TypeScript 7 does not have.
 
 ## Decision
 
-Zeta runs Stryker only on the lines a pull request changes. A surviving mutant on a changed line
+Mergit runs Stryker only on the lines a pull request changes. A surviving mutant on a changed line
 fails the script and the CI job `Mutation`. The job is advisory: it lists survivors on pull requests
 and is not a required check. The script is `scripts/mutation.ts`, and `.pi/tau.json` names it under
 `mutation`.
 
-The script follows Phi's version (sQVe/phi f15ae9b) until the shared package from Tau replaces it,
+The script follows Koja's version (sQVe/koja f15ae9b) until the shared package from Tau replaces it,
 so projects can take fixes from each other. The only differences are the `sameFolderTests` switch
-and the ignorer name `tauMessageIgnorer`. The switch is off in Zeta. See the tuning note for why.
+and the ignorer name `tauMessageIgnorer`. The switch is off in Mergit. See the tuning note for why.
 
 Noise is removed by configuration, not by a score threshold:
 
@@ -43,9 +43,9 @@ Production code has no `// Stryker disable` comments. A mutant that no test can 
 original, and a wording survivor such as a toast title or a disabled-reason text, stays in the
 advisory list. The tuning note names them. A reader who finds a real gap resolves it with a test.
 
-Zeta keeps TypeScript 7.0.2 and accepts the runner's peer warning. Bun installs with the warning,
+Mergit keeps TypeScript 7.0.2 and accepts the runner's peer warning. Bun installs with the warning,
 and `bun install --frozen-lockfile` succeeds. The runner reads `typescript` only when the
-`typescript` checker is on, and Zeta runs no checker. `tsconfigFile` names a file that does not
+`typescript` checker is on, and Mergit runs no checker. `tsconfigFile` names a file that does not
 exist, so Stryker core skips its `tsconfig` rewrite.
 
 ## Consequences
@@ -68,8 +68,8 @@ exist, so Stryker core skips its `tsconfig` rewrite.
 
 ### Pin TypeScript 6 for the runner
 
-Install `typescript` 6 so the peer range holds. Rejected because Zeta type-checks with TypeScript 7,
-and a second version would split what the editor, `tsc`, and Stryker see for no gain, since no
+Install `typescript` 6 so the peer range holds. Rejected because Mergit type-checks with TypeScript
+7, and a second version would split what the editor, `tsc`, and Stryker see for no gain, since no
 checker is on.
 
 ### Mutate the whole code base with a score threshold

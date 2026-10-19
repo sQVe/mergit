@@ -32,7 +32,7 @@ line that links to the replacement.
 - [0007: Side effects as narrow function records](./0007-side-effect-functions.md)
 - [0008: One owner for terminal lifetime](./0008-terminal-lifetime.md)
 - [0009: Versioned local state and config](./0009-local-state-and-config.md), superseded by 0018
-- [0010: One project base shared with Phi](./0010-shared-project-base.md)
+- [0010: One project base shared with Koja](./0010-shared-project-base.md)
 - [0011: GitHub through `gh api`](./0011-github-through-gh-api.md)
 - [0012: Sources find candidates, local rules decide why](./0012-work-sources-and-rules.md),
   superseded by 0015
@@ -42,7 +42,7 @@ line that links to the replacement.
 - [0016: A SQLite snapshot with a checked full refresh](./0016-snapshot-and-full-refresh.md)
 - [0017: GitHub-style qualifiers, evaluated locally](./0017-local-query-language.md), superseded by
   0019
-- [0018: Local state for two Zeta processes](./0018-local-state-and-config.md)
+- [0018: Local state for two Mergit processes](./0018-local-state-and-config.md)
 - [0019: Plain text search on `/`, field filters from a picker](./0019-search-and-field-filters.md),
   filters superseded by 0020
 - [0020: Field filters from a composer, applied on Enter](./0020-filter-composer.md), chip logic

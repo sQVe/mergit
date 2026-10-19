@@ -53,17 +53,17 @@ const text = (value: string): Query => ({ type: 'text', value });
 
 const not = (term: Query): Query => ({ type: 'not', term });
 
-const repoZeta: Query = { type: 'repo', value: 'sqve/zeta' };
+const repoMergit: Query = { type: 'repo', value: 'sqve/mergit' };
 
 const pullRequest: Query = { type: 'kind', subjectType: 'PullRequest' };
 
 const merged: Query = { type: 'state', value: 'merged' };
 
-test('a pull request outside sqve/zeta is true only for pull requests in other repositories', () => {
-  const query: Query = { type: 'and', terms: [pullRequest, not(repoZeta)] };
+test('a pull request outside sqve/mergit is true only for pull requests in other repositories', () => {
+  const query: Query = { type: 'and', terms: [pullRequest, not(repoMergit)] };
 
   expect(run(query, { thread: { repository: 'sqve/other' } })).toBe(true);
-  expect(run(query, { thread: { repository: 'sqve/zeta' } })).toBe(false);
+  expect(run(query, { thread: { repository: 'sqve/mergit' } })).toBe(false);
   expect(run(query, { thread: { repository: 'sqve/other', subjectType: 'Issue' } })).toBe(false);
 });
 
@@ -79,10 +79,10 @@ test('kind matches the subject type', () => {
 });
 
 test('repo and org compare exactly, ignoring case', () => {
-  const thread = { repository: 'Sqve/Zeta' };
+  const thread = { repository: 'Sqve/Mergit' };
 
-  expect(run(repoZeta, { thread })).toBe(true);
-  expect(run({ type: 'repo', value: 'sqve/zet' }, { thread })).toBe(false);
+  expect(run(repoMergit, { thread })).toBe(true);
+  expect(run({ type: 'repo', value: 'sqve/merg' }, { thread })).toBe(false);
   expect(run({ type: 'org', value: 'sqve' }, { thread })).toBe(true);
   expect(run({ type: 'org', value: 'sq' }, { thread })).toBe(false);
 });
@@ -240,7 +240,7 @@ test('an age without a unit is an error', () => {
   expect(parseFilters('age:>3').ok).toBe(false);
 });
 
-test('GitHub spellings parse to the same filters as the Zeta form', () => {
+test('GitHub spellings parse to the same filters as the Mergit form', () => {
   expect(filtersOf('is:pr reason:review-requested')).toEqual([
     { field: 'kind', value: 'pr', negated: false },
     { field: 'reason', value: 'review_requested', negated: false },
@@ -408,7 +408,7 @@ test('is:new parses to new:true and -is:new to -new:true', () => {
 });
 
 test('a star matches an empty run', () => {
-  expect(runFilters('repo:sqve/zeta*', { thread: { repository: 'sqve/zeta' } })).toBe(true);
+  expect(runFilters('repo:sqve/mergit*', { thread: { repository: 'sqve/mergit' } })).toBe(true);
 });
 
 test('an age filter without a clock is unknown', () => {

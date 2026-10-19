@@ -11,8 +11,8 @@
 
 ## Context
 
-Zeta needs notifications, plus review requests, review decisions, check status, and mergeability for
-pull requests across many repositories in each refresh.
+Mergit needs notifications, plus review requests, review decisions, check status, and mergeability
+for pull requests across many repositories in each refresh.
 
 `gh search prs --json` does not return check status or mergeability. `gh pr list --json` returns
 them, but for one repository at a time.
@@ -24,31 +24,31 @@ GraphQL has no notifications field. Notifications come only from the REST `GET /
 endpoint.
 
 Users already sign in with `gh`, which stores the token, picks the host, and switches accounts. A
-token that Zeta keeps from startup misses a later `gh auth switch`.
+token that Mergit keeps from startup misses a later `gh auth switch`.
 
 ## Decision
 
-Zeta reads and writes GitHub by running `gh api`. Searches use one batched GraphQL query, and
+Mergit reads and writes GitHub by running `gh api`. Searches use one batched GraphQL query, and
 notifications use one REST call. `gh` owns authentication, the host, and the active account, and
-Zeta adds no dependency.
+Mergit adds no dependency.
 
 ### Requests
 
 - Pull request searches and subject details run as one batched `gh api graphql` query per refresh,
   plus one per extra page.
 - Notifications use `gh api /notifications`, one call per page.
-- Zeta never reads, stores, or passes a GitHub token. `gh` finds it, so `GH_TOKEN` and
+- Mergit never reads, stores, or passes a GitHub token. `gh` finds it, so `GH_TOKEN` and
   `gh auth switch` work as they do for `gh`.
-- `gh` is a required tool. Zeta reports a clear error when `gh` is missing or not signed in.
+- `gh` is a required tool. Mergit reports a clear error when `gh` is missing or not signed in.
 - Each request starts a new `gh` process, so it uses the account that is active at that time.
-- Every call runs with `--include`. Zeta reads the HTTP status and headers, and the GraphQL `errors`
-  field, instead of the exit code. GraphQL can report a rate limit with HTTP 200, and `gh` exits 1
-  on a 304 Not Modified.
+- Every call runs with `--include`. Mergit reads the HTTP status and headers, and the GraphQL
+  `errors` field, instead of the exit code. GraphQL can report a rate limit with HTTP 200, and `gh`
+  exits 1 on a 304 Not Modified.
 
 ### Ownership
 
 - Only the `github` module builds requests and parses their results. It passes plain work data to
-  the rest of Zeta, so the transport can change without touching other modules.
+  the rest of Mergit, so the transport can change without touching other modules.
 - Actions that change GitHub, such as marking a notification read, also run `gh api` through the
   `github` module.
 
@@ -57,14 +57,14 @@ Zeta adds no dependency.
 ### Positive
 
 - A refresh costs few processes and requests, at a small point cost.
-- Zeta has no token handling, no host config, and no HTTP client dependency.
+- Mergit has no token handling, no host config, and no HTTP client dependency.
 
 ### Negative
 
-- Zeta does not work without `gh` installed and signed in.
-- Errors arrive as status lines, headers, and response text, which Zeta must parse, instead of typed
-  HTTP errors.
-- Zeta owns its GraphQL query and must follow GitHub schema deprecations.
+- Mergit does not work without `gh` installed and signed in.
+- Errors arrive as status lines, headers, and response text, which Mergit must parse, instead of
+  typed HTTP errors.
+- Mergit owns its GraphQL query and must follow GitHub schema deprecations.
 - Cancellation kills the `gh` process instead of aborting a request.
 
 ## Alternatives considered
@@ -76,9 +76,9 @@ a process for each pull request or repository to fill in the missing fields.
 
 ### Bun `fetch`
 
-Send requests with Bun `fetch` and a token from `gh auth token`. Rejected because Zeta would handle
-tokens and hosts itself. It would gain little because a refresh sends few requests, and `gh` stays
-required for the token.
+Send requests with Bun `fetch` and a token from `gh auth token`. Rejected because Mergit would
+handle tokens and hosts itself. It would gain little because a refresh sends few requests, and `gh`
+stays required for the token.
 
 ### Octokit
 

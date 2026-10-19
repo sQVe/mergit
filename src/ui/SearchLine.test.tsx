@@ -53,7 +53,12 @@ test('Backspace deletes characters in the search line, and on an empty line clos
 
   expect(closed).not.toContain('matches');
 
-  for (const title of ['Zeta pull request', 'App pull request', 'Web pull request', 'App issue']) {
+  for (const title of [
+    'Mergit pull request',
+    'App pull request',
+    'Web pull request',
+    'App issue',
+  ]) {
     expect(closed).toContain(title);
   }
 });
@@ -70,7 +75,7 @@ test('typing yjs after / shows only threads with yjs in the title or repository'
   expect(frame).toContain('Fix yjs sync');
   expect(frame).toContain('Update docs');
   expect(frame).toContain('acme/yjs');
-  expect(frame).not.toContain('Zeta pull request');
+  expect(frame).not.toContain('Mergit pull request');
   expect(frame).not.toContain('App issue');
   expect(frame).not.toContain('acme/web');
   expect(frame).toContain('/yjs');
@@ -87,7 +92,7 @@ test('repo: after / matches the text repo: and shows no error row', async () => 
   const frame = setup.captureCharFrame();
 
   expect(frame).toContain('Document repo: syntax');
-  expect(frame).not.toContain('Zeta pull request');
+  expect(frame).not.toContain('Mergit pull request');
   expect(frame).toContain('/repo:');
   expect(frame).toContain('1 match');
   expect(frame).not.toContain('^');
@@ -105,7 +110,7 @@ test('Enter keeps the text, Esc while editing restores the old one, Ctrl-U clear
   const kept = setup.captureCharFrame();
 
   expect(kept).toContain('App issue');
-  expect(kept).not.toContain('Zeta pull request');
+  expect(kept).not.toContain('Mergit pull request');
   expect(kept).toContain('1 match');
 
   await press('/');
@@ -123,7 +128,7 @@ test('Enter keeps the text, Esc while editing restores the old one, Ctrl-U clear
 
   const cleared = setup.captureCharFrame();
 
-  expect(cleared).toContain('Zeta pull request');
+  expect(cleared).toContain('Mergit pull request');
   expect(cleared).not.toContain('/issue');
 
   await press('return');
@@ -134,7 +139,7 @@ test('Enter keeps the text, Esc while editing restores the old one, Ctrl-U clear
 
   const listCleared = setup.captureCharFrame();
 
-  expect(listCleared).toContain('Zeta pull request');
+  expect(listCleared).toContain('Mergit pull request');
   expect(listCleared).not.toContain('/issue');
 });
 

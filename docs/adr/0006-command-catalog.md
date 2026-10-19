@@ -50,7 +50,7 @@ remaps read the same records, and tests assert intents without running effects.
 - Config maps a command id to a list of keys. The list replaces the defaults, and `[]` disables the
   command's keys.
 - Unknown ids, invalid keys, and one key bound to two commands in overlapping scopes stop startup.
-- Quit signals such as SIGINT still stop Zeta when the quit command has no keys.
+- Quit signals such as SIGINT still stop Mergit when the quit command has no keys.
 
 ## Consequences
 

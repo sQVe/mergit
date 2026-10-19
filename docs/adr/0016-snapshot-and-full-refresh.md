@@ -29,8 +29,8 @@ page with its ETag, on change or on a timer. An unchanged poll costs one free re
 - Pages shift when threads come or go during a refresh. So a refresh ends by checking every page
   again with its new ETag, and replaces the item set only when every page answers 304. Otherwise it
   changes nothing and runs again.
-- Zeta never caps the page count, because a cap would hide threads that are not done.
-- The snapshot lives in `$XDG_CACHE_HOME/zeta/cache.db`, scoped by host and account, and is
+- Mergit never caps the page count, because a cap would hide threads that are not done.
+- The snapshot lives in `$XDG_CACHE_HOME/mergit/cache.db`, scoped by host and account, and is
   disposable.
 - Polling follows `X-Poll-Interval`, `Retry-After`, and the refresh rules of
   [ADR 0005](./0005-session-store.md).
@@ -39,13 +39,13 @@ page with its ETag, on change or on a timer. An unchanged poll costs one free re
 
 ### Positive
 
-- Zeta shows the snapshot before the network answers, and removals need no code of their own.
+- Mergit shows the snapshot before the network answers, and removals need no code of their own.
 
 ### Negative
 
-- A thread marked done outside Zeta can stay up to 10 minutes.
+- A thread marked done outside Mergit can stay up to 10 minutes.
 - At 2,000 threads, a busy hour can use about half the user's REST limit.
-- Two Zeta processes poll on their own and double the requests.
+- Two Mergit processes poll on their own and double the requests.
 - Each full refresh requests every page twice. The second pass is free when nothing moved.
 
 ## Alternatives considered

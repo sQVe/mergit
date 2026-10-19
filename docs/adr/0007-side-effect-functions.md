@@ -7,7 +7,7 @@
 
 ## Context
 
-Zeta calls `gh`, Grove, Herdr, tuicr, the browser, the filesystem, and the clock. Tests must run
+Mergit calls `gh`, Grove, Herdr, tuicr, the browser, the filesystem, and the clock. Tests must run
 without a GitHub account or these tools.
 
 Tests of a refused action must show that no command ran and no file changed.
@@ -15,7 +15,7 @@ Tests of a refused action must show that no command ran and no file changed.
 In Tau, adapter interfaces without a second implementation became scaffolding. lazygit's guide names
 a "God Struct" of broad dependencies.
 
-Zeta usually runs inside Herdr, but it must also work without Herdr.
+Mergit usually runs inside Herdr, but it must also work without Herdr.
 
 ## Decision
 
@@ -34,7 +34,7 @@ itself. Each consumer names only the effects it uses, and tests pass fakes for t
 ### External tools
 
 - External tools run as argument arrays, never as shell strings.
-- Grove owns worktrees, Herdr owns workspaces, and tuicr owns reviews. Zeta chooses the action and
+- Grove owns worktrees, Herdr owns workspaces, and tuicr owns reviews. Mergit chooses the action and
   invokes the tool.
 - Actions detect Herdr and fall back when it is absent. Herdr is never required.
 

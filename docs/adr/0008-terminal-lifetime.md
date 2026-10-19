@@ -7,7 +7,7 @@
 
 ## Context
 
-Zeta stops on `q`, Ctrl+C, SIGINT, SIGTERM, and fatal errors. Each path must stop timers and
+Mergit stops on `q`, Ctrl+C, SIGINT, SIGTERM, and fatal errors. Each path must stop timers and
 children, save state, and restore the terminal.
 
 Surveyed OpenTUI apps work around unsafe teardown: Ox repairs terminal line discipline after
@@ -16,8 +16,8 @@ destroy, and Cline defers destroy until input parsing finishes.
 The renderer prototype in [ADR 0003](./0003-opentui-react-renderer.md) restored the terminal on `q`,
 Ctrl+C, and SIGINT.
 
-Herdr is optional. Without it, tuicr must run in Zeta's own terminal, so the renderer must pause and
-resume around a child process.
+Herdr is optional. Without it, tuicr must run in Mergit's own terminal, so the renderer must pause
+and resume around a child process.
 
 ## Decision
 
@@ -40,7 +40,7 @@ and every terminal handoff.
 
 - `terminal` provides a function that suspends input and rendering, runs a child process in the
   terminal, and resumes in `finally`. Actions receive it as an injected function.
-- If resume fails, Zeta restores the terminal and exits.
+- If resume fails, Mergit restores the terminal and exits.
 
 ## Consequences
 
@@ -69,4 +69,4 @@ could skip cleanup.
 
 ### Require Herdr
 
-Require Herdr and run tuicr only in a Herdr pane. Rejected because Zeta must work without Herdr.
+Require Herdr and run tuicr only in a Herdr pane. Rejected because Mergit must work without Herdr.

@@ -8,13 +8,13 @@
 Feature pages duplicate behavior defined in code and tests. Maintaining both lets prose drift from
 behavior.
 
-Code shows what a feature does, but not always why it was designed that way. Zeta records those
+Code shows what a feature does, but not always why it was designed that way. Mergit records those
 lasting reasons in ADRs.
 
 ## Decision
 
-Zeta documents decisions, not features. Zeta writes no feature pages, because ADRs record decisions,
-and code states behavior.
+Mergit documents decisions, not features. Mergit writes no feature pages, because ADRs record
+decisions, and code states behavior.
 
 ### Where content lives
 

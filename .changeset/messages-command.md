@@ -1,5 +1,5 @@
 ---
-'zeta': minor
+'mergit': minor
 ---
 
 Press `:` to open a command line. Type `messages` and press Enter to open `:messages`, which lists

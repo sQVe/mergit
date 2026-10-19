@@ -366,7 +366,7 @@ export const createSession = (effects: SessionEffects): Session => {
 
   if (effects.stateWarning !== null) {
     toaster.show({
-      title: 'Zeta will not save state until the file is fixed or removed',
+      title: 'Mergit will not save state until the file is fixed or removed',
       lines: [effects.stateWarning.reason, effects.stateWarning.path],
       tone: 'error',
     });
