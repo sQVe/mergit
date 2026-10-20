@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-03\
 **Status**: Accepted\
-**Related**: [ADR 0013: Hand-written sync over a SQLite cache](./0013-local-sync-cache.md),
+**Related**: [ADR 0016: A SQLite snapshot with a checked full refresh](./0016-snapshot-and-full-refresh.md),
 [`gh api` manual](https://cli.github.com/manual/gh_api),
 [GitHub GraphQL rate limits](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api),
 [GitHub notifications API](https://docs.github.com/en/rest/activity/notifications),
@@ -11,14 +11,11 @@
 
 ## Context
 
-Mergit needs notifications, plus review requests, review decisions, check status, and mergeability
-for pull requests across many repositories in each refresh.
+Mergit needs the notifications feed, plus the state and author of the pull requests and issues those
+threads point to, across many repositories.
 
-`gh search prs --json` does not return check status or mergeability. `gh pr list --json` returns
-them, but for one repository at a time.
-
-One GraphQL search query can return all of these pull request fields in one request. A test query
-for one account returned 59 pull requests for 2 of the usual 5,000 points per hour.
+`gh pr view` and `gh issue view` return one subject per process. One GraphQL query can look up many
+subjects across repositories in one request, at a small point cost.
 
 GraphQL has no notifications field. Notifications come only from the REST `GET /notifications`
 endpoint.
@@ -28,14 +25,13 @@ token that Mergit keeps from startup misses a later `gh auth switch`.
 
 ## Decision
 
-Mergit reads and writes GitHub by running `gh api`. Searches use one batched GraphQL query, and
-notifications use one REST call. `gh` owns authentication, the host, and the active account, and
-Mergit adds no dependency.
+Mergit reads and writes GitHub by running `gh api`. Subject lookups use batched GraphQL queries, and
+notifications use one REST call per page. `gh` owns authentication, the host, and the active
+account, and Mergit adds no dependency.
 
 ### Requests
 
-- Pull request searches and subject details run as one batched `gh api graphql` query per refresh,
-  plus one per extra page.
+- Subject lookups run as batched `gh api graphql` queries.
 - Notifications use `gh api /notifications`, one call per page.
 - Mergit never reads, stores, or passes a GitHub token. `gh` finds it, so `GH_TOKEN` and
   `gh auth switch` work as they do for `gh`.
@@ -69,10 +65,10 @@ Mergit adds no dependency.
 
 ## Alternatives considered
 
-### `gh pr list` and `gh search prs`
+### `gh pr view` and `gh issue view`
 
-Run `gh pr list` and `gh search prs` with `--json`. Rejected because one refresh needs a search plus
-a process for each pull request or repository to fill in the missing fields.
+Run `gh pr view` and `gh issue view` with `--json` for each subject. Rejected because a refresh
+would start one process per pull request or issue.
 
 ### Bun `fetch`
 

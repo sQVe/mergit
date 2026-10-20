@@ -2,12 +2,13 @@
 
 **Date**: 2026-10-05\
 **Status**: Accepted\
+**Supersedes**: [ADR 0013: Hand-written sync over a SQLite cache](./README.md#retired)\
 **Related**: [GitHub REST API best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
 
 ## Context
 
-[ADR 0013](./0013-local-sync-cache.md) chose incremental sync with watermarks and removal checks for
-pull request searches. [ADR 0015](./0015-notifications-first.md) removes those searches.
+Incremental sync with watermarks and removal checks serves pull request searches.
+[ADR 0015](./0015-notifications-first.md) leaves those searches out.
 
 The notifications feed pages at 50 threads, sorted by update time. A 304 costs no rate limit.
 
@@ -30,8 +31,12 @@ page with its ETag, on change or on a timer. An unchanged poll costs one free re
   again with its new ETag, and replaces the item set only when every page answers 304. Otherwise it
   changes nothing and runs again.
 - Mergit never caps the page count, because a cap would hide threads that are not done.
-- The snapshot lives in `$XDG_CACHE_HOME/mergit/cache.db`, scoped by host and account, and is
-  disposable.
+- The snapshot lives in `$XDG_CACHE_HOME/mergit/cache.db` and falls back to
+  `~/.cache/mergit/cache.db`. It uses `bun:sqlite`, and `localState.ts` owns it.
+- Rows are scoped by host and account. Mergit never shows rows from another account.
+- The snapshot is disposable. When it is corrupt or has an unknown schema version, Mergit deletes it
+  and fetches again. It never holds anything a user would lose.
+- Writes run in transactions, one at a time.
 - Polling follows `X-Poll-Interval`, `Retry-After`, and the refresh rules of
   [ADR 0005](./0005-session-store.md).
 
@@ -43,16 +48,18 @@ page with its ETag, on change or on a timer. An unchanged poll costs one free re
 
 ### Negative
 
-- A thread marked done outside Mergit can stay up to 10 minutes.
+- An unread thread marked done outside Mergit can stay up to 10 minutes. A read thread marked done
+  outside Mergit stays until it is marked done in Mergit, as ADR 0015 says.
 - At 2,000 threads, a busy hour can use about half the user's REST limit.
 - Two Mergit processes poll on their own and double the requests.
 - Each full refresh requests every page twice. The second pass is free when nothing moved.
 
 ## Alternatives considered
 
-### Keep ADR 0013
+### Incremental sync with watermarks
 
-Keep ADR 0013. Rejected because its watermarks and removal checks served the searches.
+Fetch only items updated since a saved watermark, and check cached items for removals. Rejected
+because its watermarks and removal checks served the searches.
 
 ### `If-Modified-Since` polling
 

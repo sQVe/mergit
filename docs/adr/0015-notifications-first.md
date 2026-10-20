@@ -2,13 +2,14 @@
 
 **Date**: 2026-10-05\
 **Status**: Accepted\
+**Supersedes**: [ADR 0012: Sources find candidates, local rules decide why](./README.md#retired)\
 **Related**: [ADR 0016: A SQLite snapshot with a checked full refresh](./0016-snapshot-and-full-refresh.md),
 [GitHub notifications API](https://docs.github.com/en/rest/activity/notifications)
 
 ## Context
 
-[ADR 0012](./0012-work-sources-and-rules.md) planned notifications plus three pull request searches,
-with local rules that decide why a pull request needs action.
+An earlier plan combined notifications with three pull request searches, and local rules that decide
+why a pull request needs action.
 
 After two design reviews, the user chose to ship the notification list first and prove daily value
 before building pull request work.
@@ -37,7 +38,7 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
 
 - A thread is done when GitHub shows it as done, or when Mergit marked it done and its `updated_at`
   has not changed since. Mergit saves that record in local state under
-  [ADR 0018](./0018-local-state-and-config.md).
+  [ADR 0009](./0009-local-state-and-config.md).
 - Done is the only action, on one thread or a group. Mergit sends it after a short delay so undo can
   cancel it, because the API cannot return a thread to the inbox. Dismiss, mark read, and
   unsubscribe are dropped.
@@ -66,9 +67,10 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
 
 ## Alternatives considered
 
-### Keep ADR 0012
+### Pull request searches with reason rules
 
-Keep ADR 0012. Deferred because pull request work comes after the notification list proves useful.
+Add three pull request searches, and local rules that decide why each item needs action. Deferred
+because pull request work comes after the notification list proves useful.
 
 ### No subject lookup
 

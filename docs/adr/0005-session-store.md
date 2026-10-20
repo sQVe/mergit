@@ -34,8 +34,8 @@ tests drive the same way production does.
   next snapshot.
 - The UI sends intents. It does not change application state directly.
 - React keeps only focus, modal, and viewport state.
-- The snapshot holds one item per subject, such as a pull request, issue, or release, with all its
-  reasons. Selection and dismissal use the stable subject identity.
+- The snapshot holds one item per notification thread, with its notification reason. Selection and
+  done use the thread ID.
 
 ### Refresh
 
@@ -48,8 +48,8 @@ tests drive the same way production does.
 - A failed refresh keeps the previous items and shows the error.
 - A rate-limit response pauses polling until the reset time. Manual refresh does not bypass the
   pause.
-- Cached data and its sync follow [ADR 0013](./0013-local-sync-cache.md). A manual refresh bypasses
-  every validator.
+- Cached data and its sync follow [ADR 0016](./0016-snapshot-and-full-refresh.md). A manual refresh
+  skips the stored feed ETags.
 
 ### Actions
 

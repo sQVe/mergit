@@ -8,7 +8,9 @@ local setup and verification.
 - Format with `bun run format`, and fix style with `bun run style:fix`. House style comes from
   `@sqve/seam`; Mergit's own lint rules live in `scripts/lintRules.ts`.
 - Follow the decisions in [docs/adr](docs/adr/README.md), and record new decisions there. Read that
-  guide before adding an ADR. Do not write documents that explain how a feature works; see
+  guide before adding or changing an ADR. When details of a decision change, edit its ADR in place
+  in the same change. When its core choice reverses, write a new ADR and retire the old one. Do not
+  write documents that explain how a feature works; see
   [ADR 0001](docs/adr/0001-documentation-scope.md).
 - Name values in camelCase and types in PascalCase. Never SCREAMING_CASE, not even for module
   constants.
@@ -27,7 +29,7 @@ local setup and verification.
   the folder are private. Flat modules are `config.ts`, `actions.ts`, `localState.ts`,
   `commands.ts`, `invariant.ts`, `query.ts`, `index.ts`, and `terminal.tsx`. See
   [ADR 0004](docs/adr/0004-capability-modules.md) and
-  [ADR 0017](docs/adr/0017-local-query-language.md).
+  [ADR 0019](docs/adr/0019-search-and-field-filters.md).
 - Imports follow the table in ADR 0004. `mergit/module-boundaries` enforces it in ordinary lint. Do
   not silence it; change the table in `scripts/lintRules.ts` when a new edge keeps the ADR's
   directions.
@@ -44,7 +46,7 @@ local setup and verification.
 - Only `terminal.tsx` creates or destroys the renderer, handles signals, or exits. See
   [ADR 0008](docs/adr/0008-terminal-lifetime.md).
 - Parse config and state once, in their owning module. Ask before a change that breaks a saved file.
-  See [ADR 0018](docs/adr/0018-local-state-and-config.md).
+  See [ADR 0009](docs/adr/0009-local-state-and-config.md).
 
 ## Tests
 

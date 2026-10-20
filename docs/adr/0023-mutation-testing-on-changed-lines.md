@@ -1,8 +1,7 @@
 # ADR 0023: Mutation testing gates changed lines on pull requests
 
 **Date**: 2026-10-18\
-**Status**: Accepted; the local copy of the script superseded by
-[ADR 0024 (Run mutation testing through the shared package)](./0024-shared-mutation-package.md)\
+**Status**: Accepted\
 **Related**: [ADR 0002 (Bun as runtime, package manager, and test runner)](./0002-bun-toolchain.md),
 [ADR 0014 (Results for expected failures, exceptions for bugs, and checked boundaries)](./0014-coding-conventions.md)
 
@@ -17,6 +16,12 @@ tens of minutes and reports many survivors that no test should kill: error wordi
 and module-level data. The `AGENTS.md` rule "Do not test wording, constants, types, or internal
 calls" means such a survivor is correct, not a gap.
 
+Several projects kept their own copies of a mutation script, and the copies drifted within days.
+Each project solved the same Bun runner problems on its own, and a fix in one copy did not reach the
+others. What Mergit needs to choose is small: which files to mutate, which modules to leave out,
+timeouts, and the test runner. The scope parsing, the report, and the message ignorer are the same
+in every project.
+
 `@hughescr/stryker-bun-runner` is the Stryker test runner that runs `bun test` with per-test
 coverage. Its peer dependency is `typescript <7`, and Mergit uses TypeScript 7. Stryker core also
 rewrites `tsconfig.json` through the TypeScript JavaScript API, which TypeScript 7 does not have.
@@ -25,29 +30,43 @@ rewrites `tsconfig.json` through the TypeScript JavaScript API, which TypeScript
 
 Mergit runs Stryker only on the lines a pull request changes. A surviving mutant on a changed line
 fails the script and the CI job `Mutation`. The job is advisory: it lists survivors on pull requests
-and is not a required check. The script is `scripts/mutation.ts`, and `.pi/tau.json` names it under
-`mutation`.
+and is not a required check.
 
-The script follows Koja's version (sQVe/koja f15ae9b) until the shared package from Tau replaces it,
-so projects can take fixes from each other. The only differences are the `sameFolderTests` switch
-and the ignorer name `tauMessageIgnorer`. The switch is off in Mergit. See the tuning note for why.
+### The shared package
+
+Mergit runs mutation testing through the `@sqve/mutation` package, installed as a pinned dev
+dependency, and keeps no copy of the script. The package owns the shared parts, so a fix reaches
+Mergit through a version bump.
+
+`stryker.config.json` holds only Mergit's policy: the `mutate` globs, the left-out modules, the
+timeouts, and the Bun runner. `mutation.argv` in `.pi/tau.json` names the package's `mutation`
+command, and the CI job `Mutation` runs that argv. The package's `--same-folder-tests` switch stays
+off for the reason in the tuning note.
+
+The package has no mutant cap by default, so a change of any size runs every mutant on its changed
+lines. The job's `timeout-minutes` is the only bound.
+
+### Noise
 
 Noise is removed by configuration, not by a score threshold:
 
 - `coverageAnalysis: perTest` runs only the tests that cover a mutant.
-- `ignoreStatic: true` skips mutants in code that runs while a test file loads. A test file must not
-  build state at the top level, because Stryker would then count that state's mutants as static and
-  skip them.
-- The wording ignorer in `scripts/mutationIgnorer.ts` skips the text of plain error messages.
+- `ignoreStatic: true` skips mutants in code that runs while a test file loads. The package sets it
+  unless the config sets its own value. A test file must not build state at the top level, because
+  Stryker would then count that state's mutants as static and skip them.
+- The package's `tauMessageIgnorer` skips the text of plain error messages and of toast, title, and
+  disabled-reason wording.
 
 Production code has no `// Stryker disable` comments. A mutant that no test can tell from the
-original, and a wording survivor such as a toast title or a disabled-reason text, stays in the
-advisory list. The tuning note names them. A reader who finds a real gap resolves it with a test.
+original stays in the advisory list. The tuning note names them. A reader who finds a real gap
+resolves it with a test.
 
-Mergit keeps TypeScript 7.0.2 and accepts the runner's peer warning. Bun installs with the warning,
-and `bun install --frozen-lockfile` succeeds. The runner reads `typescript` only when the
-`typescript` checker is on, and Mergit runs no checker. `tsconfigFile` names a file that does not
-exist, so Stryker core skips its `tsconfig` rewrite.
+### TypeScript 7
+
+Mergit keeps TypeScript 7 and accepts the runner's peer warning. Bun installs with the warning, and
+`bun install --frozen-lockfile` succeeds. The runner reads `typescript` only when the `typescript`
+checker is on, and Mergit runs no checker. `tsconfigFile` names a file that does not exist, so
+Stryker core skips its `tsconfig` rewrite.
 
 ## Consequences
 
@@ -56,16 +75,24 @@ exist, so Stryker core skips its `tsconfig` rewrite.
 - A pull request shows every changed line whose behavior no test pins, so review can ask for a test.
 - Survivors name the file, line, mutator, original text, and replacement, so the fix is a test.
 - Old survivors do not block unrelated changes.
+- A fix or new runner support reaches Mergit through a version bump.
+- The Stryker config shows only what is particular to Mergit.
 
 ### Negative
 
-- The job needs Node next to Bun, because Stryker core starts through its Node shebang.
 - A very large refactor can exceed the job's `timeout-minutes`. The job then fails and a reviewer
-  reads the failure as advisory. The cap is `--max-mutants 100000`, so no pull request reaches it.
+  reads the failure as advisory.
 - The peer warning stays until the runner allows TypeScript 7.
-- Equivalent and wording survivors stay in the list, so a reader must tell them from real gaps.
+- Equivalent survivors stay in the list, so a reader must tell them from real gaps.
+- A change to the script needs a package release before Mergit can use it. Mergit cannot patch the
+  script locally.
 
 ## Alternatives considered
+
+### A local copy of the script
+
+Keep a copy of the mutation script in `scripts/`. Rejected because the copies drifted within days
+and each project fixed the same problems on its own.
 
 ### Pin TypeScript 6 for the runner
 
