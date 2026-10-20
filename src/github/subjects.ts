@@ -36,37 +36,33 @@ const actorFields = 'actor { login }';
 const authorFields = 'author { login }';
 const subjectAuthorFields = 'author { __typename login }';
 
-const sharedTimelineFragments = [
-  `... on IssueComment { ${authorFields} }`,
-  `... on ClosedEvent { ${actorFields} }`,
-  `... on ReopenedEvent { ${actorFields} }`,
-];
-
-const pullRequestTimelineFragments = [
-  ...sharedTimelineFragments,
-  `... on PullRequestReview { ${authorFields} }`,
-  '... on PullRequestCommit { commit { author { user { login } } } }',
-  `... on MergedEvent { ${actorFields} }`,
-  `... on HeadRefForcePushedEvent { ${actorFields} }`,
-  `... on HeadRefDeletedEvent { ${actorFields} }`,
-];
-
 // Without itemTypes, the last item can be a type the fragments skip, such as a cross-reference,
-// which does not move the thread's updated_at. Keep each list in step with its fragments.
-const sharedItemTypes = ['ISSUE_COMMENT', 'CLOSED_EVENT', 'REOPENED_EVENT'];
+// which does not move the thread's updated_at.
+const sharedTimelineEvents = {
+  ISSUE_COMMENT: `... on IssueComment { ${authorFields} }`,
+  CLOSED_EVENT: `... on ClosedEvent { ${actorFields} }`,
+  REOPENED_EVENT: `... on ReopenedEvent { ${actorFields} }`,
+};
 
-const pullRequestItemTypes = [
-  ...sharedItemTypes,
-  'PULL_REQUEST_REVIEW',
-  'PULL_REQUEST_COMMIT',
-  'MERGED_EVENT',
-  'HEAD_REF_FORCE_PUSHED_EVENT',
-  'HEAD_REF_DELETED_EVENT',
-];
+const pullRequestTimelineEvents = {
+  ...sharedTimelineEvents,
+  PULL_REQUEST_REVIEW: `... on PullRequestReview { ${authorFields} }`,
+  PULL_REQUEST_COMMIT: '... on PullRequestCommit { commit { author { user { login } } } }',
+  MERGED_EVENT: `... on MergedEvent { ${actorFields} }`,
+  HEAD_REF_FORCE_PUSHED_EVENT: `... on HeadRefForcePushedEvent { ${actorFields} }`,
+  HEAD_REF_DELETED_EVENT: `... on HeadRefDeletedEvent { ${actorFields} }`,
+};
+
+const selectTimeline = (events: Record<string, string>) => {
+  const itemTypes = Object.keys(events).join(', ');
+  const fragments = Object.values(events).join(' ');
+
+  return `timelineItems(last: 1, itemTypes: [${itemTypes}]) { nodes { ${fragments} } }`;
+};
 
 const selections: Record<SubjectKind, string> = {
-  pullRequest: `pullRequest(number: $number) { state ${subjectAuthorFields} timelineItems(last: 1, itemTypes: [${pullRequestItemTypes.join(', ')}]) { nodes { ${pullRequestTimelineFragments.join(' ')} } } }`,
-  issue: `issue(number: $number) { state ${subjectAuthorFields} timelineItems(last: 1, itemTypes: [${sharedItemTypes.join(', ')}]) { nodes { ${sharedTimelineFragments.join(' ')} } } }`,
+  pullRequest: `pullRequest(number: $number) { state ${subjectAuthorFields} ${selectTimeline(pullRequestTimelineEvents)} }`,
+  issue: `issue(number: $number) { state ${subjectAuthorFields} ${selectTimeline(sharedTimelineEvents)} }`,
 };
 
 const readSubjectRequest = (thread: NotificationThread): SubjectRequest | null => {
