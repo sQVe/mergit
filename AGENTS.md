@@ -8,8 +8,9 @@ local setup and verification.
 - Format with `bun run format`, and fix style with `bun run style:fix`. House style comes from
   `@sqve/seam`; Mergit's own lint rules live in `scripts/lintRules.ts`.
 - Follow the decisions in [docs/adr](docs/adr/README.md), and record new decisions there. Read that
-  guide before adding or changing an ADR. When a decision changes, edit its ADR in place in the same
-  change. Do not write documents that explain how a feature works; see
+  guide before adding or changing an ADR. When details of a decision change, edit its ADR in place
+  in the same change. When its core choice reverses, write a new ADR and retire the old one. Do not
+  write documents that explain how a feature works; see
   [ADR 0001](docs/adr/0001-documentation-scope.md).
 - Name values in camelCase and types in PascalCase. Never SCREAMING_CASE, not even for module
   constants.
