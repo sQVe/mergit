@@ -11,7 +11,7 @@ export { createGhRunner } from './ghApi.ts';
 export type { GitHubEffects, GitHubFailure, GitHubResult } from './ghApi.ts';
 export type { NotificationFeed, NotificationPage } from './notifications.ts';
 export { lookUpSubjects } from './subjects.ts';
-export type { SubjectLookup } from './subjects.ts';
+export type { SubjectLookup, SubjectLookupResult } from './subjects.ts';
 
 interface FetchedPage {
   page: NotificationPage | null;

@@ -1,13 +1,18 @@
 import { z } from 'zod';
 
 import type { NotificationThread, SubjectFacts, ThreadId } from '../work/work.ts';
-import type { GitHubEffects } from './ghApi.ts';
+import type { GhResponse, GitHubEffects, GitHubFailure } from './ghApi.ts';
 import { requestGraphql } from './ghApi.ts';
 
 export interface SubjectLookup {
   threadId: ThreadId;
   updatedAt: string;
   facts: SubjectFacts | null;
+}
+
+export interface SubjectLookupResult {
+  lookups: SubjectLookup[];
+  failures: GitHubFailure[];
 }
 
 type SubjectKind = 'pullRequest' | 'issue';
@@ -132,11 +137,12 @@ const repositorySchema = z
   .nullable();
 
 const responseSchema = z.object({
-  data: z.record(z.string(), repositorySchema.optional()),
+  data: z.record(z.string(), repositorySchema.optional()).nullish(),
   errors: z
     .array(
       z.object({
         type: z.string().optional(),
+        message: z.string().optional(),
         path: z.array(z.union([z.string(), z.number()])).optional(),
       }),
     )
@@ -170,75 +176,106 @@ const readAuthor = (subject: z.infer<typeof subjectSchema>): string | null => {
   return author.__typename === 'Bot' ? `${author.login}[bot]` : author.login;
 };
 
-const readFacts = (
-  repository: z.infer<typeof repositorySchema> | undefined,
-  kind: SubjectKind,
-): SubjectFacts | null => {
-  const subject = repository?.[kind];
+const readFacts = (subject: z.infer<typeof subjectSchema>): SubjectFacts => ({
+  state: stateByGraphql[subject.state],
+  author: readAuthor(subject),
+  latestActor: readLatestActor(subject),
+});
 
-  if (subject === undefined || subject === null) {
-    return null;
+type GraphqlError = NonNullable<z.infer<typeof responseSchema>['errors']>[number];
+
+const rateLimitedType = 'RATE_LIMITED';
+const notFoundType = 'NOT_FOUND';
+const millisecondsPerSecond = 1000;
+
+const readFailure = (error: GraphqlError, response: GhResponse): GitHubFailure => {
+  const resetHeader = response.headers.get('x-ratelimit-reset');
+  const reset = Number(resetHeader);
+
+  if (error.type === rateLimitedType && resetHeader !== undefined && Number.isFinite(reset)) {
+    return { kind: 'rateLimited', resetAt: new Date(reset * millisecondsPerSecond) };
   }
 
   return {
-    state: stateByGraphql[subject.state],
-    author: readAuthor(subject),
-    latestActor: readLatestActor(subject),
+    kind: 'requestFailed',
+    status: response.status,
+    message: error.message ?? error.type ?? 'GraphQL error',
   };
+};
+
+const decodeAlias = (
+  request: SubjectRequest,
+  repository: z.infer<typeof repositorySchema> | undefined,
+  aliasErrors: GraphqlError[],
+): SubjectLookup | null => {
+  const { thread, kind } = request;
+  const subject = repository?.[kind];
+  const missing = { threadId: thread.id, updatedAt: thread.updatedAt, facts: null };
+
+  if (aliasErrors.some((error) => error.type !== notFoundType)) {
+    return null;
+  }
+
+  if (aliasErrors.length > 0 || repository === null || subject === null) {
+    return missing;
+  }
+
+  if (repository === undefined || subject === undefined) {
+    return null;
+  }
+
+  return { threadId: thread.id, updatedAt: thread.updatedAt, facts: readFacts(subject) };
 };
 
 const lookUpBatch = async (
   effects: GitHubEffects,
   batch: SubjectRequest[],
   signal: AbortSignal,
-): Promise<SubjectLookup[]> => {
+): Promise<SubjectLookupResult> => {
   const { query, variables } = buildBatchQuery(batch);
   const response = await requestGraphql(effects, query, variables, signal);
 
   if (!response.ok) {
-    return [];
+    return { lookups: [], failures: [response.failure] };
   }
 
   const parsed = responseSchema.safeParse(response.value.body);
 
   if (!parsed.success) {
-    return [];
+    const failure: GitHubFailure = { kind: 'invalidResponse', message: parsed.error.message };
+
+    return { lookups: [], failures: [failure] };
   }
 
   const errors = parsed.data.errors ?? [];
-  const failedAliases = new Set(errors.map((error) => error.path?.[0]));
+  const data = parsed.data.data ?? {};
+  const failedErrors = errors.filter((error) => error.type !== notFoundType);
+  const failures = failedErrors.map((error) => readFailure(error, response.value));
 
-  // Only a missing subject is a lasting answer. Other alias errors can be temporary, so those
-  // threads get no entry and the next refresh asks again.
-  const retryAliases = new Set(
-    errors.filter((error) => error.type !== 'NOT_FOUND').map((error) => error.path?.[0]),
-  );
-
-  return batch.flatMap((request, index) => {
+  const lookups = batch.flatMap((request, index) => {
     const alias = `t${index}`;
+    const aliasErrors = errors.filter((error) => error.path?.[0] === alias);
+    const lookup = decodeAlias(request, data[alias], aliasErrors);
 
-    if (retryAliases.has(alias)) {
-      return [];
-    }
-
-    const facts = failedAliases.has(alias)
-      ? null
-      : readFacts(parsed.data.data[alias], request.kind);
-
-    return [{ threadId: request.thread.id, updatedAt: request.thread.updatedAt, facts }];
+    return lookup === null ? [] : [lookup];
   });
+
+  return { lookups, failures };
 };
 
 export const lookUpSubjects = async (
   effects: GitHubEffects,
   threads: NotificationThread[],
   signal: AbortSignal,
-): Promise<SubjectLookup[]> => {
+): Promise<SubjectLookupResult> => {
   const requests = threads.map(readSubjectRequest).filter((request) => request !== null);
 
   const batches = await Promise.all(
     chunk(requests).map((batch) => lookUpBatch(effects, batch, signal)),
   );
 
-  return batches.flat();
+  return {
+    lookups: batches.flatMap((batch) => batch.lookups),
+    failures: batches.flatMap((batch) => batch.failures),
+  };
 };

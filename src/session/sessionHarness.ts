@@ -234,7 +234,14 @@ export const makeHarness = (
       }),
     lookUpSubjects: (threads, signal) =>
       new Promise((resolve, reject) => {
-        lookups.push({ threads, resolve, reject, signal });
+        lookups.push({
+          threads,
+          resolve: (found) => {
+            resolve({ lookups: found, failures: [] });
+          },
+          reject,
+          signal,
+        });
       }),
     now: () => new Date(clock.time),
     setTimer: (delay, callback) => {
