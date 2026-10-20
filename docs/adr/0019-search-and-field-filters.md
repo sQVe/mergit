@@ -41,7 +41,7 @@ It imports `work` and `invariant`, and only `session` imports it.
 
 - The list changes only for text the user typed, so it never jumps while they type.
 - The line needs no error handling, tokenizer, or fallback rules.
-- Search and filters share one query tree, so they combine without a second path.
+- Search and filters share one query type and evaluator, so they combine without a second path.
 
 ### Negative
 
