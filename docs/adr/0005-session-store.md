@@ -49,7 +49,7 @@ tests drive the same way production does.
 - A rate-limit response pauses polling until the reset time. Manual refresh does not bypass the
   pause.
 - Cached data and its sync follow [ADR 0016](./0016-snapshot-and-full-refresh.md). A manual refresh
-  bypasses every validator.
+  skips the stored feed ETags.
 
 ### Actions
 
