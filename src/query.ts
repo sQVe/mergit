@@ -43,6 +43,16 @@ export interface Filter {
 
 export type ParseFiltersResult = { ok: true; filters: Filter[] } | { ok: false; error: string };
 
+export interface FilterDraftAnalysis {
+  parsed: ParseFiltersResult;
+  hasUnknownField: boolean;
+}
+
+interface Scanned {
+  tokens: string[];
+  quoteOpen: boolean;
+}
+
 export interface FilterCandidate {
   field: FilterField;
   value: string;
@@ -279,7 +289,7 @@ const parseAge = (value: string): { operator: AgeOperator; milliseconds: number 
   };
 };
 
-const splitTokens = (text: string): Parsed<string[]> => {
+const scanTokens = (text: string): Scanned => {
   const tokens: string[] = [];
   let current = '';
   let quoted = false;
@@ -299,15 +309,11 @@ const splitTokens = (text: string): Parsed<string[]> => {
     }
   }
 
-  if (quoted) {
-    return { ok: false, error: `Invalid filter "${current}": the quote is not closed.` };
-  }
-
   if (current !== '') {
     tokens.push(current);
   }
 
-  return { ok: true, value: tokens };
+  return { tokens, quoteOpen: quoted };
 };
 
 const unquote = (value: string): string => value.replaceAll('"', '');
@@ -413,16 +419,16 @@ const parseToken = (token: string): Parsed<Filter> => {
   return { ok: true, value: { field, value, negated } };
 };
 
-export const parseFilters = (text: string): ParseFiltersResult => {
+const parseScanned = ({ tokens, quoteOpen }: Scanned): ParseFiltersResult => {
   const filters: Filter[] = [];
 
-  const split = splitTokens(text);
+  if (quoteOpen) {
+    const last = tokens.at(-1) ?? '';
 
-  if (!split.ok) {
-    return split;
+    return { ok: false, error: `Invalid filter "${last}": the quote is not closed.` };
   }
 
-  for (const token of split.value) {
+  for (const token of tokens) {
     const parsed = parseToken(token);
 
     if (!parsed.ok) {
@@ -433,6 +439,25 @@ export const parseFilters = (text: string): ParseFiltersResult => {
   }
 
   return { ok: true, filters };
+};
+
+export const parseFilters = (text: string): ParseFiltersResult => parseScanned(scanTokens(text));
+
+const knownNames = new Set<string>([...filterFields, 'is']);
+
+const namesUnknownToken = (token: string): boolean => {
+  const name = /^-?([^\s:"]*):/.exec(token)?.[1];
+
+  return name !== undefined && name !== '' && !knownNames.has(name.toLowerCase());
+};
+
+export const analyzeFilterDraft = (text: string): FilterDraftAnalysis => {
+  const scanned = scanTokens(text);
+
+  return {
+    parsed: parseScanned(scanned),
+    hasUnknownField: scanned.tokens.some(namesUnknownToken),
+  };
 };
 
 export const formatFilter = (filter: Filter): string => {
@@ -486,15 +511,19 @@ const groupTerms = (terms: Query[]): Query | null => {
   return terms.length === 1 ? first : { type: 'or', terms };
 };
 
+const conjunctiveFields = new Set<FilterField>(['age', 'title']);
+
+export const filterCombinationOf = (field: FilterField): 'and' | 'or' =>
+  conjunctiveFields.has(field) ? 'and' : 'or';
+
 export const filterQuery = (filters: Filter[]): Query | null => {
   const positiveByField = new Map<FilterField, Query[]>();
   const terms: Query[] = [];
-  const conjunctive = new Set<FilterField>(['age', 'title']);
 
   for (const filter of filters) {
     if (filter.negated) {
       terms.push({ type: 'not', term: filterTerm(filter) });
-    } else if (conjunctive.has(filter.field)) {
+    } else if (filterCombinationOf(filter.field) === 'and') {
       terms.push(filterTerm(filter));
     } else {
       const group = positiveByField.get(filter.field) ?? [];

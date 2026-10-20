@@ -1,10 +1,10 @@
 import type { Filter, FilterField } from '../query.ts';
 import {
+  analyzeFilterDraft,
   filterCandidates,
   filterFields,
   filterQuery,
   formatFilter,
-  parseFilters,
 } from '../query.ts';
 import { keepSelectionVisible, openThreads, threadsKnownMatching } from './sessionState.ts';
 import type { Snapshot } from './sessionState.ts';
@@ -39,47 +39,15 @@ const includesFilter = (filters: Filter[], filter: Filter): boolean =>
 const withoutDuplicates = (filters: Filter[]): Filter[] =>
   filters.filter((filter, index) => !includesFilter(filters.slice(0, index), filter));
 
-const knownNames = new Set([...filterFields, 'is']);
-
-const tokenStartsOf = (draft: string): string[] => {
-  const starts: string[] = [];
-  let quoted = false;
-  let atStart = true;
-
-  for (let index = 0; index < draft.length; index += 1) {
-    const character = draft.charAt(index);
-
-    if (atStart && !quoted && !/\s/.test(character)) {
-      starts.push(draft.slice(index));
-    }
-
-    if (character === '"') {
-      quoted = !quoted;
-    }
-
-    atStart = !quoted && /\s/.test(character);
-  }
-
-  return starts;
-};
-
-const namesUnknownField = (draft: string): boolean =>
-  tokenStartsOf(draft).some((start) => {
-    const name = /^-?([^\s:"]*):/.exec(start)?.[1];
-
-    return name !== undefined && name !== '' && !knownNames.has(name.toLowerCase());
-  });
-
 const typedRowsOf = (snapshot: Snapshot): FilterRow[] => {
   if (snapshot.filterDraft.trim() === '') {
     return [];
   }
 
-  const parsed = parseFilters(snapshot.filterDraft);
+  const { parsed, hasUnknownField: unknownName } = analyzeFilterDraft(snapshot.filterDraft);
 
   if (!parsed.ok) {
-    const shown =
-      snapshot.filterError ?? (namesUnknownField(snapshot.filterDraft) ? parsed.error : null);
+    const shown = snapshot.filterError ?? (unknownName ? parsed.error : null);
 
     return shown === null ? [] : [{ kind: 'error', message: shown }];
   }
@@ -470,7 +438,7 @@ const replaceOrAdd = (snapshot: Snapshot, added: Filter[]): Filter[] => {
 };
 
 const withDraftError = (snapshot: Snapshot): Snapshot => {
-  const parsed = parseFilters(snapshot.filterDraft);
+  const { parsed } = analyzeFilterDraft(snapshot.filterDraft);
 
   if (parsed.ok || snapshot.filterDraft.trim() === '') {
     return snapshot;
