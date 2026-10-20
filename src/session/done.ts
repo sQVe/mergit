@@ -1,6 +1,6 @@
 import type { GitHubFailure, GitHubResult } from '../github/github.ts';
 import type { NotificationThread, ThreadId } from '../work/work.ts';
-import { guardEffect } from './effectGuard.ts';
+import { guardEffect, requestFailed } from './effectGuard.ts';
 
 type UndoOutcome =
   | { kind: 'undone'; threads: readonly NotificationThread[] }
@@ -67,10 +67,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
         // oxlint-disable-next-line eslint/no-await-in-loop -- dones go out one at a time
         const result = await guardEffect(
           () => effects.markThreadDone(thread.id, sends.signal),
-          (message): GitHubResult<null> => ({
-            ok: false,
-            failure: { kind: 'requestFailed', status: null, message },
-          }),
+          requestFailed,
         );
 
         if (result.ok) {

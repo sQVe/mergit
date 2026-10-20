@@ -9,7 +9,7 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import type { AccountSwitchOwner } from './accountSwitch.ts';
-import { guardEffect } from './effectGuard.ts';
+import { guardEffect, requestFailed } from './effectGuard.ts';
 import { applyFailure, clearFailure, startRefresh } from './feedTransitions.ts';
 import type { Snapshot } from './sessionState.ts';
 
@@ -63,11 +63,6 @@ const fullRefreshAfterMilliseconds =
   fullRefreshAfterMinutes * secondsPerMinute * millisecondsPerSecond;
 
 const maximumRetries = 3;
-
-const requestFailed = (message: string): GitHubResult<never> => ({
-  ok: false,
-  failure: { kind: 'requestFailed', status: null, message },
-});
 
 export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   let generation = 0;
@@ -219,9 +214,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   };
 
   const reportFailure = (error: unknown) => {
-    if (!host.isStopped()) {
-      host.reportError(error);
-    }
+    host.reportError(error);
   };
 
   const runOperation = async (own: number, signal: AbortSignal, work: () => Promise<void>) => {

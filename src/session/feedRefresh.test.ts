@@ -909,3 +909,87 @@ test('a subscriber that stops the session and then throws adds no message and no
   expect(session.getSnapshot().messages).toHaveLength(messagesBefore);
   expect(activeTimers()).toHaveLength(0);
 });
+
+test('a follow-up refresh sends its first pass with no previous feed', async () => {
+  const { session, load, take, answerRead, answerVerify } = makeHarness();
+
+  await load(makeThread('1'));
+
+  session.send({ kind: 'refresh' });
+  await settle();
+  session.send({ kind: 'refresh' });
+  await settle();
+  await answerRead(readOf('feed', [makeThread('1')]));
+  await answerVerify(stable);
+
+  expect(take('read').request).toEqual({ previous: null });
+});
+
+test('a refresh that ends after the host stops schedules no timer and starts no follow-up', async () => {
+  let stopped = false;
+  const answers: ((result: ReturnType<typeof failure>) => void)[] = [];
+
+  const { host, timers } = fakeRefreshHost({
+    isStopped: () => stopped,
+    readFeed: () =>
+      new Promise((resolve) => {
+        answers.push(resolve);
+      }),
+  });
+
+  const refresh = createFeedRefresh(host);
+
+  refresh.request();
+  await settle();
+  refresh.request();
+  stopped = true;
+  answers[0]?.(failure('boom'));
+  await settle();
+
+  expect(answers).toHaveLength(1);
+  expect(timers.filter((timer) => timer.active)).toHaveLength(0);
+});
+
+test('a subscriber error after a reported one shows its own error toast', async () => {
+  const { session, answerRead, answerVerify } = makeHarness();
+  let nextError: Error | null = new Error('first break');
+
+  session.subscribe(() => {
+    const error = nextError;
+
+    if (error !== null) {
+      nextError = null;
+
+      throw error;
+    }
+  });
+
+  session.send({ kind: 'refresh' });
+  await settle();
+
+  expect(session.getSnapshot().toast?.lines).toEqual(['first break']);
+
+  nextError = new Error('second break');
+  await answerRead(readOf('feed', [makeThread('1')]));
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().toast?.lines).toEqual(['second break']);
+});
+
+test('a feed read that throws shows its message as the refresh error and schedules a poll', async () => {
+  const { session, activeTimers } = makeHarness({
+    readFeed: () => {
+      throw new Error('read broke');
+    },
+  });
+
+  session.send({ kind: 'refresh' });
+  await settle();
+
+  const snapshot = session.getSnapshot();
+  const pollTimers = activeTimers().filter((timer) => timer.delay === 60_000);
+
+  expect(snapshot.errorMessage).toBe('read broke');
+  expect(snapshot.pausedUntil).toBeNull();
+  expect(pollTimers).toHaveLength(1);
+});

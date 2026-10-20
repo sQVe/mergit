@@ -1,3 +1,5 @@
+import type { GitHubResult } from '../github/github.ts';
+
 export const guardEffect = async <Value>(
   run: () => Promise<Value>,
   onError: (message: string) => Value,
@@ -8,3 +10,8 @@ export const guardEffect = async <Value>(
     return onError(error instanceof Error ? error.message : String(error));
   }
 };
+
+export const requestFailed = (message: string): GitHubResult<never> => ({
+  ok: false,
+  failure: { kind: 'requestFailed', status: null, message },
+});
