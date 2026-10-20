@@ -7,7 +7,7 @@ import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
-import type { Session, Snapshot } from '../session/session.ts';
+import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 import { CommandLine, commandLineRows } from './CommandLine.tsx';
@@ -147,8 +147,12 @@ const searchRoomOf = (snapshot: Snapshot, height: number): number =>
     height - statusRows - boxChromeRows - commandLineRows(snapshot) - filterBarRows(snapshot),
   );
 
-const composerLayoutFor = (snapshot: Snapshot, width: number, height: number) => {
-  const rows = composerRowsOf(snapshot);
+const composerLayoutFor = (
+  snapshot: Snapshot,
+  rows: FilterRow[],
+  size: { width: number; height: number },
+) => {
+  const { width, height } = size;
   const searchRoom = searchRoomOf(snapshot, height);
 
   const otherRows =
@@ -162,9 +166,11 @@ const composerLayoutFor = (snapshot: Snapshot, width: number, height: number) =>
 };
 
 const isComposerBlind = (snapshot: Snapshot, width: number, height: number): boolean => {
-  const hasRows = composerRowsOf(snapshot).length > 0;
+  const rows = composerRowsOf(snapshot);
 
-  return hasRows && composerLayoutFor(snapshot, width, height).candidateRows === 0;
+  return (
+    rows.length > 0 && composerLayoutFor(snapshot, rows, { width, height }).candidateRows === 0
+  );
 };
 
 const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
@@ -480,7 +486,7 @@ export const App = (props: AppProps): ReactNode => {
   }, [sideLayout]);
 
   const composerRows = composerRowsOf(snapshot);
-  const composerLayout = composerLayoutFor(snapshot, width, height);
+  const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
   const searchRoom = searchRoomOf(snapshot, height);
 
   const widestPane = Math.floor(width * sidePaneShare);
