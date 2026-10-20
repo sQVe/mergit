@@ -34,8 +34,8 @@ tests drive the same way production does.
   next snapshot.
 - The UI sends intents. It does not change application state directly.
 - React keeps only focus, modal, and viewport state.
-- The snapshot holds one item per subject, such as a pull request, issue, or release, with all its
-  reasons. Selection and dismissal use the stable subject identity.
+- The snapshot holds one item per notification thread, with its notification reason. Selection and
+  done use the thread ID.
 
 ### Refresh
 

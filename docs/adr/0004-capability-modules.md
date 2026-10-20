@@ -8,7 +8,7 @@
 
 ## Context
 
-Mergit reads GitHub, classifies work, coordinates a session, runs local actions, saves dismissals,
+Mergit reads GitHub, classifies work, coordinates a session, runs local actions, saves local state,
 reads config, and renders a terminal UI. Each job needs one clear owner before app code exists.
 
 Surveys of mature TUIs suggested layer folders such as `domain/`, `application/`, and `adapters/`.

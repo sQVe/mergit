@@ -31,7 +31,7 @@ and every terminal handoff.
 - One idempotent shutdown runs for every exit path. The renderer's own exit handling is turned off.
 - It blocks new intents and stops timers, then aborts refresh and owned child processes. It
   terminates children that do not exit within a bounded wait.
-- It saves dismissals within a bounded wait.
+- It saves local state within a bounded wait.
 - It unmounts React, removes bindings and subscriptions, and destroys the renderer in `finally`.
 - It restores the terminal before it prints a fatal error.
 - It never stops a Herdr workspace or daemon.

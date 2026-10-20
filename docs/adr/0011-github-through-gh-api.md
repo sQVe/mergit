@@ -34,8 +34,7 @@ Mergit adds no dependency.
 
 ### Requests
 
-- Pull request searches and subject details run as one batched `gh api graphql` query per refresh,
-  plus one per extra page.
+- Subject lookups run as batched `gh api graphql` queries.
 - Notifications use `gh api /notifications`, one call per page.
 - Mergit never reads, stores, or passes a GitHub token. `gh` finds it, so `GH_TOKEN` and
   `gh auth switch` work as they do for `gh`.

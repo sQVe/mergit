@@ -48,7 +48,8 @@ page with its ETag, on change or on a timer. An unchanged poll costs one free re
 
 ### Negative
 
-- A thread marked done outside Mergit can stay up to 10 minutes.
+- An unread thread marked done outside Mergit can stay up to 10 minutes. A read thread marked done
+  outside Mergit stays until it is marked done in Mergit, as ADR 0015 says.
 - At 2,000 threads, a busy hour can use about half the user's REST limit.
 - Two Mergit processes poll on their own and double the requests.
 - Each full refresh requests every page twice. The second pass is free when nothing moved.

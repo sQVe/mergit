@@ -9,7 +9,8 @@
 ## Context
 
 Mergit saves local state between runs: the "new" markers, the chosen grouping, and the record of
-threads it marked done. It also reads a user config with key remaps and repository locations.
+threads it marked done. A user config with key remaps and repository locations is planned but not
+built yet.
 
 A crash during a write, a corrupt file, or an older Mergit reading a newer file must not destroy
 saved data.
@@ -29,7 +30,8 @@ Mergit processes may write the same state file, and the last write wins.
 ### Files
 
 - Config lives at `$XDG_CONFIG_HOME/mergit/config.json` and falls back to
-  `~/.config/mergit/config.json`. `config.ts` parses it. Mergit never writes it.
+  `~/.config/mergit/config.json`. `config.ts` will parse it. Mergit never writes it. Until
+  `config.ts` exists, Mergit reads no config file, and the config rules below apply once it does.
 - State lives at `$XDG_STATE_HOME/mergit/state.json` and falls back to
   `~/.local/state/mergit/state.json`. `localState.ts` parses and writes it.
 - Each file has a `version` field. Code past the parser receives typed values only.

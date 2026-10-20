@@ -25,7 +25,7 @@ itself. Each consumer names only the effects it uses, and tests pass fakes for t
 ### Function records
 
 - Each consumer declares the type of its record beside its own code. The session's record holds only
-  what the session calls, such as fetching work, running an action, saving dismissals, reading the
+  what the session calls, such as fetching work, running an action, saving local state, reading the
   time, and scheduling timers.
 - `index.ts` builds the production functions. Tests pass fakes, deferred promises, and a fake clock.
 - No adapter interfaces, classes, or containers.
