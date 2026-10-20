@@ -562,6 +562,15 @@ test('in a composer too short for any candidate row Enter and Tab change nothing
   expect(session.getSnapshot().filtersOpen).toBe(false);
 });
 
+test('f, kind:pr, and Enter in one burst in a composer too short for any candidate row apply nothing', async () => {
+  const { session, setup, settle } = await mountShort(4);
+
+  await burst(setup, ['f', 'kind:pr', 'return']);
+  await settle();
+
+  expect(session.getSnapshot().filters).toEqual([]);
+});
+
 test('ctrl+c quits in a composer too short for any candidate row', async () => {
   const { press, setup, settle, terminalIntents } = await mountShort(4);
 
