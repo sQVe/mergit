@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { GitHubResult } from '../github/github.ts';
 import type { ThreadId } from '../work/work.ts';
+import { createDoneQueue } from './done.ts';
 import {
   accountKeyOf,
   doneWindow,
@@ -579,4 +580,42 @@ test('a five-thread action sends its requests one at a time after the timer fire
   }
 
   expect(harness.sends).toHaveLength(5);
+});
+
+test('the queue keeps no entry after its send finishes', async () => {
+  const timer: { fire: (() => void) | null } = { fire: null };
+
+  const queue = createDoneQueue({
+    setTimer: (_delay, callback) => {
+      timer.fire = () => {
+        timer.fire = null;
+        callback();
+      };
+
+      return () => undefined;
+    },
+    markThreadDone: () => Promise.resolve(sentOk),
+    onSent: () => undefined,
+    onEntrySent: () => undefined,
+    onFailed: () => undefined,
+  });
+
+  const addThreads = () => {
+    const threads = [makeThread('1')];
+
+    queue.add(threads, octocat);
+
+    return new WeakRef(threads);
+  };
+
+  const ref = addThreads();
+
+  timer.fire?.();
+  await settle();
+  await settle();
+  Bun.gc(true);
+  await settle();
+  Bun.gc(true);
+
+  expect(ref.deref()).toBeUndefined();
 });
