@@ -252,3 +252,49 @@ test('a batch after a throwing batch still opens its page and shows its toast', 
   expect(toast?.tone).toBe('info');
   expect(messages).toHaveLength(2);
 });
+
+test('a subscriber that throws during an open toast leaves one toast timer, and stop cancels it', async () => {
+  const harness = makeHarness({
+    openInBrowser: () => Promise.resolve({ ok: false, message: 'no such repository' }),
+  });
+
+  const toastTimers = () => harness.activeTimers().filter((timer) => timer.delay === 4000);
+  let thrown = false;
+
+  await harness.load(makeThread('1'));
+
+  harness.session.subscribe(() => {
+    if (!thrown && harness.session.getSnapshot().toast?.lines[0] === 'no such repository') {
+      thrown = true;
+
+      throw new Error('subscriber broke');
+    }
+  });
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/app')] });
+  await settle();
+
+  expect(thrown).toBe(true);
+  expect(toastTimers()).toHaveLength(1);
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/app')] });
+  await settle();
+
+  expect(toastTimers()).toHaveLength(1);
+
+  const expiring = toastTimers()[0];
+
+  expiring?.callback();
+
+  if (expiring !== undefined) {
+    expiring.active = false;
+  }
+
+  expect(harness.session.getSnapshot().toast).toBeNull();
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/app')] });
+  await settle();
+  await harness.session.stop(new AbortController().signal);
+
+  expect(toastTimers()).toHaveLength(0);
+});

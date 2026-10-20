@@ -886,3 +886,26 @@ test('stop during refresh publication leaves no active timer', async () => {
 
   expect(activeTimers()).toHaveLength(0);
 });
+
+test('a subscriber that stops the session and then throws adds no message and no timer', async () => {
+  const { session, activeTimers, answerRead, answerVerify } = makeHarness();
+
+  session.send({ kind: 'refresh' });
+  await settle();
+  await answerRead(readOf('feed', [makeThread('1')]));
+
+  const messagesBefore = session.getSnapshot().messages.length;
+
+  session.subscribe(() => {
+    if (session.getSnapshot().refreshStatus === 'idle') {
+      session.stop(new AbortController().signal).catch(() => undefined);
+
+      throw new Error('subscriber broke');
+    }
+  });
+
+  await answerVerify(stable);
+
+  expect(session.getSnapshot().messages).toHaveLength(messagesBefore);
+  expect(activeTimers()).toHaveLength(0);
+});

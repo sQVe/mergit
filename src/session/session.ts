@@ -360,6 +360,10 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const reportError = (error: unknown) => {
+    if (stopped) {
+      return;
+    }
+
     reporting = true;
 
     try {

@@ -40,12 +40,13 @@ export const createMessageToast = (inputs: MessageToastInputs): MessageToastOwne
 
     const messages = [message, ...snapshot.messages].slice(0, messageLimit);
 
-    inputs.update({ ...snapshot, toast, messages });
-
+    // Installed before publishing, so a toast shown by a subscriber replaces this timer.
     cancelTimer = inputs.setTimer(toast.durationMilliseconds, () => {
       cancelTimer = null;
       inputs.update({ ...inputs.getSnapshot(), toast: null });
     });
+
+    inputs.update({ ...snapshot, toast, messages });
   };
 
   const cancel = () => {
