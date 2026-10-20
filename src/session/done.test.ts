@@ -619,3 +619,45 @@ test('the queue keeps no entry after its send finishes', async () => {
 
   expect(ref.deref()).toBeUndefined();
 });
+
+test('undo while the first done is still sending is too late', async () => {
+  const timer: { fire: (() => void) | null } = { fire: null };
+  const started: ThreadId[] = [];
+
+  const queue = createDoneQueue({
+    setTimer: (_delay, callback) => {
+      timer.fire = callback;
+
+      return () => undefined;
+    },
+    markThreadDone: (threadId) => {
+      started.push(threadId);
+
+      return Promise.withResolvers<GitHubResult<null>>().promise;
+    },
+    onSent: () => undefined,
+    onEntrySent: () => undefined,
+    onFailed: () => undefined,
+  });
+
+  const thread = makeThread('1');
+
+  queue.add([thread], octocat);
+  timer.fire?.();
+  await settle();
+
+  expect(started).toEqual([thread.id]);
+  expect(queue.undoLatest()).toEqual({ kind: 'tooLate' });
+});
+
+test('undo on an empty queue finds nothing', () => {
+  const queue = createDoneQueue({
+    setTimer: () => () => undefined,
+    markThreadDone: () => Promise.resolve(sentOk),
+    onSent: () => undefined,
+    onEntrySent: () => undefined,
+    onFailed: () => undefined,
+  });
+
+  expect(queue.undoLatest()).toEqual({ kind: 'nothing' });
+});
