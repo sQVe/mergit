@@ -138,3 +138,19 @@ test('a single chip wider than the bar is cut at the bar width', async () => {
   expect(chipRow).toBe(`repo:acme/${'a'.repeat(19)}…`);
   expect(chipRow).toHaveLength(30);
 });
+
+test('a chip with wide text ends in an ellipsis within the bar width', async () => {
+  const mounted = await mountFilters(40);
+  const { setup, press, settle } = mounted;
+
+  await press('f');
+  await typeText(setup, settle, `title:${'界'.repeat(60)}`);
+  await press('return');
+
+  const chipRow = setup.captureCharFrame().split('\n')[0] ?? '';
+
+  expect(chipRow).toContain('title:界');
+  expect(chipRow.trimEnd().endsWith('…')).toBe(true);
+  expect(chipRow).not.toMatch(/\uFFFD|[\uD800-\uDFFF]/u);
+  expect(Bun.stringWidth(chipRow)).toBeLessThanOrEqual(40);
+});

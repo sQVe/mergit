@@ -875,3 +875,24 @@ test('a field name with a dash inside shows the key hints, not the value form of
   expect(frame).toContain('Enter apply');
   expect(frame).not.toContain('open, closed, or merged');
 });
+
+test('a candidate with wide text ends in an ellipsis within the composer width', async () => {
+  const wideFacts = new Map([['1', { state: 'open' as const, author: '界'.repeat(60) }]]);
+  const mounted = await mount('dark', factsEffects(manyAuthors, wideFacts), 60, false, 40);
+  const { setup, press, settle } = mounted;
+
+  await press('r');
+  await settle();
+  await press('f');
+  await typeText(setup, settle, 'author:');
+
+  const row = setup
+    .captureCharFrame()
+    .split('\n')
+    .find((line) => line.includes('author:界'));
+
+  expect(row).toBeDefined();
+  expect(row).toMatch(/…\s+\d+\s*│/);
+  expect(row).not.toMatch(/\uFFFD|[\uD800-\uDFFF]/u);
+  expect(Bun.stringWidth(row ?? '')).toBeLessThanOrEqual(60);
+});

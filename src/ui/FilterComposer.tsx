@@ -3,10 +3,11 @@ import type { ReactNode } from 'react';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { describeFilterRow, filterCursorOf, formatFilter } from '../session/session.ts';
 import type { CandidateItem } from './CandidateList.tsx';
-import { CandidateList, wrapText } from './CandidateList.tsx';
+import { CandidateList } from './CandidateList.tsx';
 import { filterBarRows } from './FilterBar.tsx';
 import { InputLine } from './InputLine.tsx';
 import type { Palette } from './palette.ts';
+import { wrapText } from './textLayout.ts';
 
 export interface ComposerLayout {
   candidateRows: number;

@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 
 import type { Filter, Snapshot } from '../session/session.ts';
 import { formatFilter } from '../session/session.ts';
-import { ellipsized } from './CandidateList.tsx';
 import type { Palette } from './palette.ts';
+import { cellWidth, fitText } from './textLayout.ts';
 
 interface Chip {
   text: string;
@@ -45,12 +45,12 @@ const chipsOf = (filters: Filter[]): Chip[] =>
 const moreLabel = (hidden: number): string => `${gapSeparator}+${hidden} more`;
 
 const widthOf = (chips: Chip[]): number =>
-  chips.reduce((total, chip) => total + chip.separator.length + chip.text.length, 0);
+  chips.reduce((total, chip) => total + cellWidth(chip.separator) + cellWidth(chip.text), 0);
 
 const shownChips = (chips: Chip[], width: number): Chip[] => {
   for (let shown = chips.length; shown > 0; shown -= 1) {
     const hidden = chips.length - shown;
-    const reserved = hidden === 0 ? 0 : moreLabel(hidden).length;
+    const reserved = hidden === 0 ? 0 : cellWidth(moreLabel(hidden));
 
     if (widthOf(chips.slice(0, shown)) + reserved <= width) {
       return chips.slice(0, shown);
@@ -72,14 +72,14 @@ export const FilterBar = (props: {
   const chips = chipsOf(filters);
   const shown = shownChips(chips, width);
   const hidden = chips.length - shown.length;
-  const room = width - (hidden === 0 ? 0 : moreLabel(hidden).length);
+  const room = width - (hidden === 0 ? 0 : cellWidth(moreLabel(hidden)));
 
   return (
     <box height={1} flexShrink={0} flexDirection="row">
       {shown.map((chip, index) => (
         <box key={chip.text} flexDirection="row">
           {chip.separator === '' ? null : <text fg={palette.dim}>{chip.separator}</text>}
-          <text fg={palette.key}>{index === 0 ? ellipsized(chip.text, room) : chip.text}</text>
+          <text fg={palette.key}>{index === 0 ? fitText(chip.text, room) : chip.text}</text>
         </box>
       ))}
       {hidden === 0 ? null : <text fg={palette.dim}>{moreLabel(hidden)}</text>}

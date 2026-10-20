@@ -6,6 +6,7 @@ import type { Snapshot } from '../session/session.ts';
 import { visibleRows } from '../session/session.ts';
 import type { NodeRow, ThreadId, ThreadRow } from '../work/work.ts';
 import type { Palette } from './palette.ts';
+import { cellWidth, fitText } from './textLayout.ts';
 import {
   branchFor,
   formatAge,
@@ -13,7 +14,6 @@ import {
   guideWidth,
   numberLabelFor,
   scrollTop,
-  truncate,
   typeLabelFor,
 } from './threadRow.ts';
 
@@ -39,7 +39,11 @@ const NodeLine = (
   const newCount = row.threads.filter((thread) => props.newThreadIds.has(thread.id)).length;
   const newPart = newCount === 0 ? '' : ` ${newCount}`;
   const totalPart = newCount === 0 ? ` ${row.threads.length}` : `/${row.threads.length}`;
-  const titleWidth = Math.max(1, props.width - prefix.length - newPart.length - totalPart.length);
+
+  const titleWidth = Math.max(
+    1,
+    props.width - cellWidth(prefix) - newPart.length - totalPart.length,
+  );
 
   return (
     <box
@@ -50,7 +54,7 @@ const NodeLine = (
       <text fg={palette.dim} width={prefix.length}>
         {prefix}
       </text>
-      <text fg={palette.text}>{truncate(row.title, titleWidth)}</text>
+      <text fg={palette.text}>{fitText(row.title, titleWidth)}</text>
       {newPart === '' ? null : (
         <text fg={palette.newMarker} width={newPart.length}>
           {newPart}
@@ -98,11 +102,11 @@ const ThreadLine = (
       </text>
       {repositoryColumn > 0 ? (
         <text fg={palette.dim} width={repositoryColumn}>
-          {truncate(thread.repository, repositoryColumn - 1)}
+          {fitText(thread.repository, repositoryColumn - 1)}
         </text>
       ) : null}
       <text fg={palette.text} width={titleWidth}>
-        {truncate(thread.title, titleWidth - 1)}
+        {fitText(thread.title, titleWidth - 1)}
       </text>
       <text fg={palette.dim} width={ageWidth}>
         {formatAge(thread.updatedAt, now).padStart(ageWidth - 1)}
