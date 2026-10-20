@@ -50,7 +50,7 @@ Mergit processes may write the same state file, and the last write wins.
 
 - Mergit writes state to a unique temporary file beside the target, flushes and closes it, then
   renames it over the target. A failed write keeps the last valid file.
-- Writes run one at a time.
+- Writes run one at a time within each process.
 - A failed write shows a short-lived message that names what was not saved. Mergit does not mark the
   change as unsaved.
 - Two Mergit processes may write one state file. The last write wins, so concurrent processes can
