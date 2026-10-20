@@ -191,3 +191,64 @@ test('stop aborts the signal of an open in flight', async () => {
 
   expect(signals[0]?.aborted).toBe(true);
 });
+
+test('an open whose effect throws shows an error toast with the error message', async () => {
+  const harness = makeHarness({
+    openInBrowser: () => {
+      throw new Error('boom');
+    },
+  });
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/app')] });
+  await settle();
+
+  const { toast, messages } = harness.session.getSnapshot();
+
+  expect(toast?.tone).toBe('error');
+  expect(toast?.lines).toEqual(['boom']);
+  expect(messages).toHaveLength(1);
+});
+
+test('an open whose effect rejects shows an error toast with the error message', async () => {
+  const harness = makeHarness({
+    openInBrowser: () => Promise.reject(new Error('rejected')),
+  });
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/app')] });
+  await settle();
+
+  const { toast, messages } = harness.session.getSnapshot();
+
+  expect(toast?.tone).toBe('error');
+  expect(toast?.lines).toEqual(['rejected']);
+  expect(messages).toHaveLength(1);
+});
+
+test('a batch after a throwing batch still opens its page and shows its toast', async () => {
+  let calls = 0;
+
+  const harness = makeHarness({
+    openInBrowser: (page) => {
+      calls += 1;
+
+      if (calls === 1) {
+        throw new Error('boom');
+      }
+
+      harness.opens.push(page);
+
+      return Promise.resolve({ ok: true });
+    },
+  });
+
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/a')] });
+  await settle();
+  harness.session.send({ kind: 'openInBrowser', pages: [repoPage('acme/b')] });
+  await settle();
+
+  const { toast, messages } = harness.session.getSnapshot();
+
+  expect(harness.opens).toEqual([repoPage('acme/b')]);
+  expect(toast?.tone).toBe('info');
+  expect(messages).toHaveLength(2);
+});

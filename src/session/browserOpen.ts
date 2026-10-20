@@ -1,5 +1,6 @@
 import type { OpenResult } from '../actions.ts';
 import type { BrowserPage } from '../work/work.ts';
+import { guardEffect } from './effectGuard.ts';
 import type { MessageToastOwner } from './messageToast.ts';
 
 export interface BrowserOpenInputs {
@@ -26,7 +27,12 @@ export const createBrowserOpen = (inputs: BrowserOpenInputs): BrowserOpenOwner =
       }
 
       // oxlint-disable-next-line eslint/no-await-in-loop -- opens run one at a time, in order
-      results.push(await inputs.openInBrowser(page, controller.signal));
+      const result = await guardEffect(
+        () => inputs.openInBrowser(page, controller.signal),
+        (message): OpenResult => ({ ok: false, message }),
+      );
+
+      results.push(result);
     }
 
     if (inputs.isStopped()) {

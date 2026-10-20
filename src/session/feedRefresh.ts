@@ -9,6 +9,7 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import type { AccountSwitchOwner } from './accountSwitch.ts';
+import { guardEffect } from './effectGuard.ts';
 import { applyFailure, clearFailure, startRefresh } from './feedTransitions.ts';
 import type { Snapshot } from './sessionState.ts';
 
@@ -63,20 +64,10 @@ const fullRefreshAfterMilliseconds =
 
 const maximumRetries = 3;
 
-const guard = async <Value>(
-  read: () => Promise<GitHubResult<Value>>,
-): Promise<GitHubResult<Value>> => {
-  try {
-    return await read();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    return {
-      ok: false,
-      failure: { kind: 'requestFailed', status: null, message },
-    };
-  }
-};
+const requestFailed = (message: string): GitHubResult<never> => ({
+  ok: false,
+  failure: { kind: 'requestFailed', status: null, message },
+});
 
 export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   let generation = 0;
@@ -105,7 +96,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
     retriesLeft: number,
     viewer: Viewer,
   ): Promise<FullRefreshOutcome> => {
-    const read = await guard(() => host.readFeed(request, signal));
+    const read = await guardEffect(() => host.readFeed(request, signal), requestFailed);
 
     if (!read.ok) {
       return { kind: 'failed', failure: read.failure };
@@ -117,7 +108,10 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
 
     rememberInterval(read.value.pollInterval);
 
-    const verification = await guard(() => host.verifyFeed(read.value.feed, signal));
+    const verification = await guardEffect(
+      () => host.verifyFeed(read.value.feed, signal),
+      requestFailed,
+    );
 
     if (!verification.ok) {
       return { kind: 'failed', failure: verification.failure };
@@ -145,7 +139,10 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
     request: NotificationFeedRequest,
     signal: AbortSignal,
   ): Promise<FullRefreshOutcome> => {
-    const viewer = await guard(() => host.readViewer(host.accountSwitch.lastViewer(), signal));
+    const viewer = await guardEffect(
+      () => host.readViewer(host.accountSwitch.lastViewer(), signal),
+      requestFailed,
+    );
 
     if (!viewer.ok) {
       return { kind: 'failed', failure: viewer.failure };
@@ -273,7 +270,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   const startPoll = (stored: NotificationFeed) => {
     const { own, signal } = begin();
 
-    guard(() => host.pollFeed(stored, signal))
+    guardEffect(() => host.pollFeed(stored, signal), requestFailed)
       .then((result) => {
         if (isCurrent(own)) {
           handlePoll(own, signal, stored, result);

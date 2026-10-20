@@ -1,5 +1,6 @@
 import type { GitHubFailure, GitHubResult } from '../github/github.ts';
 import type { NotificationThread, ThreadId } from '../work/work.ts';
+import { guardEffect } from './effectGuard.ts';
 
 type UndoOutcome =
   | { kind: 'undone'; threads: readonly NotificationThread[] }
@@ -37,20 +38,6 @@ export const undoWindowMilliseconds = 5000;
 const failsEveryRequest = (failure: GitHubFailure) =>
   failure.kind === 'ghMissing' || failure.kind === 'notSignedIn' || failure.kind === 'rateLimited';
 
-const sendSafely = async (
-  effects: DoneQueueEffects,
-  threadId: ThreadId,
-  signal: AbortSignal,
-): Promise<GitHubResult<null>> => {
-  try {
-    return await effects.markThreadDone(threadId, signal);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    return { ok: false, failure: { kind: 'requestFailed', status: null, message } };
-  }
-};
-
 export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
   let entries: Entry[] = [];
   let running: Promise<void> | null = null;
@@ -78,7 +65,13 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
         }
 
         // oxlint-disable-next-line eslint/no-await-in-loop -- dones go out one at a time
-        const result = await sendSafely(effects, thread.id, sends.signal);
+        const result = await guardEffect(
+          () => effects.markThreadDone(thread.id, sends.signal),
+          (message): GitHubResult<null> => ({
+            ok: false,
+            failure: { kind: 'requestFailed', status: null, message },
+          }),
+        );
 
         if (result.ok) {
           sentCount += 1;
