@@ -50,7 +50,7 @@ export interface FilterDraftAnalysis {
 
 interface Scanned {
   tokens: string[];
-  quoteOpen: boolean;
+  unclosed: string | null;
 }
 
 export interface FilterCandidate {
@@ -313,7 +313,7 @@ const scanTokens = (text: string): Scanned => {
     tokens.push(current);
   }
 
-  return { tokens, quoteOpen: quoted };
+  return { tokens, unclosed: quoted ? current : null };
 };
 
 const unquote = (value: string): string => value.replaceAll('"', '');
@@ -419,13 +419,11 @@ const parseToken = (token: string): Parsed<Filter> => {
   return { ok: true, value: { field, value, negated } };
 };
 
-const parseScanned = ({ tokens, quoteOpen }: Scanned): ParseFiltersResult => {
+const parseScanned = ({ tokens, unclosed }: Scanned): ParseFiltersResult => {
   const filters: Filter[] = [];
 
-  if (quoteOpen) {
-    const last = tokens.at(-1) ?? '';
-
-    return { ok: false, error: `Invalid filter "${last}": the quote is not closed.` };
+  if (unclosed !== null) {
+    return { ok: false, error: `Invalid filter "${unclosed}": the quote is not closed.` };
   }
 
   for (const token of tokens) {
