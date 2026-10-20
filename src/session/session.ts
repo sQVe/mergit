@@ -216,13 +216,6 @@ export const createSession = (effects: SessionEffects): Session => {
 
   const accountSwitch = createAccountSwitch(savedSnapshot);
 
-  // A refresh outcome publishes through `finish`, and a lookup answer publishes through `update`, which reads the lookup's pending threads.
-  const later: {
-    update?: (candidate: Snapshot) => void;
-    saveState?: (change: UnsavedChange) => void;
-    finish?: (outcome: SettledRefresh, now: Date) => void;
-  } = {};
-
   const doneActions = createDoneActions({
     host: effects.host,
     saved: effects.savedState?.done,
@@ -231,13 +224,15 @@ export const createSession = (effects: SessionEffects): Session => {
     currentLogin: accountSwitch.currentLogin,
     getSnapshot: () => snapshot,
     update: (candidate) => {
-      later.update?.(candidate);
+      // oxlint-disable-next-line seam/helper-before-use -- update reads the marker, which reads this owner's pending threads
+      update(candidate);
     },
     showToast: (content, durationMilliseconds) => {
       toaster.show(content, durationMilliseconds);
     },
     saveState: (change) => {
-      later.saveState?.(change);
+      // oxlint-disable-next-line seam/helper-before-use -- saving reads the marker and this owner's records
+      saveStateQuietly(change);
     },
     requestRefresh: () => {
       refresh.request();
@@ -262,6 +257,7 @@ export const createSession = (effects: SessionEffects): Session => {
         );
 
   let stopped = false;
+  let reporting = false;
   let unsavedChanges = new Set<UnsavedChange>();
 
   const subjectLookup = createSubjectLookup({
@@ -269,7 +265,8 @@ export const createSession = (effects: SessionEffects): Session => {
     lookUpSubjects: effects.lookUpSubjects,
     getSnapshot: () => snapshot,
     update: (candidate) => {
-      later.update?.(candidate);
+      // oxlint-disable-next-line seam/helper-before-use -- update reads the marker, which reads this owner's pending threads
+      update(candidate);
     },
     isStopped: () => stopped,
   });
@@ -330,17 +327,22 @@ export const createSession = (effects: SessionEffects): Session => {
 
     snapshot = next;
 
+    const failures: unknown[] = [];
+
     for (const listener of listeners) {
-      listener();
+      try {
+        listener();
+      } catch (error) {
+        failures.push(error);
+      }
     }
 
     announceNotice(previous, next);
-  };
 
-  later.update = update;
-
-  later.saveState = (change) => {
-    saveStateQuietly(change);
+    if (!reporting && failures.length > 0) {
+      // oxlint-disable-next-line seam/helper-before-use -- the error toast publishes through update
+      reportError(failures[0]);
+    }
   };
 
   const saveQuietly = (viewer: Viewer, savedAt: Date) => {
@@ -354,6 +356,24 @@ export const createSession = (effects: SessionEffects): Session => {
       effects.saveSnapshot(viewer, feed, savedAt);
     } catch {
       // A failed save must not stop the session.
+    }
+  };
+
+  const reportError = (error: unknown) => {
+    if (stopped) {
+      return;
+    }
+
+    reporting = true;
+
+    try {
+      toaster.show({
+        title: 'Something went wrong',
+        lines: [error instanceof Error ? error.message : String(error)],
+        tone: 'error',
+      });
+    } finally {
+      reporting = false;
     }
   };
 
@@ -415,11 +435,7 @@ export const createSession = (effects: SessionEffects): Session => {
       subjectLookup.releaseStartup();
       update(applyFailure(snapshot, outcome.failure, now));
     }
-
-    refresh.endOperation();
   };
-
-  later.finish = finishFullRefresh;
 
   const refresh = createFeedRefresh({
     savedFeed: savedSnapshot?.feed ?? null,
@@ -437,9 +453,8 @@ export const createSession = (effects: SessionEffects): Session => {
     getSnapshot: () => snapshot,
     update,
     isStopped: () => stopped,
-    finish: (outcome, now) => {
-      later.finish?.(outcome, now);
-    },
+    finish: finishFullRefresh,
+    reportError,
   });
 
   const browserOpen = createBrowserOpen({
