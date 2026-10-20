@@ -23,7 +23,6 @@ export type SettledRefresh = Exclude<FullRefreshOutcome, { kind: 'aborted' }>;
 
 export interface FeedRefreshOwner {
   request: () => void;
-  endOperation: () => void;
   abort: () => void;
   cancelTimer: () => void;
   storedFeed: () => NotificationFeed | null;
@@ -52,6 +51,7 @@ export interface FeedRefreshHost {
   update: (next: Snapshot) => void;
   isStopped: () => boolean;
   finish: (outcome: SettledRefresh, now: Date) => void;
+  reportError: (error: unknown) => void;
 }
 
 const minimumPollSeconds = 60;
@@ -77,12 +77,6 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   let cancelTimer: (() => void) | null = null;
   let pollSeconds = minimumPollSeconds;
   let lastFullRefreshAt = 0;
-
-  // A refresh ends by scheduling a poll or starting a follow-up, and both start another refresh.
-  const later: {
-    startFullRefresh?: (request: NotificationFeedRequest) => void;
-    onTimer?: () => void;
-  } = {};
 
   const rememberInterval = (seconds: number | null) => {
     if (seconds !== null) {
@@ -169,7 +163,10 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   const isCurrent = (own: number) => !host.isStopped() && own === generation;
 
   const schedule = (delayMilliseconds: number) => {
-    cancelTimer = host.setTimer(delayMilliseconds, () => later.onTimer?.());
+    cancelTimer = host.setTimer(delayMilliseconds, () => {
+      // oxlint-disable-next-line seam/helper-before-use -- a timer starts an operation, and an operation ends by scheduling the next timer
+      onTimer();
+    });
   };
 
   const pauseRemaining = () => {
@@ -182,7 +179,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
     return Math.max(pausedUntil.getTime() - host.now().getTime(), 0);
   };
 
-  const endOperation = () => {
+  const completeOperation = () => {
     controller = null;
 
     const paused = pauseRemaining();
@@ -196,7 +193,8 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
 
     if (followUpPending) {
       followUpPending = false;
-      later.startFullRefresh?.({ previous: null });
+      // oxlint-disable-next-line seam/helper-before-use -- a follow-up starts the operation that is ending
+      startFullRefresh({ previous: null });
 
       return;
     }
@@ -220,26 +218,45 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
     host.finish(outcome, now);
   };
 
-  const runFullRefresh = (own: number, signal: AbortSignal, request: NotificationFeedRequest) => {
+  const reportFailure = (error: unknown) => {
+    if (!host.isStopped()) {
+      host.reportError(error);
+    }
+  };
+
+  const runOperation = async (own: number, signal: AbortSignal, work: () => Promise<void>) => {
+    try {
+      await work();
+    } catch (error) {
+      reportFailure(error);
+    } finally {
+      if (isCurrent(own) && !signal.aborted) {
+        completeOperation();
+      }
+    }
+  };
+
+  const runFullRefresh = async (
+    own: number,
+    signal: AbortSignal,
+    request: NotificationFeedRequest,
+  ) => {
     host.update(startRefresh(host.getSnapshot()));
 
-    // A listener that throws must not stop the session.
-    fullRefresh(request, signal)
-      .then((outcome) => {
-        if (isCurrent(own)) {
-          finishFullRefresh(outcome);
-        }
-      })
-      .catch(() => undefined);
+    const outcome = await fullRefresh(request, signal);
+
+    if (isCurrent(own)) {
+      finishFullRefresh(outcome);
+    }
   };
 
-  later.startFullRefresh = (request) => {
+  const startFullRefresh = (request: NotificationFeedRequest) => {
     const { own, signal } = begin();
 
-    runFullRefresh(own, signal, request);
+    runOperation(own, signal, () => runFullRefresh(own, signal, request)).catch(reportFailure);
   };
 
-  const handlePoll = (
+  const handlePoll = async (
     own: number,
     signal: AbortSignal,
     stored: NotificationFeed,
@@ -247,7 +264,6 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   ) => {
     if (!result.ok) {
       host.update(applyFailure(host.getSnapshot(), result.failure, host.now()));
-      endOperation();
 
       return;
     }
@@ -256,34 +272,35 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
 
     if (result.value.kind === 'unchanged') {
       host.update(clearFailure(host.getSnapshot()));
-      endOperation();
 
       return;
     }
 
-    runFullRefresh(own, signal, {
+    await runFullRefresh(own, signal, {
       previous: stored,
       firstPage: result.value.page,
     });
   };
 
+  const pollOnce = async (own: number, signal: AbortSignal, stored: NotificationFeed) => {
+    const result = await guardEffect(() => host.pollFeed(stored, signal), requestFailed);
+
+    if (isCurrent(own)) {
+      await handlePoll(own, signal, stored, result);
+    }
+  };
+
   const startPoll = (stored: NotificationFeed) => {
     const { own, signal } = begin();
 
-    guardEffect(() => host.pollFeed(stored, signal), requestFailed)
-      .then((result) => {
-        if (isCurrent(own)) {
-          handlePoll(own, signal, stored, result);
-        }
-      })
-      .catch(() => undefined);
+    runOperation(own, signal, () => pollOnce(own, signal, stored)).catch(reportFailure);
   };
 
   const fullRefreshIsDue = () =>
     host.getSnapshot().feedBusy ||
     host.now().getTime() - lastFullRefreshAt >= fullRefreshAfterMilliseconds;
 
-  later.onTimer = () => {
+  const onTimer = () => {
     cancelTimer = null;
 
     if (host.isStopped() || controller !== null) {
@@ -305,7 +322,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
       host.getSnapshot().pausedUntil !== null || viewerUnknown || fullRefreshIsDue();
 
     if (stored === null || needsFullRefresh) {
-      later.startFullRefresh?.({ previous: stored });
+      startFullRefresh({ previous: stored });
 
       return;
     }
@@ -324,12 +341,11 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
       return;
     }
 
-    later.startFullRefresh?.({ previous: null });
+    startFullRefresh({ previous: null });
   };
 
   return {
     request,
-    endOperation,
     abort: () => {
       controller?.abort();
       controller = null;
