@@ -69,8 +69,8 @@ keeps the composer open, so the user can remove several chips in a row.
 - The list changes only on `Enter`, so it never jumps through valid prefixes.
 - One candidate list serves filters now and can serve other input lines later.
 - Typed values, wildcards, ages, and negation need no second mechanism.
-- Every combination of two positive chips on one field can match something, and ranges of age need
-  no new syntax.
+- Two positive chips of a one-value field widen the list instead of matching nothing, and ranges of
+  age need no new syntax.
 
 ### Negative
 
