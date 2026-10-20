@@ -504,3 +504,33 @@ export const fireDoneTimerAt = async (
   timer.callback();
   await settle();
 };
+
+export const doneWindow = 5000;
+
+export const markSelectedDone = (harness: ReturnType<typeof makeHarness>): number => {
+  const before = harness.timers.length;
+
+  harness.session.send({ kind: 'markDone' });
+
+  return before;
+};
+
+export const sendAndRelease = async (
+  harness: ReturnType<typeof makeHarness>,
+  before: number,
+): Promise<void> => {
+  await fireDoneTimerAt(harness, before);
+  harness.sends.at(-1)?.resolve(sentOk);
+  await settle();
+  await settle();
+};
+
+export const loadFive = async (
+  harness: ReturnType<typeof makeHarness>,
+): Promise<NotificationThread[]> => {
+  const threads = ['1', '2', '3', '4', '5'].map((id) => makeThread(id));
+
+  await harness.load(...threads);
+
+  return threads;
+};

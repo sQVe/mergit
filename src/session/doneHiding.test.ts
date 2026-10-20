@@ -2,7 +2,15 @@ import { expect, test } from 'bun:test';
 
 import { visibleRows } from './session.ts';
 import type { createSession } from './session.ts';
-import { makeHarness, makeThread, rowKeysOf } from './sessionHarness.ts';
+import {
+  failure,
+  fireDoneTimerAt,
+  makeHarness,
+  makeThread,
+  markSelectedDone,
+  rowKeysOf,
+  settle,
+} from './sessionHarness.ts';
 
 test('done hides the selected thread and the next thread takes its row', async () => {
   const harness = makeHarness();
@@ -191,4 +199,60 @@ test('undo of a thread that a refresh dropped keeps the current selection', asyn
 
   expect(harness.selected()).toBe(`thread:${one.id}`);
   expect(rowKeysOf(harness.session)).not.toContain(`thread:${two.id}`);
+});
+
+const foldedGroupHarness = async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  return { harness };
+};
+
+const expectFoldedHolder = (harness: ReturnType<typeof makeHarness>) => {
+  const snapshot = harness.session.getSnapshot();
+  const keys = visibleRows(snapshot).map((row) => row.key);
+
+  expect(snapshot.foldedNodes.reason.has('review/acme/app')).toBe(true);
+  expect(keys).toContain(snapshot.selectedRowKey ?? '');
+  expect(snapshot.selectedRowKey).toBe('node:review/acme/app');
+};
+
+test('undo of a done thread whose group was folded selects the group row and keeps the fold', async () => {
+  const { harness } = await foldedGroupHarness();
+
+  markSelectedDone(harness);
+  harness.selectThread(makeThread('2'));
+  harness.session.send({ kind: 'toggleFold' });
+  harness.session.send({ kind: 'undoDone' });
+
+  expectFoldedHolder(harness);
+});
+
+test('a failed send of a thread whose group was folded selects the group row', async () => {
+  const { harness } = await foldedGroupHarness();
+  const before = markSelectedDone(harness);
+
+  harness.selectThread(makeThread('2'));
+  harness.session.send({ kind: 'toggleFold' });
+  await fireDoneTimerAt(harness, before);
+  harness.sends[0]?.resolve(failure('Boom'));
+  await settle();
+
+  expectFoldedHolder(harness);
+});
+
+test('undo of a done thread that is not first in its unfolded group selects its own row', async () => {
+  const harness = makeHarness();
+  const [one, two, three] = [makeThread('1'), makeThread('2'), makeThread('3')];
+
+  await harness.load(one, two, three);
+  harness.selectThread(two);
+  markSelectedDone(harness);
+  harness.selectThread(one);
+  harness.session.send({ kind: 'undoDone' });
+
+  expect(harness.selected()).toBe(`thread:${two.id}`);
 });
