@@ -171,8 +171,9 @@ test('keeps other facts when one alias has a GraphQL error', async () => {
 
   const threads = [makeThread(1), makeThread(2), makeThread(3)];
 
-  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result, failures } = await lookUpSubjects(effects, threads, signal);
 
+  expect(failures).toEqual([]);
   expect(result.map((entry) => entry.facts?.state ?? null)).toEqual(['merged', null, 'merged']);
   expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2', '3']);
 });
@@ -231,8 +232,10 @@ test('gives no entries for a batch with an invalid body', async () => {
 
   const threads = Array.from({ length: 51 }, (_, index) => makeThread(index + 1));
 
-  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result, failures } = await lookUpSubjects(effects, threads, signal);
 
+  expect(failures).toHaveLength(1);
+  expect(failures[0]?.kind).toBe('invalidResponse');
   expect(result.map((entry) => String(entry.threadId))).toEqual(['51']);
 });
 
@@ -487,6 +490,22 @@ test('reports a rate limit from a 200 body with no data', async () => {
 
   expect(lookups).toEqual([]);
   expect(failures).toEqual([{ kind: 'rateLimited', resetAt: new Date(1_767_225_600_000) }]);
+});
+
+test('reports a request failure for another error type despite a reset header', async () => {
+  const { effects } = makeEffects(() => ({
+    kind: 'exited',
+    exitCode: 0,
+    stdout: `HTTP/2.0 200 OK\r\nx-ratelimit-reset: 1767225600\r\n\r\n${JSON.stringify({
+      data: null,
+      errors: [{ type: 'INTERNAL', message: 'Boom', path: ['t0'] }],
+    })}`,
+    stderr: '',
+  }));
+
+  const { failures } = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(failures).toEqual([{ kind: 'requestFailed', status: 200, message: 'Boom' }]);
 });
 
 test('reports the failure of a failed gh run and gives no lookups', async () => {

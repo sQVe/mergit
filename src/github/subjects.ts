@@ -138,7 +138,7 @@ const responseSchema = z.object({
     .array(
       z.object({
         type: z.string().optional(),
-        message: z.string().optional(),
+        message: z.string(),
         path: z.array(z.union([z.string(), z.number()])).optional(),
       }),
     )
@@ -185,38 +185,37 @@ const notFoundType = 'NOT_FOUND';
 const millisecondsPerSecond = 1000;
 
 const readFailure = (error: GraphqlError, response: GhResponse): GitHubFailure => {
-  const resetHeader = response.headers.get('x-ratelimit-reset');
-  const reset = Number(resetHeader);
+  const reset = Number(response.headers.get('x-ratelimit-reset'));
 
-  if (error.type === rateLimitedType && resetHeader !== undefined && Number.isFinite(reset)) {
+  if (error.type === rateLimitedType && Number.isFinite(reset)) {
     return { kind: 'rateLimited', resetAt: new Date(reset * millisecondsPerSecond) };
   }
 
   return {
     kind: 'requestFailed',
     status: response.status,
-    message: error.message ?? error.type ?? 'GraphQL error',
+    message: error.message,
   };
 };
 
 const decodeAlias = (
   request: SubjectRequest,
   repository: z.infer<typeof repositorySchema> | undefined,
-  aliasErrors: GraphqlError[],
+  hasAliasFailure: boolean,
 ): SubjectLookup | null => {
   const { thread, kind } = request;
   const subject = repository?.[kind];
   const missing = { threadId: thread.id, updatedAt: thread.updatedAt, facts: null };
 
-  if (aliasErrors.some((error) => error.type !== notFoundType)) {
+  if (hasAliasFailure) {
     return null;
   }
 
-  if (aliasErrors.length > 0 || repository === null || subject === null) {
+  if (repository === null || subject === null) {
     return missing;
   }
 
-  if (repository === undefined || subject === undefined) {
+  if (subject === undefined) {
     return null;
   }
 
@@ -250,8 +249,8 @@ const lookUpBatch = async (
 
   const lookups = batch.flatMap((request, index) => {
     const alias = `t${index}`;
-    const aliasErrors = errors.filter((error) => error.path?.[0] === alias);
-    const lookup = decodeAlias(request, data[alias], aliasErrors);
+    const hasAliasFailure = failedErrors.some((error) => error.path?.[0] === alias);
+    const lookup = decodeAlias(request, data[alias], hasAliasFailure);
 
     return lookup === null ? [] : [lookup];
   });
