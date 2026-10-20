@@ -7,7 +7,7 @@ import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
-import type { Session, Snapshot } from '../session/session.ts';
+import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 import { CommandLine, commandLineRows } from './CommandLine.tsx';
@@ -73,7 +73,8 @@ interface KeysProps extends AppProps {
   searchOpen: boolean;
   filtersOpen: boolean;
   commandLineOpen: boolean;
-  composerBlind: boolean;
+  width: number;
+  height: number;
 }
 
 const boxChromeRows = 3;
@@ -138,9 +139,41 @@ const isActive = (
   return command.scope === 'preview' ? detailOpen : !detailOpen;
 };
 
-const isRowAction = (command: Command, snapshot: Snapshot): boolean => {
-  const intent = command.intent(snapshot);
+const composerRowsOf = (snapshot: Snapshot) => (snapshot.filtersOpen ? filterRowsOf(snapshot) : []);
 
+const searchRoomOf = (snapshot: Snapshot, height: number): number =>
+  Math.max(
+    0,
+    height - statusRows - boxChromeRows - commandLineRows(snapshot) - filterBarRows(snapshot),
+  );
+
+const composerLayoutFor = (
+  snapshot: Snapshot,
+  rows: FilterRow[],
+  size: { width: number; height: number },
+) => {
+  const { width, height } = size;
+  const searchRoom = searchRoomOf(snapshot, height);
+
+  const otherRows =
+    statusRows +
+    boxChromeRows +
+    searchLineRows(snapshot, searchRoom) +
+    commandLineRows(snapshot) +
+    filterBarRows(snapshot);
+
+  return composerLayoutOf(snapshot, rows, { width, height, otherRows });
+};
+
+const isComposerBlind = (snapshot: Snapshot, width: number, height: number): boolean => {
+  const rows = composerRowsOf(snapshot);
+
+  return (
+    rows.length > 0 && composerLayoutFor(snapshot, rows, { width, height }).candidateRows === 0
+  );
+};
+
+const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
   if (intent.kind !== 'application') {
     return false;
   }
@@ -243,11 +276,11 @@ const Keys = (props: KeysProps): null => {
       return;
     }
 
-    if (props.composerBlind && isRowAction(command, snapshot)) {
+    const intent = command.intent(snapshot);
+
+    if (isFilterRowIntent(intent) && isComposerBlind(snapshot, props.width, props.height)) {
       return;
     }
-
-    const intent = command.intent(snapshot);
 
     if (intent.kind === 'application') {
       session.send(intent.intent);
@@ -321,7 +354,8 @@ const Keys = (props: KeysProps): null => {
       setOpenRequest,
       props.detailOpen,
       props.sideLayout,
-      props.composerBlind,
+      props.width,
+      props.height,
       props.catalog,
       session,
       onTerminalIntent,
@@ -451,22 +485,9 @@ export const App = (props: AppProps): ReactNode => {
     }
   }, [sideLayout]);
 
-  const composerRows = snapshot.filtersOpen ? filterRowsOf(snapshot) : [];
-
-  const searchRoom = Math.max(
-    0,
-    height - statusRows - boxChromeRows - commandLineRows(snapshot) - filterBarRows(snapshot),
-  );
-
-  const otherRows =
-    statusRows +
-    boxChromeRows +
-    searchLineRows(snapshot, searchRoom) +
-    commandLineRows(snapshot) +
-    filterBarRows(snapshot);
-
-  const composerLayout = composerLayoutOf(snapshot, composerRows, { width, height, otherRows });
-  const composerBlind = composerRows.length > 0 && composerLayout.candidateRows === 0;
+  const composerRows = composerRowsOf(snapshot);
+  const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
+  const searchRoom = searchRoomOf(snapshot, height);
 
   const widestPane = Math.floor(width * sidePaneShare);
   const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
@@ -492,7 +513,8 @@ export const App = (props: AppProps): ReactNode => {
         searchOpen={snapshot.searchOpen}
         filtersOpen={snapshot.filtersOpen}
         commandLineOpen={snapshot.commandLineOpen}
-        composerBlind={composerBlind}
+        width={width}
+        height={height}
       />
       <box flexDirection="column" flexGrow={1}>
         {filterBarRows(snapshot) === 0 ? null : (
