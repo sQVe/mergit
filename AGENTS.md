@@ -24,10 +24,10 @@ local setup and verification.
 
 ## Architecture
 
-- `src/` holds capability modules. Folder modules `github/`, `work/`, `session/`, and `ui/` each
-  have one public entry file named after the folder, such as `session/session.ts`. Other files in
-  the folder are private. Flat modules are `config.ts`, `actions.ts`, `localState.ts`,
-  `commands.ts`, `invariant.ts`, `query.ts`, `index.ts`, and `terminal.tsx`. See
+- `src/` holds capability modules. Folder modules `github/`, `work/`, `session/`, `ui/`, and
+  `localState/` each have one public entry file named after the folder, such as
+  `session/session.ts`. Other files in the folder are private. Flat modules are `config.ts`,
+  `actions.ts`, `commands.ts`, `invariant.ts`, `query.ts`, `index.ts`, and `terminal.tsx`. See
   [ADR 0004](docs/adr/0004-capability-modules.md) and
   [ADR 0019](docs/adr/0019-search-and-field-filters.md).
 - Imports follow the table in ADR 0004. `mergit/module-boundaries` enforces it in ordinary lint. Do

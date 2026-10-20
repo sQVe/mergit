@@ -19,8 +19,8 @@ import {
   saveSnapshot,
   stateDirectory,
   stateVersion,
-} from './localState.ts';
-import type { StateWriter } from './localState.ts';
+} from './localState/localState.ts';
+import type { StateWriter } from './localState/localState.ts';
 import { createSession } from './session/session.ts';
 import type { SavedSnapshot, SavedState, Session } from './session/session.ts';
 import { refuseStart, startTerminal } from './terminal.tsx';

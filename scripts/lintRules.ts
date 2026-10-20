@@ -16,12 +16,11 @@ type ImportSource =
   | ESTree.ExportNamedDeclaration
   | ESTree.ExportAllDeclaration;
 
-const folderModules = new Set(['github', 'work', 'session', 'ui']);
+const folderModules = new Set(['github', 'work', 'session', 'ui', 'localState']);
 
 const flatModules = new Set([
   'config',
   'actions',
-  'localState',
   'commands',
   'invariant',
   'query',

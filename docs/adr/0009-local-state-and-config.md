@@ -33,7 +33,7 @@ Mergit processes may write the same state file, and the last write wins.
   `~/.config/mergit/config.json`. `config.ts` will parse it. Mergit never writes it. Until
   `config.ts` exists, Mergit reads no config file, and the config rules below apply once it does.
 - State lives at `$XDG_STATE_HOME/mergit/state.json` and falls back to
-  `~/.local/state/mergit/state.json`. `localState.ts` parses and writes it.
+  `~/.local/state/mergit/state.json`. `localState/savedState.ts` parses and writes it.
 - Each file has a `version` field. Code past the parser receives typed values only.
 
 ### Reading
