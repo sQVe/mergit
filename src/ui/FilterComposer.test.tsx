@@ -731,6 +731,17 @@ test('a word wider than the box ends with an ellipsis on a line of its own', asy
   expect(rows.every((row) => row !== '')).toBe(true);
 });
 
+test('a word wider than the box before the last kept line ends with an ellipsis', async () => {
+  const repository = `acme/${'abcdefghij'.repeat(4)}`;
+  const inner = 20;
+  const { rows } = await describedOf(inner + composerChrome, 30, `repo:${repository}`, 3);
+
+  expect(rows).toHaveLength(3);
+  expect(rows[1]).toBe(`${repository.slice(0, inner - 1)}…`);
+  expect(rows[2]?.endsWith('…')).toBe(true);
+  expect(rows.every((row) => Bun.stringWidth(row) <= inner)).toBe(true);
+});
+
 test('a word exactly as wide as the box shows in full', async () => {
   const token = 'abcdefghij'.repeat(4);
   const probe = await describedOf(100, 30, `author:${token}`, 1);
@@ -747,8 +758,8 @@ test('a first word wider than the box leaves no empty line above it', async () =
   const words = wordsOf(text);
 
   expect(rows.every((row) => row !== '')).toBe(true);
-  expect(rows[0]).toBe(words[0]?.slice(0, inner));
-  expect(rows[1]).toBe(words[1]?.slice(0, inner));
+  expect(rows[0]).toBe(`${words[0]?.slice(0, inner - 1)}…`);
+  expect(rows[1]).toBe(`${words[1]?.slice(0, inner - 1)}…`);
   expect(rows[2]).toHaveLength(inner);
   expect(rows[2]?.endsWith('…')).toBe(true);
 });

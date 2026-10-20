@@ -88,5 +88,7 @@ export const wrapText = (text: string, width: number, maxLines: number): string[
   const kept = lines.slice(0, maxLines);
   const last = kept.at(-1) ?? '';
 
-  return [...kept.slice(0, -1), fitText(`${last}${ellipsis}`, width)];
+  const fittedKept = kept.slice(0, -1).map((line) => fitText(line, width));
+
+  return [...fittedKept, fitText(`${last}${ellipsis}`, width)];
 };
