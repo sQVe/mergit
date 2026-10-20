@@ -23,7 +23,7 @@ A new ADR is Accepted, and Accepted is the only status. Merging its PR is the ap
 no Proposed stage. When details of a decision change, edit its ADR in place. Supersede an ADR only
 when its core choice reverses: the new ADR states the whole current rule and names the old one on
 its Supersedes line. Delete the old file and add it to the Retired table. Numbers are never reused.
-`git show <commit>:docs/adr/<file>` restores a retired ADR from its last commit.
+`git show <commit>:docs/adr/<file>` prints a retired ADR from its last commit.
 
 ## Project and tooling
 

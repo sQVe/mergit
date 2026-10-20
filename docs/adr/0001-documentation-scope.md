@@ -42,7 +42,8 @@ reason and a credible alternative.
   file only when the decision is about that file.
 - The [ADR index](./README.md) groups current ADRs by area and ends with a Retired table. Numbers
   are never reused.
-- Git keeps the history. `git show <commit>:docs/adr/<file>` restores a retired ADR.
+- Git keeps the history. `git show <commit>:docs/adr/<file>` prints a retired ADR from its last
+  commit.
 
 ## Consequences
 
