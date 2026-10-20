@@ -1,8 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
 
+import { catalog } from '../commands.ts';
+import type { Command } from '../commands.ts';
 import {
   treeThread,
   fourRepoThreads,
+  mount as untrackedMount,
+  threadsEffects,
   track,
   mountWithGroup as untrackedMountWithGroup,
 } from './uiHarness.tsx';
@@ -15,6 +19,7 @@ afterEach(() => {
   }
 });
 
+const mount = track(cleanups, untrackedMount);
 const mountWithGroup = track(cleanups, untrackedMountWithGroup);
 
 const openedPages = ['a', 'b', 'c', 'd'].map((name) => ({
@@ -86,4 +91,30 @@ test('confirm opens the repos captured when the dialog opened, not the refreshed
   await settle();
 
   expect(opens).toEqual(openedPages);
+});
+
+test('a key that shows messages does nothing while the dialog is open', async () => {
+  const commands = catalog.filter((command) => command.id !== 'showMessages');
+  const showMessages = catalog.find((command) => command.id === 'showMessages') as Command;
+
+  commands.push({ ...showMessages, keys: ['m'] });
+
+  const { setup, press } = await mount(
+    'dark',
+    threadsEffects(fourRepoThreads),
+    60,
+    false,
+    24,
+    false,
+    commands,
+  );
+
+  await press('r');
+  await press('o');
+  await press('m');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Open 4 repos');
+  expect(frame).not.toContain('No messages yet');
 });
