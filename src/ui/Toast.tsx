@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
 import type { Palette } from './palette.ts';
+import { cellWidth, wrapCells } from './textLayout.ts';
 
 interface ToastMotion {
   slide: number;
@@ -36,17 +37,6 @@ const keyOf = (toast: ToastContent): number => {
   toastKeys.set(toast, nextToastKey);
 
   return nextToastKey;
-};
-
-const wrapLine = (line: string, columns: number): string[] => {
-  const step = Math.max(1, columns);
-  const chunks: string[] = [];
-
-  for (let start = 0; start < line.length; start += step) {
-    chunks.push(line.slice(start, start + step));
-  }
-
-  return chunks.length === 0 ? [''] : chunks;
 };
 
 const useToastMotion = (
@@ -112,7 +102,7 @@ const ToastCard = (props: {
   const background = isError ? palette.errorBackground : palette.infoBackground;
   const title = isError ? `✗ ${toast.title}` : toast.title;
   const lines = [title, ...toast.lines];
-  const longest = Math.max(...lines.map((line) => line.length));
+  const longest = Math.max(...lines.map((line) => cellWidth(line)));
   const widthLimit = Math.min(maximumWidth, terminalWidth - horizontalMargin);
   const textColumns = Math.min(longest, widthLimit - barColumns - paddingColumns);
 
@@ -129,10 +119,10 @@ const ToastCard = (props: {
   }
 
   const width = textColumns + barColumns + paddingColumns;
-  const titleRows = wrapLine(title, textColumns).slice(0, maximumTextLines);
+  const titleRows = wrapCells(title, textColumns).slice(0, maximumTextLines);
 
   const bodyRows = toast.lines
-    .flatMap((line) => wrapLine(line, textColumns))
+    .flatMap((line) => wrapCells(line, textColumns))
     .slice(0, Math.max(0, maximumTextLines - titleRows.length));
 
   const textRows = titleRows.length + bodyRows.length;

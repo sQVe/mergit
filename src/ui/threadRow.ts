@@ -49,14 +49,6 @@ export const formatAge = (updatedAt: string, now: Date): string => {
   return `${minutes}m`;
 };
 
-export const truncate = (text: string, width: number): string => {
-  if (text.length <= width) {
-    return text;
-  }
-
-  return `${text.slice(0, Math.max(0, width - 1))}…`;
-};
-
 export const scrollTop = (
   currentTop: number,
   selectedIndex: number,

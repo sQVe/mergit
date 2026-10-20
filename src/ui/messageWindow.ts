@@ -1,4 +1,5 @@
 import type { Snapshot } from '../session/session.ts';
+import { wrapCells } from './textLayout.ts';
 
 type Message = Snapshot['messages'][number];
 
@@ -30,35 +31,10 @@ const pad = (value: number): string => String(value).padStart(2, '0');
 const timeOf = (moment: Date): string =>
   `${pad(moment.getHours())}:${pad(moment.getMinutes())}:${pad(moment.getSeconds())}`;
 
-const segmenter = new Intl.Segmenter();
-
-const wrap = (text: string, columns: number): string[] => {
-  const chunks: string[] = [];
-  let current = '';
-  let currentWidth = 0;
-
-  for (const { segment } of segmenter.segment(text)) {
-    const width = Bun.stringWidth(segment);
-
-    if (current !== '' && currentWidth + width > columns) {
-      chunks.push(current);
-      current = '';
-      currentWidth = 0;
-    }
-
-    current += segment;
-    currentWidth += width;
-  }
-
-  chunks.push(current);
-
-  return chunks;
-};
-
 const lineBreak = /\r\n|\r|\n/;
 
 const rowsOfMessage = (message: Message, columns: number): MessageRow[] => {
-  const titleChunks = wrap(message.title, columns);
+  const titleChunks = wrapCells(message.title, columns);
 
   const titleRows = titleChunks.map((text, index) => ({
     key: `${message.id}-title-${index}`,
@@ -71,7 +47,7 @@ const rowsOfMessage = (message: Message, columns: number): MessageRow[] => {
   const textLines = message.lines.flatMap((line) => line.split(lineBreak));
 
   const lineRows = textLines.flatMap((line, lineIndex) =>
-    wrap(line, columns).map((text, index) => ({
+    wrapCells(line, columns).map((text, index) => ({
       key: `${message.id}-line-${lineIndex}-${index}`,
       time: '',
       tone: null,

@@ -393,3 +393,27 @@ test('a long reason is wrapped once and the path after it stays visible', async 
   expect(text).toContain('ENDPATH');
   expect(text.split('A'.repeat(45))).toHaveLength(2);
 });
+
+test('a toast with a wide reason wraps by cells and keeps its title and the end of the reason', async () => {
+  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+
+  await press('s');
+  await failWrite(session, advance, `${'界'.repeat(20)}END`);
+
+  const rows = setup
+    .captureCharFrame()
+    .split('\n')
+    .filter((row) => row.includes('▌'));
+
+  const text = rows.join('\n');
+
+  expect(text).toContain('✗ Grouping not saved');
+  expect(text).toContain('END');
+  expect(text).not.toMatch(/\uFFFD|[\uD800-\uDFFF]/u);
+
+  for (const row of rows) {
+    const barColumn = row.indexOf('▌');
+
+    expect(Bun.stringWidth(row.slice(barColumn).trimEnd())).toBeLessThanOrEqual(40);
+  }
+});

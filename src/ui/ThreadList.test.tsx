@@ -713,3 +713,24 @@ test('ages show minutes under an hour, hours under a day, and days from a day', 
   expect(ageOf('Two days')).toBe('2d');
   expect(ageOf('In the future')).toBe('0m');
 });
+
+test('a wide or emoji title ends in an ellipsis within the row width', async () => {
+  const wideTitle = `${'界'.repeat(60)}TAIL`;
+  const emojiTitle = '🚀'.repeat(40);
+  const threads = [treeThread(1, wideTitle, {}), treeThread(2, emojiTitle, {})];
+  const { setup, press } = await mount('dark', threadsEffects(threads), 60);
+
+  await pressAll(press, ['r', 's', 's']);
+
+  const lines = frameLines(setup).slice(0, 2);
+
+  expect(lines).toHaveLength(2);
+
+  for (const line of lines) {
+    const title = line.replace(/\s+\d+h$/, '');
+
+    expect(title.endsWith('…')).toBe(true);
+    expect(title).not.toMatch(/\uFFFD|[\uD800-\uDFFF]/u);
+    expect(Bun.stringWidth(line)).toBeLessThanOrEqual(60);
+  }
+});
