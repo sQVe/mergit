@@ -5,7 +5,7 @@ import type {
   NotificationFeedRequest,
   NotificationPoll,
   NotificationVerification,
-  SubjectLookup,
+  SubjectLookupResult,
   Viewer,
 } from '../github/github.ts';
 import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../work/work.ts';
@@ -128,7 +128,10 @@ export interface SessionEffects {
     feed: NotificationFeed,
     signal: AbortSignal,
   ) => Promise<GitHubResult<NotificationVerification>>;
-  lookUpSubjects: (threads: NotificationThread[], signal: AbortSignal) => Promise<SubjectLookup[]>;
+  lookUpSubjects: (
+    threads: NotificationThread[],
+    signal: AbortSignal,
+  ) => Promise<SubjectLookupResult>;
   now: () => Date;
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
 }

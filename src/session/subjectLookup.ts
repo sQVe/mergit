@@ -1,4 +1,4 @@
-import type { SubjectLookup } from '../github/github.ts';
+import type { SubjectLookup, SubjectLookupResult } from '../github/github.ts';
 import type { NotificationThread, ThreadId } from '../work/work.ts';
 import type { Snapshot } from './sessionState.ts';
 import { keepSelectionVisible } from './sessionState.ts';
@@ -13,7 +13,10 @@ export interface SubjectLookupOwner {
 
 export interface SubjectLookupHost {
   saved: { threads: readonly NotificationThread[] } | null;
-  lookUpSubjects: (threads: NotificationThread[], signal: AbortSignal) => Promise<SubjectLookup[]>;
+  lookUpSubjects: (
+    threads: NotificationThread[],
+    signal: AbortSignal,
+  ) => Promise<SubjectLookupResult>;
   getSnapshot: () => Snapshot;
   update: (next: Snapshot) => void;
   isStopped: () => boolean;
@@ -110,9 +113,9 @@ export const createSubjectLookup = (host: SubjectLookupHost): SubjectLookupOwner
     // sends them again.
     Promise.resolve()
       .then(() => host.lookUpSubjects(unknown, own.signal))
-      .then((lookups) => {
+      .then((result) => {
         if (!own.signal.aborted && !host.isStopped()) {
-          acceptLookups(unknown, lookups);
+          acceptLookups(unknown, result.lookups);
         }
       })
       .catch(() => {

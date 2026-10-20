@@ -1,13 +1,18 @@
 import { z } from 'zod';
 
 import type { NotificationThread, SubjectFacts, ThreadId } from '../work/work.ts';
-import type { GitHubEffects } from './ghApi.ts';
+import type { GhResponse, GitHubEffects, GitHubFailure } from './ghApi.ts';
 import { requestGraphql } from './ghApi.ts';
 
 export interface SubjectLookup {
   threadId: ThreadId;
   updatedAt: string;
   facts: SubjectFacts | null;
+}
+
+export interface SubjectLookupResult {
+  lookups: SubjectLookup[];
+  failures: GitHubFailure[];
 }
 
 type SubjectKind = 'pullRequest' | 'issue';
@@ -31,37 +36,33 @@ const actorFields = 'actor { login }';
 const authorFields = 'author { login }';
 const subjectAuthorFields = 'author { __typename login }';
 
-const sharedTimelineFragments = [
-  `... on IssueComment { ${authorFields} }`,
-  `... on ClosedEvent { ${actorFields} }`,
-  `... on ReopenedEvent { ${actorFields} }`,
-];
-
-const pullRequestTimelineFragments = [
-  ...sharedTimelineFragments,
-  `... on PullRequestReview { ${authorFields} }`,
-  '... on PullRequestCommit { commit { author { user { login } } } }',
-  `... on MergedEvent { ${actorFields} }`,
-  `... on HeadRefForcePushedEvent { ${actorFields} }`,
-  `... on HeadRefDeletedEvent { ${actorFields} }`,
-];
-
 // Without itemTypes, the last item can be a type the fragments skip, such as a cross-reference,
-// which does not move the thread's updated_at. Keep each list in step with its fragments.
-const sharedItemTypes = ['ISSUE_COMMENT', 'CLOSED_EVENT', 'REOPENED_EVENT'];
+// which does not move the thread's updated_at.
+const sharedTimelineEvents = {
+  ISSUE_COMMENT: `... on IssueComment { ${authorFields} }`,
+  CLOSED_EVENT: `... on ClosedEvent { ${actorFields} }`,
+  REOPENED_EVENT: `... on ReopenedEvent { ${actorFields} }`,
+};
 
-const pullRequestItemTypes = [
-  ...sharedItemTypes,
-  'PULL_REQUEST_REVIEW',
-  'PULL_REQUEST_COMMIT',
-  'MERGED_EVENT',
-  'HEAD_REF_FORCE_PUSHED_EVENT',
-  'HEAD_REF_DELETED_EVENT',
-];
+const pullRequestTimelineEvents = {
+  ...sharedTimelineEvents,
+  PULL_REQUEST_REVIEW: `... on PullRequestReview { ${authorFields} }`,
+  PULL_REQUEST_COMMIT: '... on PullRequestCommit { commit { author { user { login } } } }',
+  MERGED_EVENT: `... on MergedEvent { ${actorFields} }`,
+  HEAD_REF_FORCE_PUSHED_EVENT: `... on HeadRefForcePushedEvent { ${actorFields} }`,
+  HEAD_REF_DELETED_EVENT: `... on HeadRefDeletedEvent { ${actorFields} }`,
+};
+
+const selectTimeline = (events: Record<string, string>) => {
+  const itemTypes = Object.keys(events).join(', ');
+  const fragments = Object.values(events).join(' ');
+
+  return `timelineItems(last: 1, itemTypes: [${itemTypes}]) { nodes { ${fragments} } }`;
+};
 
 const selections: Record<SubjectKind, string> = {
-  pullRequest: `pullRequest(number: $number) { state ${subjectAuthorFields} timelineItems(last: 1, itemTypes: [${pullRequestItemTypes.join(', ')}]) { nodes { ${pullRequestTimelineFragments.join(' ')} } } }`,
-  issue: `issue(number: $number) { state ${subjectAuthorFields} timelineItems(last: 1, itemTypes: [${sharedItemTypes.join(', ')}]) { nodes { ${sharedTimelineFragments.join(' ')} } } }`,
+  pullRequest: `pullRequest(number: $number) { state ${subjectAuthorFields} ${selectTimeline(pullRequestTimelineEvents)} }`,
+  issue: `issue(number: $number) { state ${subjectAuthorFields} ${selectTimeline(sharedTimelineEvents)} }`,
 };
 
 const readSubjectRequest = (thread: NotificationThread): SubjectRequest | null => {
@@ -132,11 +133,12 @@ const repositorySchema = z
   .nullable();
 
 const responseSchema = z.object({
-  data: z.record(z.string(), repositorySchema.optional()),
+  data: z.record(z.string(), repositorySchema.optional()).nullish(),
   errors: z
     .array(
       z.object({
         type: z.string().optional(),
+        message: z.string(),
         path: z.array(z.union([z.string(), z.number()])).optional(),
       }),
     )
@@ -170,75 +172,105 @@ const readAuthor = (subject: z.infer<typeof subjectSchema>): string | null => {
   return author.__typename === 'Bot' ? `${author.login}[bot]` : author.login;
 };
 
-const readFacts = (
-  repository: z.infer<typeof repositorySchema> | undefined,
-  kind: SubjectKind,
-): SubjectFacts | null => {
-  const subject = repository?.[kind];
+const readFacts = (subject: z.infer<typeof subjectSchema>): SubjectFacts => ({
+  state: stateByGraphql[subject.state],
+  author: readAuthor(subject),
+  latestActor: readLatestActor(subject),
+});
 
-  if (subject === undefined || subject === null) {
-    return null;
+type GraphqlError = NonNullable<z.infer<typeof responseSchema>['errors']>[number];
+
+const rateLimitedType = 'RATE_LIMITED';
+const notFoundType = 'NOT_FOUND';
+const millisecondsPerSecond = 1000;
+
+const readFailure = (error: GraphqlError, response: GhResponse): GitHubFailure => {
+  const reset = Number(response.headers.get('x-ratelimit-reset'));
+
+  if (error.type === rateLimitedType && Number.isFinite(reset)) {
+    return { kind: 'rateLimited', resetAt: new Date(reset * millisecondsPerSecond) };
   }
 
   return {
-    state: stateByGraphql[subject.state],
-    author: readAuthor(subject),
-    latestActor: readLatestActor(subject),
+    kind: 'requestFailed',
+    status: response.status,
+    message: error.message,
   };
+};
+
+const decodeAlias = (
+  request: SubjectRequest,
+  repository: z.infer<typeof repositorySchema> | undefined,
+  hasAliasFailure: boolean,
+): SubjectLookup | null => {
+  const { thread, kind } = request;
+  const subject = repository?.[kind];
+  const missing = { threadId: thread.id, updatedAt: thread.updatedAt, facts: null };
+
+  if (hasAliasFailure) {
+    return null;
+  }
+
+  if (repository === null || subject === null) {
+    return missing;
+  }
+
+  if (subject === undefined) {
+    return null;
+  }
+
+  return { threadId: thread.id, updatedAt: thread.updatedAt, facts: readFacts(subject) };
 };
 
 const lookUpBatch = async (
   effects: GitHubEffects,
   batch: SubjectRequest[],
   signal: AbortSignal,
-): Promise<SubjectLookup[]> => {
+): Promise<SubjectLookupResult> => {
   const { query, variables } = buildBatchQuery(batch);
   const response = await requestGraphql(effects, query, variables, signal);
 
   if (!response.ok) {
-    return [];
+    return { lookups: [], failures: [response.failure] };
   }
 
   const parsed = responseSchema.safeParse(response.value.body);
 
   if (!parsed.success) {
-    return [];
+    const failure: GitHubFailure = { kind: 'invalidResponse', message: parsed.error.message };
+
+    return { lookups: [], failures: [failure] };
   }
 
   const errors = parsed.data.errors ?? [];
-  const failedAliases = new Set(errors.map((error) => error.path?.[0]));
+  const data = parsed.data.data ?? {};
+  const failedErrors = errors.filter((error) => error.type !== notFoundType);
+  const failures = failedErrors.map((error) => readFailure(error, response.value));
 
-  // Only a missing subject is a lasting answer. Other alias errors can be temporary, so those
-  // threads get no entry and the next refresh asks again.
-  const retryAliases = new Set(
-    errors.filter((error) => error.type !== 'NOT_FOUND').map((error) => error.path?.[0]),
-  );
-
-  return batch.flatMap((request, index) => {
+  const lookups = batch.flatMap((request, index) => {
     const alias = `t${index}`;
+    const hasAliasFailure = failedErrors.some((error) => error.path?.[0] === alias);
+    const lookup = decodeAlias(request, data[alias], hasAliasFailure);
 
-    if (retryAliases.has(alias)) {
-      return [];
-    }
-
-    const facts = failedAliases.has(alias)
-      ? null
-      : readFacts(parsed.data.data[alias], request.kind);
-
-    return [{ threadId: request.thread.id, updatedAt: request.thread.updatedAt, facts }];
+    return lookup === null ? [] : [lookup];
   });
+
+  return { lookups, failures };
 };
 
 export const lookUpSubjects = async (
   effects: GitHubEffects,
   threads: NotificationThread[],
   signal: AbortSignal,
-): Promise<SubjectLookup[]> => {
+): Promise<SubjectLookupResult> => {
   const requests = threads.map(readSubjectRequest).filter((request) => request !== null);
 
   const batches = await Promise.all(
     chunk(requests).map((batch) => lookUpBatch(effects, batch, signal)),
   );
 
-  return batches.flat();
+  return {
+    lookups: batches.flatMap((batch) => batch.lookups),
+    failures: batches.flatMap((batch) => batch.failures),
+  };
 };

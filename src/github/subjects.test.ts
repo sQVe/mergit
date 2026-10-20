@@ -105,7 +105,7 @@ test('looks up pull requests and issues in one request', async () => {
     }),
   ];
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(calls).toHaveLength(1);
   expect(calls[0]?.slice(0, 3)).toEqual(['api', 'graphql', '--include']);
@@ -134,7 +134,7 @@ test('sends 120 pull requests as batches of 50, 50, and 20', async () => {
   const { effects, calls } = makeEffects(answerEveryAlias);
   const threads = Array.from({ length: 120 }, (_, index) => makeThread(index + 1));
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(calls.map(countAliases)).toEqual([50, 50, 20]);
   expect(result).toHaveLength(120);
@@ -151,7 +151,7 @@ test('skips other subject types and threads without a subject URL', async () => 
     makeThread(5, { subjectType: 'Release' }),
   ];
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(calls.map(countAliases)).toEqual([1]);
   expect(result.map((entry) => String(entry.threadId))).toEqual(['1']);
@@ -171,8 +171,9 @@ test('keeps other facts when one alias has a GraphQL error', async () => {
 
   const threads = [makeThread(1), makeThread(2), makeThread(3)];
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result, failures } = await lookUpSubjects(effects, threads, signal);
 
+  expect(failures).toEqual([]);
   expect(result.map((entry) => entry.facts?.state ?? null)).toEqual(['merged', null, 'merged']);
   expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2', '3']);
 });
@@ -194,7 +195,7 @@ test('gives no entry for an alias with an error other than not found', async () 
 
   const threads = [makeThread(1), makeThread(2), makeThread(3)];
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2']);
   expect(result.map((entry) => entry.facts?.state ?? null)).toEqual(['merged', null]);
@@ -211,7 +212,7 @@ test('gives no entries for a failed batch and keeps the other batches', async ()
 
   const threads = Array.from({ length: 60 }, (_, index) => makeThread(index + 1));
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(result).toHaveLength(10);
 
@@ -231,8 +232,10 @@ test('gives no entries for a batch with an invalid body', async () => {
 
   const threads = Array.from({ length: 51 }, (_, index) => makeThread(index + 1));
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result, failures } = await lookUpSubjects(effects, threads, signal);
 
+  expect(failures).toHaveLength(1);
+  expect(failures[0]?.kind).toBe('invalidResponse');
   expect(result.map((entry) => String(entry.threadId))).toEqual(['51']);
 });
 
@@ -242,7 +245,7 @@ test('gives no entries when gh is missing', async () => {
     now: () => new Date('2026-01-01T00:00:00Z'),
   };
 
-  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+  const { lookups: result } = await lookUpSubjects(effects, [makeThread(1)], signal);
 
   expect(result).toEqual([]);
 });
@@ -256,7 +259,7 @@ test('reports a null author with the state', async () => {
     }),
   );
 
-  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+  const { lookups: result } = await lookUpSubjects(effects, [makeThread(1)], signal);
 
   expect(result[0]?.facts).toEqual({ state: 'closed', author: null, latestActor: null });
 });
@@ -275,7 +278,7 @@ test('reads the latest actor and gives null for an unread event type', async () 
 
   const threads = [makeThread(1), makeThread(2), makeThread(3), makeThread(4)];
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(result.map((entry) => entry.facts?.latestActor)).toEqual([
     'reviewer',
@@ -298,7 +301,7 @@ test('stores a bot author login with the bot suffix', async () => {
     }),
   );
 
-  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+  const { lookups: result } = await lookUpSubjects(effects, [makeThread(1)], signal);
   const sentQuery = readQuery(calls[0] ?? []);
 
   expect(sentQuery).toContain('author { __typename login }');
@@ -342,7 +345,7 @@ test('sends each owner and name as a string and each number as an integer to gh'
     makeThread(2, { subjectUrl: 'https://api.github.com/repos/mona/lisa/pulls/42' }),
   ];
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(result.map((entry) => entry.facts?.author)).toEqual(['octo/widgets#1', 'mona/lisa#42']);
 });
@@ -354,7 +357,7 @@ test('makes no lookup for a subject URL with a suffix', async () => {
     subjectUrl: 'https://api.github.com/repos/o/r/pulls/12/comments',
   });
 
-  const result = await lookUpSubjects(effects, [thread], signal);
+  const { lookups: result } = await lookUpSubjects(effects, [thread], signal);
 
   expect(calls).toEqual([]);
   expect(result).toEqual([]);
@@ -364,7 +367,7 @@ test('sends no empty batch for exactly 50 threads', async () => {
   const { effects, calls } = makeEffects(answerEveryAlias);
   const threads = Array.from({ length: 50 }, (_, index) => makeThread(index + 1));
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(calls.map(countAliases)).not.toContain(0);
   expect(result).toHaveLength(50);
@@ -373,7 +376,7 @@ test('sends no empty batch for exactly 50 threads', async () => {
 test('makes no call for zero threads', async () => {
   const { effects, calls } = makeEffects(answerEveryAlias);
 
-  const result = await lookUpSubjects(effects, [], signal);
+  const { lookups: result } = await lookUpSubjects(effects, [], signal);
 
   expect(calls).toEqual([]);
   expect(result).toEqual([]);
@@ -392,7 +395,7 @@ test('gives a null latest actor when the last timeline node is null', async () =
     }),
   );
 
-  const result = await lookUpSubjects(effects, [makeThread(1)], signal);
+  const { lookups: result } = await lookUpSubjects(effects, [makeThread(1)], signal);
 
   expect(result[0]?.facts).toEqual({ state: 'open', author: 'octo', latestActor: null });
 });
@@ -407,7 +410,7 @@ test('gives a null latest actor for a commit without an author or user', async (
     }),
   );
 
-  const result = await lookUpSubjects(effects, [makeThread(1), makeThread(2)], signal);
+  const { lookups: result } = await lookUpSubjects(effects, [makeThread(1), makeThread(2)], signal);
 
   expect(result.map((entry) => entry.facts?.latestActor)).toEqual([null, null]);
 });
@@ -425,7 +428,7 @@ test('gives facts null for an alias with null data and no errors', async () => {
 
   const threads = [makeThread(1), makeThread(2), makeThread(3)];
 
-  const result = await lookUpSubjects(effects, threads, signal);
+  const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(result.map((entry) => String(entry.threadId))).toEqual(['1', '2', '3']);
   expect(result[0]?.facts).toBeNull();
@@ -444,7 +447,75 @@ test('keeps other facts when a GraphQL error has no path', async () => {
     }),
   );
 
-  const result = await lookUpSubjects(effects, [makeThread(1), makeThread(2)], signal);
+  const { lookups: result, failures } = await lookUpSubjects(
+    effects,
+    [makeThread(1), makeThread(2)],
+    signal,
+  );
 
   expect(result.map((entry) => entry.facts?.state)).toEqual(['merged', 'merged']);
+  expect(failures).toEqual([{ kind: 'requestFailed', status: 200, message: 'Slow down' }]);
+});
+
+test('retries a subject whose alias is absent from data', async () => {
+  const { effects } = makeEffects(() =>
+    httpResponse({ data: { t1: repositoryWith(pullRequestFacts) } }),
+  );
+
+  const { lookups } = await lookUpSubjects(effects, [makeThread(1), makeThread(2)], signal);
+
+  expect(lookups.map((entry) => String(entry.threadId))).toEqual(['2']);
+});
+
+test('retries a subject whose subject field is absent from its alias', async () => {
+  const { effects } = makeEffects(() => httpResponse({ data: { t0: {} } }));
+
+  const { lookups } = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(lookups).toEqual([]);
+});
+
+test('reports a rate limit from a 200 body with no data', async () => {
+  const { effects } = makeEffects(() => ({
+    kind: 'exited',
+    exitCode: 0,
+    stdout: `HTTP/2.0 200 OK\r\nx-ratelimit-reset: 1767225600\r\n\r\n${JSON.stringify({
+      data: null,
+      errors: [{ type: 'RATE_LIMITED', message: 'Slow down' }],
+    })}`,
+    stderr: '',
+  }));
+
+  const { lookups, failures } = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(lookups).toEqual([]);
+  expect(failures).toEqual([{ kind: 'rateLimited', resetAt: new Date(1_767_225_600_000) }]);
+});
+
+test('reports a request failure for another error type despite a reset header', async () => {
+  const { effects } = makeEffects(() => ({
+    kind: 'exited',
+    exitCode: 0,
+    stdout: `HTTP/2.0 200 OK\r\nx-ratelimit-reset: 1767225600\r\n\r\n${JSON.stringify({
+      data: null,
+      errors: [{ type: 'INTERNAL', message: 'Boom', path: ['t0'] }],
+    })}`,
+    stderr: '',
+  }));
+
+  const { failures } = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(failures).toEqual([{ kind: 'requestFailed', status: 200, message: 'Boom' }]);
+});
+
+test('reports the failure of a failed gh run and gives no lookups', async () => {
+  const effects: GitHubEffects = {
+    runGh: async () => ({ kind: 'missing' }),
+    now: () => new Date('2026-01-01T00:00:00Z'),
+  };
+
+  const { lookups, failures } = await lookUpSubjects(effects, [makeThread(1)], signal);
+
+  expect(lookups).toEqual([]);
+  expect(failures).toEqual([{ kind: 'ghMissing' }]);
 });

@@ -47,7 +47,7 @@ const idleEffects: SessionEffects = {
     }),
   verifyFeed: () =>
     Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
-  lookUpSubjects: () => Promise.resolve([]),
+  lookUpSubjects: () => Promise.resolve({ lookups: [], failures: [] }),
   now: () => new Date(0),
   setTimer: () => () => undefined,
 };

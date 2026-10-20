@@ -59,7 +59,7 @@ export const idleEffects: SessionEffects = {
     }),
   verifyFeed: () =>
     Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
-  lookUpSubjects: () => Promise.resolve([]),
+  lookUpSubjects: () => Promise.resolve({ lookups: [], failures: [] }),
   now: () => new Date(0),
   setTimer: () => () => undefined,
 };
@@ -363,8 +363,9 @@ export const factsEffects = (
 ): SessionEffects => ({
   ...threadsEffects(threads),
   lookUpSubjects: () =>
-    Promise.resolve(
-      threads.flatMap((thread) => {
+    Promise.resolve({
+      failures: [],
+      lookups: threads.flatMap((thread) => {
         const known = facts.get(thread.id);
 
         return known === undefined
@@ -377,7 +378,7 @@ export const factsEffects = (
               },
             ];
       }),
-    ),
+    }),
 });
 
 export const newMarkerThreads: readonly NotificationThread[] = [
