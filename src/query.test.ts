@@ -515,18 +515,21 @@ test('draft analysis sees an unknown field after an open quote', () => {
 });
 
 test('draft analysis matches parseFilters and ignores known names', () => {
-  for (const draft of ['repo:a -Title:b is:pr', 'repo:a foo:b', 'plain', 'title:"a b" -x:y']) {
+  const drafts = [
+    'repo:a -Title:b is:pr',
+    'repo:a foo:b',
+    'plain',
+    'title:"a b" -x:y',
+    'foo:x title:"abc',
+  ];
+
+  for (const draft of drafts) {
     expect(analyzeFilterDraft(draft).parsed).toEqual(parseFilters(draft));
   }
 
   expect(analyzeFilterDraft('repo:a -Title:b is:pr').hasUnknownField).toBe(false);
   expect(analyzeFilterDraft('repo:a -Foo:b').hasUnknownField).toBe(true);
   expect(analyzeFilterDraft('plain :x "a:b"').hasUnknownField).toBe(false);
-
-  expect(analyzeFilterDraft('foo:x title:"abc').parsed).toEqual({
-    ok: false,
-    error: 'Invalid filter "title:"abc": the quote is not closed.',
-  });
 });
 
 test('filters of age and title combine with and, others with or', () => {
