@@ -118,3 +118,37 @@ test('a key that shows messages does nothing while the dialog is open', async ()
   expect(frame).toContain('Open 4 repos');
   expect(frame).not.toContain('No messages yet');
 });
+
+for (const key of ['y', 'n']) {
+  test(`o shows the dialog again after ${key} closed it`, async () => {
+    const { setup, press, settle } = await mountWithGroup();
+
+    await press('o');
+    await press(key);
+    await settle();
+    await press('o');
+
+    expect(setup.captureCharFrame()).toContain('Open 4 repos');
+  });
+}
+
+test('n leaves help open when no dialog is open', async () => {
+  const { setup, press, settle } = await mountWithGroup();
+
+  await press('?');
+  await press('n');
+  await settle();
+
+  expect(setup.captureCharFrame()).toContain('Toggle help');
+});
+
+test('o shows the dialog after help opened and closed', async () => {
+  const { setup, press, settle } = await mountWithGroup();
+
+  await press('?');
+  await press('?');
+  await settle();
+  await press('o');
+
+  expect(setup.captureCharFrame()).toContain('Open 4 repos');
+});
