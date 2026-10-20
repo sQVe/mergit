@@ -53,7 +53,7 @@ export type { Snapshot } from './sessionState.ts';
 export { filterCursorOf, filterRowsOf } from './filterComposer.ts';
 export type { FilterRow } from './filterComposer.ts';
 export { describeFilterRow } from './filterDescriptions.ts';
-export { formatFilter } from '../query.ts';
+export { filterCombinationOf, formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
 export { chosenCandidateIndexOf, searchCandidatesOf } from './searchCompletion.ts';
 export { matchCountOf, noticeMessages, openThreads, visibleRows } from './sessionState.ts';

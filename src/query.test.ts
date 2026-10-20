@@ -1,8 +1,10 @@
 import { expect, test } from 'bun:test';
 
 import {
+  analyzeFilterDraft,
   evaluate,
   filterCandidates,
+  filterCombinationOf,
   filterQuery,
   formatFilter,
   parseFilters,
@@ -500,4 +502,38 @@ test('parsed new:true and unread:true match only a thread with the flag set', ()
   expect(runFilters('unread:true', { thread: { unread: false } })).toBe(false);
   expect(runFilters('new:true', { isNew: true })).toBe(true);
   expect(runFilters('new:true', { isNew: false })).toBe(false);
+});
+
+test('draft analysis sees an unknown field after an open quote', () => {
+  const unknown = analyzeFilterDraft('foo:x title:"abc');
+  const known = analyzeFilterDraft('"foo:x');
+
+  expect(unknown.hasUnknownField).toBe(true);
+  expect(unknown.parsed.ok).toBe(false);
+  expect(known.hasUnknownField).toBe(false);
+  expect(known.parsed.ok).toBe(false);
+});
+
+test('draft analysis matches parseFilters and ignores known names', () => {
+  const drafts = [
+    'repo:a -Title:b is:pr',
+    'repo:a foo:b',
+    'plain',
+    'title:"a b" -x:y',
+    'foo:x title:"abc',
+  ];
+
+  for (const draft of drafts) {
+    expect(analyzeFilterDraft(draft).parsed).toEqual(parseFilters(draft));
+  }
+
+  expect(analyzeFilterDraft('repo:a -Title:b is:pr').hasUnknownField).toBe(false);
+  expect(analyzeFilterDraft('repo:a -Foo:b').hasUnknownField).toBe(true);
+  expect(analyzeFilterDraft('plain :x "a:b"').hasUnknownField).toBe(false);
+});
+
+test('filters of age and title combine with and, others with or', () => {
+  expect(filterCombinationOf('age')).toBe('and');
+  expect(filterCombinationOf('title')).toBe('and');
+  expect(filterCombinationOf('repo')).toBe('or');
 });
