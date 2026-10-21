@@ -47,21 +47,18 @@ const statusRowOf = (frame: string): string =>
     .find((line) => line.trim() !== '') ?? '';
 
 test('a command without keys leaves its word alone in the status line', async () => {
-  const { setup } = await mount('dark', undefined, 100, false, 24, false, without(['help']));
+  const { setup } = await mount({ themeMode: 'dark', width: 100, catalog: without(['help']) });
 
   expect(statusRowOf(setup.captureCharFrame()).trim()).toBe('help');
 });
 
 test('a missing refresh key gives the status marker and the toast a keyless fix', async () => {
-  const { setup, session, settle } = await mount(
-    'dark',
-    ghMissingEffects,
-    100,
-    false,
-    24,
-    false,
-    without(['refresh']),
-  );
+  const { setup, session, settle } = await mount({
+    themeMode: 'dark',
+    effects: ghMissingEffects,
+    width: 100,
+    catalog: without(['refresh']),
+  });
 
   act(() => {
     session.send({ kind: 'refresh' });
@@ -75,15 +72,12 @@ test('a missing refresh key gives the status marker and the toast a keyless fix'
 });
 
 const confirmHintOf = async (ids: readonly string[]): Promise<string> => {
-  const { setup, session, press, settle } = await mount(
-    'dark',
-    feedEffects(() => fourRepoThreads),
-    100,
-    false,
-    24,
-    false,
-    without(ids),
-  );
+  const { setup, session, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: feedEffects(() => fourRepoThreads),
+    width: 100,
+    catalog: without(ids),
+  });
 
   act(() => {
     session.send({ kind: 'refresh' });
@@ -113,15 +107,12 @@ test('the confirm dialog drops the part of a command without keys', async () => 
 });
 
 const composerFrameOf = async (ids: readonly string[], draft: string): Promise<string> => {
-  const { setup, session, press, settle } = await mount(
-    'dark',
-    factsEffects(filterThreads, filterFacts),
-    100,
-    false,
-    24,
-    false,
-    without(ids),
-  );
+  const { setup, session, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(filterThreads, filterFacts),
+    width: 100,
+    catalog: without(ids),
+  });
 
   act(() => {
     session.send({ kind: 'refresh' });
@@ -166,15 +157,12 @@ test('the no-match row points to search only when both the close and search keys
 });
 
 test('the no-match row is dim, unmarked, and not an error', async () => {
-  const { setup, session, settle, press } = await mount(
-    'dark',
-    factsEffects(filterThreads, filterFacts),
-    100,
-    false,
-    24,
-    false,
-    without([]),
-  );
+  const { setup, session, settle, press } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(filterThreads, filterFacts),
+    width: 100,
+    catalog: without([]),
+  });
 
   act(() => {
     session.send({ kind: 'refresh' });
@@ -199,15 +187,12 @@ test('the empty-list notice tells to refresh without a key when refresh has none
       .readFeed,
   };
 
-  const { setup, session, settle } = await mount(
-    'dark',
+  const { setup, session, settle } = await mount({
+    themeMode: 'dark',
     effects,
-    100,
-    false,
-    24,
-    false,
-    without(['refresh']),
-  );
+    width: 100,
+    catalog: without(['refresh']),
+  });
 
   act(() => {
     session.send({ kind: 'refresh' });

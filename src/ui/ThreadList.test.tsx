@@ -31,7 +31,10 @@ afterEach(() => {
 const mount = track(cleanups, untrackedMount);
 
 test('r sends a refresh and the rows show type, number, title, and age', async () => {
-  const { setup, press, sent } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press, sent } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await press('r');
 
@@ -44,7 +47,10 @@ test('r sends a refresh and the rows show type, number, title, and age', async (
 });
 
 test('j and k move the selected row', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await press('r');
   await press('j');
@@ -64,7 +70,7 @@ test('a refresh keeps the selection on the same thread when it still exists', as
 
   const effects = feedEffects(() => threads);
 
-  const { setup, press } = await mount('dark', effects);
+  const { setup, press } = await mount({ themeMode: 'dark', effects });
 
   await press('r');
   await press('j');
@@ -81,7 +87,10 @@ test('the selected row stays in view when the list is taller than the screen', a
     makeThread(index + 1, `Thread ${index + 1}`),
   );
 
-  const { setup, press, settle } = await mount('dark', threadsEffects(many));
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(many),
+  });
 
   await press('r');
 
@@ -100,7 +109,7 @@ test('saved rows show their age relative to the saved time', async () => {
   const savedAt = new Date(Date.now() - 3 * 3_600_000);
   const updatedAt = new Date(savedAt.getTime() - 2 * 3_600_000).toISOString();
   const thread = { ...makeThread(1, 'First'), updatedAt };
-  const { setup } = await mount('dark', savedEffects(savedAt, [thread]));
+  const { setup } = await mount({ themeMode: 'dark', effects: savedEffects(savedAt, [thread]) });
 
   expect(setup.captureCharFrame()).toMatch(/PR\s+#1\s+First\s+2h/);
 });
@@ -140,7 +149,7 @@ const treeThreads = [
 ];
 
 test('the list shows threads under their group and repo in reason order, releases in their own group', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await press('r');
 
@@ -162,7 +171,7 @@ test('the list shows threads under their group and repo in reason order, release
 const selectedLine = (setup: Setup): string | undefined => selectedRowText(setup)?.trim();
 
 test('folding a node hides its children and keeps its count', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'j', 'z']);
 
@@ -181,7 +190,7 @@ test('folding a node hides its children and keeps its count', async () => {
 });
 
 test('s regroups by type, then none, then reason, and keeps the selection on the same thread', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'j', 'j']);
   expect(selectedLine(setup)).toContain('Fix parser');
@@ -215,7 +224,7 @@ test('s regroups by type, then none, then reason, and keeps the selection on the
 });
 
 test('the flat list shows each thread with its repository and no guide or branch', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 's', 's']);
 
@@ -234,7 +243,11 @@ test('the flat list shows each thread with its repository and no guide or branch
 
 test('the flat list keeps each title start and age on its row at narrow widths', async () => {
   for (const width of [40, 30]) {
-    const { setup, press } = await mount('dark', threadsEffects(treeThreads), width);
+    const { setup, press } = await mount({
+      themeMode: 'dark',
+      effects: threadsEffects(treeThreads),
+      width,
+    });
 
     await pressAll(press, ['r', 's', 's']);
 
@@ -252,7 +265,7 @@ test('the flat list keeps each title start and age on its row at narrow widths',
 test('the flat list truncates a long repository name so the title keeps its space', async () => {
   const longRepository = 'example/a-valid-repository-name-longer-than-the-terminal-width';
   const threads = [treeThread(1, 'Fix parser', { repository: longRepository })];
-  const { setup, press } = await mount('dark', threadsEffects(threads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(threads) });
 
   await pressAll(press, ['r', 's', 's']);
 
@@ -260,7 +273,7 @@ test('the flat list truncates a long repository name so the title keeps its spac
 });
 
 test('j and k move the selection one row, and g and G jump to the first and last row', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await press('r');
   expect(selectedLine(setup)).toBe('▾ Review requested 2');
@@ -282,7 +295,7 @@ test('j and k move the selection one row, and g and G jump to the first and last
 });
 
 test('J and K move the selection to the next and previous group', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'j', 'j']);
 
@@ -297,7 +310,7 @@ test('J and K move the selection to the next and previous group', async () => {
 });
 
 test('z and Space fold the node that holds the selection, from a thread or a node', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'j', 'j', 'z']);
 
@@ -315,7 +328,7 @@ test('z and Space fold the node that holds the selection, from a thread or a nod
 });
 
 test('Enter on a group folds and unfolds it, and j moves on to its threads', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'return']);
 
@@ -332,7 +345,7 @@ test('Enter on a group folds and unfolds it, and j moves on to its threads', asy
 });
 
 test('Enter on a group below 90 columns folds it and opens no detail', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'return']);
 
@@ -342,7 +355,7 @@ test('Enter on a group below 90 columns folds it and opens no detail', async () 
 });
 
 test('Z folds every group, and unfolds them when all are folded', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'j', 'j', 'Z']);
 
@@ -363,7 +376,7 @@ test('Z folds every group, and unfolds them when all are folded', async () => {
 test('a node row with a long repository name keeps its marker and count, open and folded', async () => {
   const longRepository = 'example/a-valid-repository-name-longer-than-the-terminal-width';
   const threads = [treeThread(1, 'Fix parser', { repository: longRepository })];
-  const { setup, press } = await mount('dark', threadsEffects(threads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(threads) });
 
   await press('r');
 
@@ -378,7 +391,11 @@ test('a node row with a long repository name keeps its marker and count, open an
 });
 
 test('a new thread row shows the marker and its repo and group rows count it', async () => {
-  const { setup, press } = await mount('dark', newMarkerEffects(newMarkerThreads, ['1']), 100);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: newMarkerEffects(newMarkerThreads, ['1']),
+    width: 100,
+  });
 
   await press('r');
 
@@ -392,7 +409,11 @@ test('a new thread row shows the marker and its repo and group rows count it', a
 });
 
 test('a node with no new threads shows only its thread count', async () => {
-  const { setup, press } = await mount('dark', newMarkerEffects(newMarkerThreads, ['1', '2']), 100);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: newMarkerEffects(newMarkerThreads, ['1', '2']),
+    width: 100,
+  });
 
   await press('r');
 
@@ -409,7 +430,10 @@ const fiveThreads = Array.from({ length: 5 }, (_, index) =>
 );
 
 test('d on a repo node with 5 threads hides all 5 at once', async () => {
-  const { setup, press, sent } = await mount('dark', threadsEffects(fiveThreads));
+  const { setup, press, sent } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fiveThreads),
+  });
 
   await pressAll(press, ['r', 'g', 'j']);
 
@@ -429,7 +453,7 @@ test('d on a repo node with 5 threads hides all 5 at once', async () => {
 });
 
 test('d on a folded group hides every thread under it, and one u brings them all back', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(treeThreads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
   await pressAll(press, ['r', 'g', 'z']);
 
@@ -469,7 +493,7 @@ const lastNewEffects = newMarkerEffects(
 );
 
 test('a node row with new threads in a narrow terminal keeps its new and total counts inside the width', async () => {
-  const { setup, press } = await mount('dark', lastNewEffects, 30);
+  const { setup, press } = await mount({ themeMode: 'dark', effects: lastNewEffects, width: 30 });
 
   await press('r');
 
@@ -481,7 +505,7 @@ test('a node row with new threads in a narrow terminal keeps its new and total c
 
 const flatAt = async (width: number, title = 'Fix parser') => {
   const threads = [treeThread(1, title, { repository: 'example/alpha' })];
-  const mounted = await mount('dark', threadsEffects(threads), width);
+  const mounted = await mount({ themeMode: 'dark', effects: threadsEffects(threads), width });
 
   await pressAll(mounted.press, ['r', 's', 's']);
 
@@ -510,7 +534,7 @@ test('a thread of an unknown type shows the first three letters of the type in c
     treeThread(1, 'Odd thread', { subjectType: 'RepositoryAdvisory', subjectUrl: null }),
   ];
 
-  const { setup, press } = await mount('dark', threadsEffects(threads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(threads) });
 
   await press('r');
 
@@ -524,7 +548,11 @@ test('the list height subtracts the rows reserved for the search line', async ()
     makeThread(index + 1, `Thread ${String(index + 1).padStart(2, '0')}`),
   );
 
-  const { setup, press, settle } = await mount('dark', threadsEffects(many), 60, false, 10);
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(many),
+    height: 10,
+  });
 
   await press('r');
   await press('/');
@@ -544,7 +572,11 @@ test('moving the selection inside the window leaves the window where it is', asy
     makeThread(index + 1, `Thread ${String(index + 1).padStart(2, '0')}`),
   );
 
-  const { setup, press, settle } = await mount('dark', threadsEffects(many), 60, false, 12);
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(many),
+    height: 12,
+  });
 
   await press('r');
 
@@ -595,7 +627,11 @@ const threadRowsOf = (setup: Setup): string[] =>
   frameLines(setup).filter((line) => line.includes('Thread '));
 
 test('jumping to the last row shows the last rows at the bottom of the window, and g returns to the top', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(numberedThreads(11)), 60, false, 8);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(numberedThreads(11)),
+    height: 8,
+  });
 
   await press('r');
   await press('G');
@@ -614,13 +650,11 @@ test('jumping to the last row shows the last rows at the bottom of the window, a
 });
 
 test('the window scrolls one row when the selection leaves it below, and one row when it leaves it above', async () => {
-  const { setup, press, settle } = await mount(
-    'dark',
-    threadsEffects(numberedThreads(11)),
-    60,
-    false,
-    8,
-  );
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(numberedThreads(11)),
+    height: 8,
+  });
 
   await press('r');
   await pressRepeated(setup, settle, 'j', 6);
@@ -646,7 +680,11 @@ test('the window scrolls one row when the selection leaves it below, and one row
 });
 
 test('when the list shrinks below the window the window moves up to keep every row in use', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(numberedThreads(11)), 60, false, 8);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(numberedThreads(11)),
+    height: 8,
+  });
 
   await press('r');
   await press('G');
@@ -660,7 +698,10 @@ test('when the list shrinks below the window the window moves up to keep every r
 });
 
 test('a list shorter than the window never scrolls', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await press('r');
   await press('G');
@@ -694,7 +735,7 @@ test('ages show minutes under an hour, hours under a day, and days from a day', 
     aged(9, 'In the future', -30 * minute),
   ];
 
-  const { setup, press } = await mount('dark', threadsEffects(threads));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(threads) });
 
   await press('r');
 
@@ -718,7 +759,7 @@ test('a wide or emoji title ends in an ellipsis within the row width', async () 
   const wideTitle = `${'界'.repeat(60)}TAIL`;
   const emojiTitle = '🚀'.repeat(40);
   const threads = [treeThread(1, wideTitle, {}), treeThread(2, emojiTitle, {})];
-  const { setup, press } = await mount('dark', threadsEffects(threads), 60);
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(threads) });
 
   await pressAll(press, ['r', 's', 's']);
 

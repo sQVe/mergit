@@ -33,7 +33,10 @@ test('an empty inbox shows its notice, and loading shows before the first refres
 });
 
 test('marking the only thread done shows the empty inbox notice', async () => {
-  const { setup, press } = await mount('dark', threadsEffects([makeThread(1, 'Only thread')]));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects([makeThread(1, 'Only thread')]),
+  });
 
   await press('r');
   await press('j');
@@ -71,7 +74,7 @@ test('a search that hides every open thread shows a no-match notice', async () =
 });
 
 test('an inbox with no open threads keeps the empty inbox notice', async () => {
-  const { setup, press } = await mount('dark', threadsEffects([]));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects([]) });
 
   await press('r');
 

@@ -9,7 +9,7 @@ import { HelpOverlay } from './HelpOverlay.tsx';
 import { keysTextOf } from './helpWindow.ts';
 import { pickPalette } from './palette.ts';
 import type { Setup } from './uiHarness.tsx';
-import { idleEffects, track, mount as untrackedMount } from './uiHarness.tsx';
+import { track, mount as untrackedMount } from './uiHarness.tsx';
 
 const cleanups: (() => void)[] = [];
 
@@ -37,7 +37,7 @@ const scrollToEnd = async (
 const tallRows = catalog.length + 10;
 
 test('? opens the overlay with every command label and ? closes it', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
+  const { setup, press } = await mount({ height: tallRows });
 
   await press('?');
 
@@ -69,7 +69,7 @@ test('Escape closes the overlay', async () => {
 });
 
 test('escape does nothing while the overlay is closed', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
+  const { setup, press } = await mount({ height: tallRows });
 
   await press('escape');
 
@@ -77,7 +77,7 @@ test('escape does nothing while the overlay is closed', async () => {
 });
 
 test('the overlay lists the close help command from the catalog', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
+  const { setup, press } = await mount({ height: tallRows });
 
   await press('?');
 
@@ -85,7 +85,7 @@ test('the overlay lists the close help command from the catalog', async () => {
 });
 
 test('the help overlay lists the search line keys and still shows Close help', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
+  const { setup, press } = await mount({ height: tallRows });
 
   await press('?');
 
@@ -101,7 +101,7 @@ test('the help overlay lists the search line keys and still shows Close help', a
 });
 
 test('help fits inside an 80x24 terminal and scrolls to Close help', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+  const { setup, press } = await mount({ width: 80 });
 
   await press('?');
 
@@ -121,7 +121,7 @@ test('help fits inside an 80x24 terminal and scrolls to Close help', async () =>
 });
 
 test('scrolling 80x24 help reaches every listed command and shows the position', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+  const { setup, press } = await mount({ width: 80 });
 
   await press('?');
 
@@ -152,7 +152,7 @@ test('scrolling 80x24 help reaches every listed command and shows the position',
 });
 
 test('scrolling up stops at the first command and down stops at the last', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+  const { setup, press } = await mount({ width: 80 });
 
   await press('?');
   await press('k');
@@ -177,7 +177,7 @@ test('scrolling up stops at the first command and down stops at the last', async
 });
 
 test('the first scroll key after a resize moves one row from what is shown', async () => {
-  const { setup, press, resize } = await mount(null, idleEffects, 80, false, 24);
+  const { setup, press, resize } = await mount({ width: 80 });
 
   await press('?');
 
@@ -199,7 +199,7 @@ test('the first scroll key after a resize moves one row from what is shown', asy
 const rightEdgeOf = (frame: string): number => frame.split('\n')[0]?.lastIndexOf('╮') ?? -1;
 
 test('the help box keeps its width while scrolling', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+  const { setup, press } = await mount({ width: 80 });
 
   await press('?');
 
@@ -214,7 +214,7 @@ test('the help box keeps its width while scrolling', async () => {
 });
 
 test('the widest help rows show in full at 80x24', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, 24);
+  const { setup, press } = await mount({ width: 80 });
 
   await press('?');
 
@@ -237,7 +237,7 @@ test('the widest help rows show in full at 80x24', async () => {
 });
 
 test('help that fits shows no position hint', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, tallRows);
+  const { setup, press } = await mount({ width: 80, height: tallRows });
 
   await press('?');
 
@@ -281,10 +281,7 @@ test('a command with a name and no keys is listed as :<name>', async () => {
     keys: [],
   };
 
-  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows + 1, false, [
-    ...catalog,
-    named,
-  ]);
+  const { setup, press } = await mount({ height: tallRows + 1, catalog: [...catalog, named] });
 
   await press('?');
 
@@ -295,7 +292,7 @@ test('a command with a name and no keys is listed as :<name>', async () => {
 });
 
 test('a command line command is listed with the command line suffix', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, tallRows);
+  const { setup, press } = await mount({ width: 80, height: tallRows });
 
   await press('?');
 
@@ -306,7 +303,7 @@ test('a command line command is listed with the command line suffix', async () =
 });
 
 test('help lists the :messages command', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
+  const { setup, press } = await mount({ height: tallRows });
 
   await press('?');
 
@@ -319,7 +316,7 @@ test('help lists the :messages command', async () => {
 const listedCount = catalog.filter((command) => command.scope !== 'confirm').length;
 
 test('help with height equal to the commands plus the border shows every row and no footer', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, listedCount + 2);
+  const { setup, press } = await mount({ width: 80, height: listedCount + 2 });
 
   await press('?');
 
@@ -334,7 +331,7 @@ test('help with height equal to the commands plus the border shows every row and
 });
 
 test('help one row shorter overflows and shows the footer with the scroll and close keys', async () => {
-  const { setup, press } = await mount(null, idleEffects, 80, false, listedCount + 1);
+  const { setup, press } = await mount({ width: 80, height: listedCount + 1 });
 
   await press('?');
 
@@ -381,7 +378,7 @@ test('the footer names the scroll and close keys that the catalog gives', async 
 });
 
 test('help shows readable key names instead of raw ones', async () => {
-  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
+  const { setup, press } = await mount({ height: tallRows });
 
   await press('?');
 

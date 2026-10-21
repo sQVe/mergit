@@ -6,7 +6,6 @@ import { catalog } from '../commands.ts';
 import type { SessionEffects } from '../session/session.ts';
 import type { Setup } from './uiHarness.tsx';
 import {
-  idleEffects,
   makeThread,
   threadsEffects,
   colorOf,
@@ -78,13 +77,10 @@ test('ctrl+c passes a quit terminal intent', async () => {
 });
 
 test('a theme change keeps the overlay open, recolors it, and adds no subscriber', async () => {
-  const { setup, press, settle, changeTheme, subscriberCount } = await mount(
-    'dark',
-    idleEffects,
-    60,
-    false,
-    catalog.length + 10,
-  );
+  const { setup, press, settle, changeTheme, subscriberCount } = await mount({
+    themeMode: 'dark',
+    height: catalog.length + 10,
+  });
 
   await press('?');
 
@@ -104,7 +100,7 @@ test('a theme change keeps the overlay open, recolors it, and adds no subscriber
 });
 
 test('the tree keys reach the session as their intents', async () => {
-  const { press, sent } = await mount('dark', threadsEffects(threeThreads));
+  const { press, sent } = await mount({ themeMode: 'dark', effects: threadsEffects(threeThreads) });
 
   await press('r');
 
@@ -128,7 +124,11 @@ test('the tree keys reach the session as their intents', async () => {
 });
 
 test('resizing across 90 columns removes and restores the side pane and keeps the selected row', async () => {
-  const { setup, press, resize } = await mount('dark', threadsEffects(threeThreads), 100);
+  const { setup, press, resize } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+    width: 100,
+  });
 
   await press('r');
   await press('j');
@@ -153,7 +153,11 @@ test('resizing across 90 columns removes and restores the side pane and keeps th
 test('a long title stays inside the list columns and clear of the pane at 90 columns', async () => {
   const long = makeThread(1, 'x'.repeat(120));
 
-  const { setup, press } = await mount('dark', threadsEffects([long]), 90);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects([long]),
+    width: 90,
+  });
 
   await press('r');
   await press('j');
@@ -170,7 +174,10 @@ test('a long title stays inside the list columns and clear of the pane at 90 col
 });
 
 test('Escape with help open inside the detail closes help only', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await pressAll(press, ['r', 'j', 'j', 'j', 'return', '?', 'escape']);
 
@@ -179,7 +186,10 @@ test('Escape with help open inside the detail closes help only', async () => {
 });
 
 test('resizing wide shows the side pane and resizing narrow again shows the list, not the detail', async () => {
-  const { setup, press, resize } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press, resize } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
 
@@ -226,10 +236,10 @@ test('Escape with help open closes help and opens no dialog', async () => {
 });
 
 test('q typed in the open search line goes into the text and does not quit', async () => {
-  const { setup, press, settle, terminalIntents } = await mount(
-    'dark',
-    threadsEffects(queryThreads),
-  );
+  const { setup, press, settle, terminalIntents } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
 
   await press('r');
   await press('/');
@@ -240,10 +250,10 @@ test('q typed in the open search line goes into the text and does not quit', asy
 });
 
 test('ctrl+c quits while the search line is open and q still types', async () => {
-  const { setup, press, settle, terminalIntents } = await mount(
-    'dark',
-    threadsEffects(queryThreads),
-  );
+  const { setup, press, settle, terminalIntents } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
 
   await press('r');
   await press('/');
@@ -262,7 +272,13 @@ test('ctrl+c quits while the search line is open and q still types', async () =>
 });
 
 test('opening the composer leaves the thread rows below the box where they were', async () => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 80, false, 30);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(manyAuthors, manyFacts),
+    width: 80,
+    height: 30,
+  });
+
   const { setup, press, settle } = mounted;
 
   await press('r');
@@ -288,7 +304,12 @@ test('opening the composer leaves the thread rows below the box where they were'
 });
 
 test('in a very short terminal Enter applies the row shown under the cursor or nothing', async () => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 6);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(manyAuthors, manyFacts),
+    height: 6,
+  });
+
   const { setup, press, settle } = mounted;
 
   await press('r');
@@ -311,7 +332,12 @@ test('in a very short terminal Enter applies the row shown under the cursor or n
 });
 
 test('in a terminal too short for any candidate row Enter adds nothing', async () => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 4);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(manyAuthors, manyFacts),
+    height: 4,
+  });
+
   const { setup, press, settle } = mounted;
 
   await press('r');
@@ -477,13 +503,11 @@ test('text typed in the same burst after Ctrl-U on the search line replaces the 
 });
 
 test('? and j in one burst scroll help and leave the list selection alone', async () => {
-  const { setup, press, settle, session } = await mount(
-    'dark',
-    threadsEffects(threeThreads),
-    80,
-    false,
-    24,
-  );
+  const { setup, press, settle, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+    width: 80,
+  });
 
   await pressAll(press, ['r', 'j']);
 
@@ -497,7 +521,11 @@ test('? and j in one burst scroll help and leave the list selection alone', asyn
 });
 
 test('? twice in one burst leaves help closed', async () => {
-  const { setup, settle } = await mount('dark', threadsEffects(threeThreads), 80, false, 24);
+  const { setup, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+    width: 80,
+  });
 
   await burst(setup, ['?', '?']);
   await settle();
@@ -506,7 +534,10 @@ test('? twice in one burst leaves help closed', async () => {
 });
 
 test('Enter and j in one burst open the detail and leave the list selection alone', async () => {
-  const { setup, press, settle, session } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press, settle, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await pressAll(press, ['r', 'j', 'j']);
 
@@ -520,7 +551,10 @@ test('Enter and j in one burst open the detail and leave the list selection alon
 });
 
 test('search-line keys do nothing in the list when no search is open', async () => {
-  const { press, sent, setup, settle } = await mount('dark', threadsEffects(threeThreads));
+  const { press, sent, setup, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await press('r');
   sent.length = 0;
@@ -538,7 +572,11 @@ test('search-line keys do nothing in the list when no search is open', async () 
 const slideMilliseconds = 200;
 
 const mountShort = async (height: number) => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, height);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(manyAuthors, manyFacts),
+    height,
+  });
 
   await mounted.press('r');
   await mounted.settle();
@@ -591,7 +629,10 @@ test('ctrl+c quits in a composer too short for any candidate row', async () => {
 });
 
 test('Enter on the command line closes it and runs a known name with padding', async () => {
-  const { press, setup, settle, session } = await mount('dark', threadsEffects(threeThreads));
+  const { press, setup, settle, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await press('r');
   await press(':');
@@ -603,12 +644,11 @@ test('Enter on the command line closes it and runs a known name with padding', a
 });
 
 test('Enter on the command line reports an unknown name in a toast', async () => {
-  const { press, setup, settle, session, advance } = await mount(
-    'dark',
-    threadsEffects(threeThreads),
-    60,
-    true,
-  );
+  const { press, setup, settle, session, advance } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+    manualTime: true,
+  });
 
   await press('r');
   await press(':');
@@ -622,12 +662,11 @@ test('Enter on the command line reports an unknown name in a toast', async () =>
 });
 
 test('Enter on an empty command line closes it and shows no toast', async () => {
-  const { press, setup, session, advance } = await mount(
-    'dark',
-    threadsEffects(threeThreads),
-    60,
-    true,
-  );
+  const { press, setup, session, advance } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+    manualTime: true,
+  });
 
   await press('r');
 
@@ -707,7 +746,11 @@ const topics = Array.from({ length: 9 }, (_, index) =>
 );
 
 test('with chips and many search completions the status line stays on the last row', async () => {
-  const mounted = await mount('dark', factsEffects(topics, new Map()), 60, false, 7);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(topics, new Map()),
+    height: 7,
+  });
 
   await mounted.press('r');
   await addChip(mounted, 'kind:pr');
@@ -744,7 +787,11 @@ test.each(['chip', 'search'] as const)(
 );
 
 test('an open command line takes a row from the search completions', async () => {
-  const mounted = await mount('dark', factsEffects(topics, new Map()), 60, false, 9);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(topics, new Map()),
+    height: 9,
+  });
 
   await mounted.press('r');
   await mounted.press('/');
@@ -845,15 +892,11 @@ test('a key bound in help, the list, and global runs only the help command, also
     },
   ] satisfies typeof catalog;
 
-  const { press, resize, sent, terminalIntents, setup } = await mount(
-    'dark',
-    idleEffects,
-    60,
-    false,
-    20,
-    false,
-    [...helpToggle, ...sharedKey],
-  );
+  const { press, resize, sent, terminalIntents, setup } = await mount({
+    themeMode: 'dark',
+    height: 20,
+    catalog: [...helpToggle, ...sharedKey],
+  });
 
   await press('?');
   sent.length = 0;
@@ -942,7 +985,7 @@ const signedOutEffects = (threads: typeof threeThreads) => {
 };
 
 const movedMount = (effects: SessionEffects) =>
-  mount('dark', effects, 100, false, 24, false, movedKeysCatalog);
+  mount({ themeMode: 'dark', effects, width: 100, catalog: movedKeysCatalog });
 
 test('a custom catalog shows its keys in the status line and the refresh notices', async () => {
   const { effects, signOut } = signedOutEffects(threeThreads);
@@ -972,15 +1015,12 @@ test('a custom catalog shows its refresh key in the empty-list notice', async ()
 });
 
 test('a custom catalog shows its keys in the confirm dialog', async () => {
-  const { setup, press } = await mount(
-    'dark',
-    feedEffects(() => fourRepoThreads),
-    100,
-    false,
-    24,
-    false,
-    movedKeysCatalog,
-  );
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: feedEffects(() => fourRepoThreads),
+    width: 100,
+    catalog: movedKeysCatalog,
+  });
 
   await press('R');
   await press('g');
@@ -990,15 +1030,12 @@ test('a custom catalog shows its keys in the confirm dialog', async () => {
 });
 
 test('a custom catalog shows its keys in the filter composer hint', async () => {
-  const { setup, press } = await mount(
-    'dark',
-    factsEffects(filterThreads, filterFacts),
-    100,
-    false,
-    24,
-    false,
-    movedKeysCatalog,
-  );
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(filterThreads, filterFacts),
+    width: 100,
+    catalog: movedKeysCatalog,
+  });
 
   await press('R');
   await press('f');

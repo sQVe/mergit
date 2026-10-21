@@ -265,7 +265,12 @@ test('Backspace on a non-empty draft deletes a character and keeps the composer 
 });
 
 test('moving the cursor past the last shown candidate scrolls the list', async () => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 40);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(manyAuthors, manyFacts),
+    height: 40,
+  });
+
   const { setup, press, settle } = mounted;
 
   await press('r');
@@ -305,7 +310,12 @@ test('moving the cursor past the last shown candidate scrolls the list', async (
 });
 
 test('in a short terminal the composer keeps the input, a candidate, and the status line visible', async () => {
-  const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 60, false, 9);
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(manyAuthors, manyFacts),
+    height: 9,
+  });
+
   const { setup, press, settle } = mounted;
 
   await press('r');
@@ -391,7 +401,12 @@ test('a label wider than the box ends with an ellipsis and keeps the field prefi
   const login = 'a'.repeat(70);
   const threads = [treeThread(1, 'Change 1', { repository: 'acme/app' })];
   const facts = new Map([['1', { state: 'open' as const, author: login }]]);
-  const { setup, press, settle } = await mount('dark', factsEffects(threads, facts), 50);
+
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(threads, facts),
+    width: 50,
+  });
 
   await press('r');
   await settle();
@@ -423,13 +438,12 @@ test('the last line of the box describes the selected row, or the field being ty
   const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
   const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
 
-  const { setup, press, settle, session } = await mount(
-    'dark',
-    factsEffects(threads, facts),
-    90,
-    false,
-    30,
-  );
+  const { setup, press, settle, session } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(threads, facts),
+    width: 90,
+    height: 30,
+  });
 
   await press('r');
   await settle();
@@ -457,7 +471,13 @@ test('the last line of the box describes the selected row, or the field being ty
 
 test('a description that does not fit ends with an ellipsis', async () => {
   const threads = [treeThread(1, 'Change 1', { reason: 'state_change', repository: 'acme/app' })];
-  const { setup, press, settle } = await mount('dark', threadsEffects(threads), 40, false, 30);
+
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threads),
+    width: 40,
+    height: 30,
+  });
 
   await press('r');
   await settle();
@@ -477,13 +497,12 @@ test('a draft that is only a partial value shows no No matches row', async () =>
 });
 
 test('in a short terminal the description line stays and the key hint row goes', async () => {
-  const { setup, press, settle } = await mount(
-    'dark',
-    factsEffects(filterThreads, filterFacts),
-    90,
-    false,
-    7,
-  );
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(filterThreads, filterFacts),
+    width: 90,
+    height: 7,
+  });
 
   await press('r');
   await settle();
@@ -562,7 +581,13 @@ test('after Enter removes a chip found by typing, a second Enter removes the nex
 test('a long description wraps over several lines and never over more than three', async () => {
   const threads = [treeThread(1, 'Change 1', { reason: 'state_change', repository: 'acme/app' })];
   const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
-  const { setup, press, settle } = await mount('dark', factsEffects(threads, facts), 50, false, 30);
+
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(threads, facts),
+    width: 50,
+    height: 30,
+  });
 
   await press('r');
   await settle();
@@ -651,13 +676,12 @@ const describedOf = async (
   const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
   const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
 
-  const { setup, press, settle, session } = await mount(
-    'dark',
-    factsEffects(threads, facts),
+  const { setup, press, settle, session } = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(threads, facts),
     width,
-    false,
     height,
-  );
+  });
 
   await press('r');
   await settle();
@@ -675,7 +699,12 @@ const composerChrome = 4;
 const mountFiltersFor = async (draft: string) => {
   const threads = [treeThread(1, 'Change 1', { reason: 'ci_activity', repository: 'acme/app' })];
   const facts = new Map([['1', { state: 'open' as const, author: 'sQVe' }]]);
-  const mounted = await mount('dark', factsEffects(threads, facts), 60, false, 30);
+
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(threads, facts),
+    height: 30,
+  });
 
   await mounted.press('r');
   await mounted.settle();
@@ -874,7 +903,13 @@ test('a draft that matches rows lists them and shows no No matches row', async (
 test.each([5, 6, 7, 8, 9, 10, 11, 12])(
   'in a terminal %i rows tall the composer keeps the input, a candidate, and the status line',
   async (height) => {
-    const mounted = await mount('dark', factsEffects(manyAuthors, manyFacts), 40, false, height);
+    const mounted = await mount({
+      themeMode: 'dark',
+      effects: factsEffects(manyAuthors, manyFacts),
+      width: 40,
+      height,
+    });
+
     const { setup, press, settle } = mounted;
 
     await press('r');
@@ -908,7 +943,13 @@ test('a field name with a dash inside shows the key hints, not the value form of
 
 test('a candidate with wide text ends in an ellipsis within the composer width', async () => {
   const wideFacts = new Map([['1', { state: 'open' as const, author: '界'.repeat(60) }]]);
-  const mounted = await mount('dark', factsEffects(manyAuthors, wideFacts), 60, false, 40);
+
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(manyAuthors, wideFacts),
+    height: 40,
+  });
+
   const { setup, press, settle } = mounted;
 
   await press('r');

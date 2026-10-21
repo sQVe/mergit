@@ -30,7 +30,10 @@ const searchThreads = [
 ];
 
 test('Backspace deletes characters in the search line, and on an empty line closes it', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
 
   await press('r');
   await press('/');
@@ -64,7 +67,10 @@ test('Backspace deletes characters in the search line, and on an empty line clos
 });
 
 test('typing yjs after / shows only threads with yjs in the title or repository', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(searchThreads));
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(searchThreads),
+  });
 
   await press('r');
   await press('/');
@@ -83,7 +89,10 @@ test('typing yjs after / shows only threads with yjs in the title or repository'
 });
 
 test('repo: after / matches the text repo: and shows no error row', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(searchThreads));
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(searchThreads),
+  });
 
   await press('r');
   await press('/');
@@ -100,7 +109,10 @@ test('repo: after / matches the text repo: and shows no error row', async () => 
 });
 
 test('Enter keeps the text, Esc while editing restores the old one, Ctrl-U clears the line, and Esc in the list clears', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(queryThreads));
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
 
   await press('r');
   await press('/');
@@ -144,7 +156,10 @@ test('Enter keeps the text, Esc while editing restores the old one, Ctrl-U clear
 });
 
 test('d on a group node under a search marks only its matching threads done', async () => {
-  const { setup, press, settle, sent } = await mount('dark', threadsEffects(queryThreads));
+  const { setup, press, settle, sent } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
 
   await press('r');
   await press('/');
@@ -166,7 +181,10 @@ test('under a search with more matches than rows, the last selected row stays fu
     makeThread(index + 1, `Match thread ${String(index + 1).padStart(2, '0')}`),
   );
 
-  const { setup, press, settle } = await mount('dark', threadsEffects(many));
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(many),
+  });
 
   await press('r');
   await press('/');
@@ -192,7 +210,11 @@ test('with the search closed and empty the list uses every row above the status 
     makeThread(index + 1, `Thread ${String(index + 1).padStart(2, '0')}`),
   );
 
-  const { setup, press } = await mount('dark', threadsEffects(many), 60, false, 10);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(many),
+    height: 10,
+  });
 
   await press('r');
   await press('G');
@@ -204,7 +226,11 @@ test('with the search closed and empty the list uses every row above the status 
 });
 
 test('in a short terminal the completions, the / line, and the status line all fit', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(topicThreads), 60, false, 9);
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(topicThreads),
+    height: 9,
+  });
 
   await press('r');
   await press('/');
@@ -221,7 +247,11 @@ test('in a short terminal the completions, the / line, and the status line all f
 });
 
 test('in a terminal with no room for completions the / line keeps its own row above the status line', async () => {
-  const { setup, press, settle } = await mount('dark', threadsEffects(topicThreads), 60, false, 4);
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(topicThreads),
+    height: 4,
+  });
 
   await press('r');
   await press('G');

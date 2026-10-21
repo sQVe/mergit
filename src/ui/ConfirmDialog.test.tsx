@@ -99,15 +99,11 @@ test('a key that shows messages does nothing while the dialog is open', async ()
 
   commands.push({ ...showMessages, keys: ['m'] });
 
-  const { setup, press } = await mount(
-    'dark',
-    threadsEffects(fourRepoThreads),
-    60,
-    false,
-    24,
-    false,
-    commands,
-  );
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+    catalog: commands,
+  });
 
   await press('r');
   await press('o');

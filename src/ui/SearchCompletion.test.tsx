@@ -44,7 +44,7 @@ const highlightedAboveLine = (setup: Setup): string[] => {
 };
 
 const searchWith = async (typed: string) => {
-  const app = await mount('dark', threadsEffects(threads));
+  const app = await mount({ themeMode: 'dark', effects: threadsEffects(threads) });
 
   await app.press('r');
   await app.press('/');
@@ -106,7 +106,7 @@ test('in a short terminal the rows kept are the best candidates, next to the / l
     treeThread(index + 1, `Fix topic${index + 1}`, { repository: 'acme/app' }),
   );
 
-  const tall = await mount('dark', threadsEffects(many));
+  const tall = await mount({ themeMode: 'dark', effects: threadsEffects(many) });
 
   await tall.press('r');
   await tall.press('/');
@@ -117,7 +117,11 @@ test('in a short terminal the rows kept are the best candidates, next to the / l
   const tallQuery = frameLines(tall.setup).find((line) => line.startsWith('/')) ?? '';
   const best = tallQuery.slice(1).split(/\s/)[0] ?? '';
 
-  const short = await mount('dark', threadsEffects(many), 60, false, shortHeight);
+  const short = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(many),
+    height: shortHeight,
+  });
 
   await short.press('r');
   await short.press('/');
@@ -138,7 +142,10 @@ test('the list holds at most 6 candidates', async () => {
     treeThread(index + 1, `Fix topic${index + 1}`, { repository: 'acme/app' }),
   );
 
-  const { setup, press, settle } = await mount('dark', threadsEffects(many));
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(many),
+  });
 
   await press('r');
   await press('/');
@@ -164,7 +171,7 @@ test('without tab, the list narrows by the typed text alone', async () => {
 });
 
 test('in a short terminal the completion list leaves the / line and the status line on screen', async () => {
-  const app = await mount('dark', threadsEffects(threads), 60, false, 4);
+  const app = await mount({ themeMode: 'dark', effects: threadsEffects(threads), height: 4 });
 
   await app.press('r');
   await app.press('/');
@@ -186,7 +193,7 @@ const topics = Array.from({ length: 9 }, (_, index) =>
 );
 
 const topicsWith = async (height: number) => {
-  const app = await mount('dark', threadsEffects(topics), 60, false, height);
+  const app = await mount({ themeMode: 'dark', effects: threadsEffects(topics), height });
 
   await app.press('r');
   await app.press('/');

@@ -34,6 +34,16 @@ export interface MountedApp {
   subscriberCount: () => number;
 }
 
+interface MountOptions {
+  themeMode?: 'light' | 'dark' | null;
+  effects?: SessionEffects;
+  width?: number;
+  manualTime?: boolean;
+  height?: number;
+  kittyKeyboard?: boolean;
+  catalog?: readonly Command[];
+}
+
 Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 
 export const idleEffects: SessionEffects = {
@@ -118,15 +128,17 @@ const settleMilliseconds = 50;
 
 const framesAfterTimeline = 2;
 
-export const mount = async (
-  initialMode: 'light' | 'dark' | null = null,
-  effects: SessionEffects = idleEffects,
-  width = defaultWidth,
-  manualTime = false,
-  height = defaultHeight,
-  kittyKeyboard = false,
-  appCatalog: readonly Command[] = catalog,
-): Promise<MountedApp> => {
+export const mount = async (options: MountOptions = {}): Promise<MountedApp> => {
+  const {
+    themeMode: initialMode = null,
+    effects = idleEffects,
+    width = defaultWidth,
+    manualTime = false,
+    height = defaultHeight,
+    kittyKeyboard = false,
+    catalog: appCatalog = catalog,
+  } = options;
+
   let themeMode = initialMode;
   const themeListeners = new Set<() => void>();
 
@@ -431,7 +443,7 @@ export const mountWithGroup = async (
     },
   };
 
-  const mounted = await mount('dark', effects);
+  const mounted = await mount({ themeMode: 'dark', effects });
 
   await pressAll(mounted.press, ['r', 'g']);
 
@@ -497,14 +509,12 @@ export const mountFilters = async (
   width = defaultWidth,
   kittyKeyboard = false,
 ): Promise<MountedApp> => {
-  const mounted = await mount(
-    'dark',
-    factsEffects(filterThreads, filterFacts),
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: factsEffects(filterThreads, filterFacts),
     width,
-    false,
-    defaultHeight,
     kittyKeyboard,
-  );
+  });
 
   await mounted.press('r');
   await mounted.settle();
