@@ -1,5 +1,5 @@
 import { openInBrowser } from './actions.ts';
-import { catalog } from './commands.ts';
+import { catalog, keyHintOf } from './commands.ts';
 import {
   createGhRunner,
   lookUpSubjects,
@@ -117,6 +117,7 @@ if (newerVersion !== null) {
   session = createSession({
     savedSnapshot: readSavedSnapshot(),
     host,
+    refreshKey: keyHintOf(catalog, 'refresh') ?? '',
     savedState,
     saveState: (state) => writer?.save(state),
     markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),

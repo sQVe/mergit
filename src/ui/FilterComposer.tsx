@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import type { Command } from '../commands.ts';
+import { keyHintOf } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { describeFilterRow, filterCursorOf, formatFilter } from '../session/session.ts';
 import type { CandidateItem } from './CandidateList.tsx';
@@ -30,14 +32,35 @@ const valueHints = new Map([
   ['title', 'words in the title'],
 ]);
 
-const keyHints = 'Enter apply · Tab edit · - exclude · Esc close';
+const keyHintsOf = (catalog: readonly Command[]): string => {
+  const parts: string[] = [];
+  const apply = keyHintOf(catalog, 'applyFilterRow');
+  const edit = keyHintOf(catalog, 'takeFilterRow');
+  const close = keyHintOf(catalog, 'closeFilters');
 
-const hintOf = (snapshot: Snapshot): string => {
+  if (apply !== undefined) {
+    parts.push(`${apply} apply`);
+  }
+
+  if (edit !== undefined) {
+    parts.push(`${edit} edit`);
+  }
+
+  parts.push('- exclude');
+
+  if (close !== undefined) {
+    parts.push(`${close} close`);
+  }
+
+  return parts.join(' · ');
+};
+
+const hintOf = (snapshot: Snapshot, catalog: readonly Command[]): string => {
   const field = snapshot.filterDraft.trim().replace(/^-/, '').split(':')[0]?.toLowerCase() ?? '';
   const hasValue = snapshot.filterDraft.includes(':');
   const valueHint = hasValue ? valueHints.get(field) : undefined;
 
-  return valueHint ?? keyHints;
+  return valueHint ?? keyHintsOf(catalog);
 };
 
 const itemOf = (row: FilterRow): CandidateItem => {
@@ -64,12 +87,29 @@ const itemOf = (row: FilterRow): CandidateItem => {
   };
 };
 
-const noMatchesItem: CandidateItem = {
-  label: 'No matches. Use / to search titles.',
-  count: null,
-  marked: false,
-  failed: false,
-  muted: true,
+const noMatchesItemOf = (catalog: readonly Command[], snapshot: Snapshot): CandidateItem => {
+  const close = keyHintOf(catalog, 'closeFilters');
+  const search = keyHintOf(catalog, 'openSearch');
+  const steps: string[] = [];
+
+  // While a chip is being edited, the first close only ends the edit.
+  const closeTimes = snapshot.filterEditing === null ? '' : ' twice';
+
+  if (close !== undefined) {
+    steps.push(`Press ${close}${closeTimes}`);
+  }
+
+  if (search !== undefined) {
+    steps.push(`${close === undefined ? 'Press' : 'then'} ${search} to search titles`);
+  }
+
+  return {
+    label: steps.length === 0 ? 'No matches.' : `No matches. ${steps.join(', ')}.`,
+    count: null,
+    marked: false,
+    failed: false,
+    muted: true,
+  };
 };
 
 const titleOf = (snapshot: Snapshot): string => {
@@ -112,15 +152,19 @@ export const FilterComposer = (props: {
   rows: FilterRow[];
   layout: ComposerLayout;
   width: number;
+  catalog: readonly Command[];
 }): ReactNode => {
-  const { session, snapshot, palette, rows, layout, width } = props;
+  const { session, snapshot, palette, rows, layout, width, catalog } = props;
 
   if (!snapshot.filtersOpen) {
     return null;
   }
 
   const cursor = filterCursorOf(snapshot);
-  const items = showsNoMatches(snapshot, rows) ? [noMatchesItem] : rows.map((row) => itemOf(row));
+
+  const items = showsNoMatches(snapshot, rows)
+    ? [noMatchesItemOf(catalog, snapshot)]
+    : rows.map((row) => itemOf(row));
 
   return (
     <box
@@ -156,7 +200,7 @@ export const FilterComposer = (props: {
       />
       {layout.hintRows === 0 ? null : (
         <box height={1} flexShrink={0}>
-          <text fg={palette.dim}>{hintOf(snapshot)}</text>
+          <text fg={palette.dim}>{hintOf(snapshot, catalog)}</text>
         </box>
       )}
       <CandidateList

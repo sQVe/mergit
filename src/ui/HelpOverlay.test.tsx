@@ -6,6 +6,7 @@ import { act } from 'react';
 import { catalog } from '../commands.ts';
 import type { Command } from '../commands.ts';
 import { HelpOverlay } from './HelpOverlay.tsx';
+import { keysTextOf } from './helpWindow.ts';
 import { pickPalette } from './palette.ts';
 import type { Setup } from './uiHarness.tsx';
 import { idleEffects, track, mount as untrackedMount } from './uiHarness.tsx';
@@ -116,7 +117,7 @@ test('help fits inside an 80x24 terminal and scrolls to Close help', async () =>
   const scrolled = setup.captureCharFrame();
 
   expect(scrolled).toContain('Close help');
-  expect(scrolled).toContain('escape');
+  expect(scrolled).toContain('Esc');
 });
 
 test('scrolling 80x24 help reaches every listed command and shows the position', async () => {
@@ -229,7 +230,7 @@ test('the widest help rows show in full at 80x24', async () => {
   expect(shown.length).toBeGreaterThan(0);
 
   for (const command of shown) {
-    const keys = command.keys.join(' ');
+    const keys = keysTextOf(command);
 
     expect(frame).toContain(`${keys}  ${command.label}`);
   }
@@ -339,7 +340,7 @@ test('help one row shorter overflows and shows the footer with the scroll and cl
 
   const frame = setup.captureCharFrame();
 
-  expect(frame).toContain(`1-${listedCount - 2} of ${listedCount}  j/k scroll  escape close`);
+  expect(frame).toContain(`1-${listedCount - 2} of ${listedCount}  j/k scroll  Esc close`);
 });
 
 const commandOf = (id: string, keys: string[]): Command => ({
@@ -373,5 +374,21 @@ test('the footer names the scroll and close keys that the catalog gives', async 
 
   await act(() => setup.renderOnce());
 
-  expect(setup.captureCharFrame()).toContain('1-2 of 5  n/p scroll  x close');
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('1-2 of 5  n/p scroll  x close');
+  expect(frame).toContain('╰');
+});
+
+test('help shows readable key names instead of raw ones', async () => {
+  const { setup, press } = await mount(null, idleEffects, 60, false, tallRows);
+
+  await press('?');
+
+  const open = setup.captureCharFrame();
+
+  expect(open).toContain('Enter');
+  expect(open).toContain('G');
+  expect(open).not.toContain('return');
+  expect(open).not.toContain('shift+g');
 });

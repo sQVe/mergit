@@ -24,6 +24,7 @@ interface RenderedProps {
 const idleEffects: SessionEffects = {
   savedSnapshot: null,
   host: 'github.com',
+  refreshKey: 'r',
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true, value: null }),

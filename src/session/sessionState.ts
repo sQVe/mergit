@@ -65,12 +65,20 @@ export interface Snapshot {
   filterEditing: Filter | null;
 }
 
-export const noticeMessages: Record<Notice, { title: string; text: string }> = {
-  ghMissing: {
-    title: 'GitHub CLI not found',
-    text: 'Install GitHub CLI from https://cli.github.com, then press r',
-  },
-  notSignedIn: { title: 'Not signed in to GitHub', text: 'Run gh auth login, then press r' },
+export const noticeMessageOf = (
+  notice: Notice,
+  refreshKey: string,
+): { title: string; text: string } => {
+  const thenRefresh = refreshKey === '' ? 'then refresh' : `then press ${refreshKey}`;
+
+  if (notice === 'ghMissing') {
+    return {
+      title: 'GitHub CLI not found',
+      text: `Install GitHub CLI from https://cli.github.com, ${thenRefresh}`,
+    };
+  }
+
+  return { title: 'Not signed in to GitHub', text: `Run gh auth login, ${thenRefresh}` };
 };
 
 export const initialSnapshot: Snapshot = {

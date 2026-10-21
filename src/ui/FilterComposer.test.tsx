@@ -511,7 +511,26 @@ test('a plain-word draft that matches nothing points to the / search', async () 
   await press('f');
   await typeText(setup, settle, 'zzzqq');
 
-  expect(setup.captureCharFrame()).toContain('Use / to search titles');
+  expect(setup.captureCharFrame()).toContain('Press Esc, then / to search titles');
+});
+
+test('while editing a chip, the no-match row says to press the close key twice', async () => {
+  const mounted = await mountFilters(80);
+  const { setup, press, settle, session } = mounted;
+
+  await addAuthorChip(mounted, 'author:mona');
+  await press('down');
+  await press('tab');
+  await pressCtrlU(setup, settle);
+  await typeText(setup, settle, 'zzzqq');
+
+  expect(setup.captureCharFrame()).toContain('Press Esc twice, then / to search titles');
+
+  await press('escape');
+  await press('escape');
+  await press('/');
+
+  expect(session.getSnapshot().searchOpen).toBe(true);
 });
 
 test('after Enter removes a chip found by typing, a second Enter removes the next chip', async () => {

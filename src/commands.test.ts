@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Intent } from './commands.ts';
-import { catalog } from './commands.ts';
+import { catalog, keyNamesOf, readableKeyOf } from './commands.ts';
 import type { ApplicationIntent, Filter } from './session/session.ts';
 import { createSession, visibleRows } from './session/session.ts';
 import type { BrowserPage } from './work/work.ts';
@@ -10,6 +10,7 @@ import { toThreadId, toViewerLogin } from './work/work.ts';
 const idleEffects = {
   savedSnapshot: null,
   host: 'github.com',
+  refreshKey: 'r',
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true as const, value: null }),
@@ -372,4 +373,29 @@ test('each remaining command returns its intent', () => {
   for (const [id, intent] of expected) {
     expect(byId(id)?.intent(snapshot)).toEqual(intent);
   }
+});
+
+test('readableKeyOf gives each raw key its readable name', () => {
+  const expected: [string, string][] = [
+    ['return', 'Enter'],
+    ['escape', 'Esc'],
+    ['space', 'Space'],
+    ['tab', 'Tab'],
+    ['shift+tab', 'Shift+Tab'],
+    ['backspace', 'Backspace'],
+    ['ctrl+c', 'Ctrl+C'],
+    ['shift+g', 'G'],
+    ['up', '↑'],
+    ['down', '↓'],
+    ['q', 'q'],
+  ];
+
+  for (const [key, name] of expected) {
+    expect(readableKeyOf(key)).toBe(name);
+  }
+});
+
+test('keyNamesOf returns the readable keys of a command by id', () => {
+  expect(keyNamesOf(catalog, 'confirmOpen')).toEqual(['y', 'Enter']);
+  expect(keyNamesOf(catalog, 'missing')).toEqual([]);
 });

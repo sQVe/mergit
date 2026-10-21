@@ -7,7 +7,7 @@ import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
-import { scopePriority } from '../commands.ts';
+import { keyHintOf, scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
@@ -387,6 +387,7 @@ const Body = (props: {
   paneWidth: number;
   fullDetail: boolean;
   searchRoom: number;
+  catalog: readonly Command[];
 }): ReactNode => {
   const { snapshot, palette, width, paneWidth, searchRoom } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
@@ -397,7 +398,13 @@ const Body = (props: {
   const now = snapshot.savedAt ?? snapshot.refreshedAt ?? new Date(0);
 
   if (hasNotice(snapshot)) {
-    return <Notice snapshot={snapshot} palette={palette} />;
+    return (
+      <Notice
+        snapshot={snapshot}
+        palette={palette}
+        refreshKey={keyHintOf(props.catalog, 'refresh') ?? ''}
+      />
+    );
   }
 
   if (props.fullDetail) {
@@ -521,6 +528,7 @@ export const App = (props: AppProps): ReactNode => {
           rows={composerRows}
           layout={composerLayout}
           width={width}
+          catalog={props.catalog}
         />
         <Body
           snapshot={snapshot}
@@ -529,6 +537,7 @@ export const App = (props: AppProps): ReactNode => {
           paneWidth={paneWidth}
           fullDetail={fullDetail}
           searchRoom={searchRoom}
+          catalog={props.catalog}
         />
         <SearchLine
           session={props.session}
@@ -537,11 +546,15 @@ export const App = (props: AppProps): ReactNode => {
           room={searchRoom}
         />
         <CommandLine session={props.session} snapshot={snapshot} palette={palette} />
-        <StatusLine snapshot={snapshot} palette={palette} />
+        <StatusLine snapshot={snapshot} palette={palette} catalog={props.catalog} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />
       {overlay.kind === 'confirm' ? (
-        <ConfirmDialog repositories={overlay.pages.length} palette={palette} />
+        <ConfirmDialog
+          repositories={overlay.pages.length}
+          palette={palette}
+          catalog={props.catalog}
+        />
       ) : null}
       {overlay.kind === 'messages' ? (
         <MessageOverlay
