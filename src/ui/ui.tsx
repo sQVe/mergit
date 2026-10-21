@@ -44,25 +44,21 @@ export interface AppProps {
   onTerminalIntent: (intent: TerminalIntent) => void;
 }
 
-interface OpenRequest {
-  pages: readonly BrowserPage[];
-}
+type Overlay =
+  | { kind: 'none' }
+  | { kind: 'help' }
+  | { kind: 'messages' }
+  | { kind: 'confirm'; pages: readonly BrowserPage[] };
 
 interface ModalState {
-  helpOpen: boolean;
-  messagesOpen: boolean;
+  overlay: Overlay;
   detailOpen: boolean;
-  openRequest: OpenRequest | null;
 }
 
 interface KeysProps extends AppProps {
   modal: RefObject<ModalState>;
-  openRequest: OpenRequest | null;
-  setOpenRequest: (request: OpenRequest | null) => void;
-  helpOpen: boolean;
-  setHelpOpen: (open: boolean) => void;
-  messagesOpen: boolean;
-  setMessagesOpen: (open: boolean) => void;
+  overlay: Overlay;
+  setOverlay: (overlay: Overlay) => void;
   helpMaximumTop: number;
   setHelpTop: (update: (top: number) => number) => void;
   messagesMaximumTop: number;
@@ -88,16 +84,14 @@ const inputScopes = new Set<Command['scope']>(['input', 'filter', 'command']);
 const isActive = (
   command: Command,
   state: {
-    helpOpen: boolean;
-    messagesOpen: boolean;
-    confirmOpen: boolean;
+    overlay: Overlay['kind'];
     detailOpen: boolean;
     searchOpen: boolean;
     filtersOpen: boolean;
     commandLineOpen: boolean;
   },
 ): boolean => {
-  const { helpOpen, messagesOpen, confirmOpen, detailOpen } = state;
+  const { overlay, detailOpen } = state;
   const { searchOpen, filtersOpen, commandLineOpen } = state;
 
   if (commandLineOpen) {
@@ -117,9 +111,9 @@ const isActive = (
   }
 
   const modalScopes: Partial<Record<Command['scope'], boolean>> = {
-    help: helpOpen,
-    messages: messagesOpen,
-    confirm: confirmOpen,
+    help: overlay === 'help',
+    messages: overlay === 'messages',
+    confirm: overlay === 'confirm',
   };
 
   const modalScopeOpen = modalScopes[command.scope];
@@ -132,7 +126,7 @@ const isActive = (
     return true;
   }
 
-  if (helpOpen || confirmOpen || messagesOpen) {
+  if (overlay !== 'none') {
     return false;
   }
 
@@ -182,39 +176,55 @@ const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
 };
 
 const Keys = (props: KeysProps): null => {
-  const { session, onTerminalIntent, setHelpOpen, setMessagesOpen, setDetailOpen } = props;
-
-  const { setOpenRequest, modal } = props;
+  const { session, onTerminalIntent, setOverlay, setDetailOpen, modal } = props;
 
   const confirmOpen = () => {
-    const { openRequest } = modal.current;
+    const { overlay } = modal.current;
 
-    setOpenRequest(null);
+    setOverlay({ kind: 'none' });
 
-    if (openRequest !== null) {
-      session.send({ kind: 'openInBrowser', pages: openRequest.pages });
+    if (overlay.kind === 'confirm') {
+      session.send({ kind: 'openInBrowser', pages: overlay.pages });
     }
+  };
+
+  const openMessages = () => {
+    if (modal.current.overlay.kind === 'confirm') {
+      return;
+    }
+
+    props.setMessagesTop(() => 0);
+    setOverlay({ kind: 'messages' });
+  };
+
+  const toggleHelp = (toggling: boolean) => {
+    const { kind } = modal.current.overlay;
+
+    if (kind === 'confirm') {
+      return;
+    }
+
+    props.setHelpTop(() => 0);
+    setOverlay(toggling && kind !== 'help' ? { kind: 'help' } : { kind: 'none' });
   };
 
   const runUiAction = (intent: UiIntent) => {
     const { action } = intent;
 
     if (intent.action === 'askOpen') {
-      setOpenRequest({ pages: intent.pages });
+      setOverlay({ kind: 'confirm', pages: intent.pages });
     } else if (action === 'confirmOpen') {
       confirmOpen();
     } else if (action === 'cancelOpen') {
-      setOpenRequest(null);
+      setOverlay({ kind: 'none' });
     } else if (action === 'openDetail') {
       setDetailOpen(!props.sideLayout);
     } else if (action === 'closeDetail') {
       setDetailOpen(false);
     } else if (action === 'openMessages') {
-      props.setMessagesTop(() => 0);
-      setHelpOpen(false);
-      setMessagesOpen(true);
+      openMessages();
     } else if (action === 'closeMessages') {
-      setMessagesOpen(false);
+      setOverlay({ kind: 'none' });
     } else if (intent.action === 'scrollMessages') {
       const { messagesMaximumTop } = props;
 
@@ -229,10 +239,8 @@ const Keys = (props: KeysProps): null => {
       props.setHelpTop((top) =>
         Math.min(helpMaximumTop, Math.max(0, Math.min(top, helpMaximumTop) + lines)),
       );
-    } else if (modal.current.openRequest === null) {
-      props.setHelpTop(() => 0);
-      setMessagesOpen(false);
-      setHelpOpen(action === 'toggleHelp' ? !modal.current.helpOpen : false);
+    } else {
+      toggleHelp(action === 'toggleHelp');
     }
   };
 
@@ -297,12 +305,10 @@ const Keys = (props: KeysProps): null => {
   // renders what the first key changed.
   const commandFor = (key: string): Command | undefined => {
     const { searchOpen, filtersOpen, commandLineOpen } = session.getSnapshot();
-    const { helpOpen, messagesOpen, detailOpen, openRequest } = modal.current;
+    const { overlay, detailOpen } = modal.current;
 
     const live = {
-      helpOpen,
-      messagesOpen,
-      confirmOpen: openRequest !== null,
+      overlay: overlay.kind,
       detailOpen: detailOpen && !props.sideLayout,
       searchOpen,
       filtersOpen,
@@ -346,12 +352,10 @@ const Keys = (props: KeysProps): null => {
       })),
     }),
     [
-      props.helpOpen,
-      props.messagesOpen,
+      props.overlay,
       props.helpMaximumTop,
       props.messagesMaximumTop,
-      props.openRequest,
-      setOpenRequest,
+      setOverlay,
       props.detailOpen,
       props.sideLayout,
       props.width,
@@ -359,8 +363,6 @@ const Keys = (props: KeysProps): null => {
       props.catalog,
       session,
       onTerminalIntent,
-      setHelpOpen,
-      setMessagesOpen,
       setDetailOpen,
     ],
   );
@@ -428,40 +430,26 @@ const Body = (props: {
 };
 
 export const App = (props: AppProps): ReactNode => {
-  const [helpOpen, setHelpOpenState] = useState(false);
-  const [messagesOpen, setMessagesOpenState] = useState(false);
+  const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
   const [messagesTop, setMessagesTop] = useState(0);
   const [detailOpen, setDetailOpenState] = useState(false);
-  const [openRequest, setOpenRequestState] = useState<OpenRequest | null>(null);
 
   // Keys in one burst arrive before React renders, so key handling reads this copy, which each
   // setter updates at once.
   const modal = useRef<ModalState>({
-    helpOpen: false,
-    messagesOpen: false,
+    overlay: { kind: 'none' },
     detailOpen: false,
-    openRequest: null,
   });
 
-  const setHelpOpen = (open: boolean) => {
-    modal.current.helpOpen = open;
-    setHelpOpenState(open);
-  };
-
-  const setMessagesOpen = (open: boolean) => {
-    modal.current.messagesOpen = open;
-    setMessagesOpenState(open);
+  const setOverlay = (next: Overlay) => {
+    modal.current.overlay = next;
+    setOverlayState(next);
   };
 
   const setDetailOpen = (open: boolean) => {
     modal.current.detailOpen = open;
     setDetailOpenState(open);
-  };
-
-  const setOpenRequest = (request: OpenRequest | null) => {
-    modal.current.openRequest = request;
-    setOpenRequestState(request);
   };
 
   const snapshot = useSyncExternalStore(props.session.subscribe, props.session.getSnapshot);
@@ -497,12 +485,8 @@ export const App = (props: AppProps): ReactNode => {
       <Keys
         {...props}
         modal={modal}
-        openRequest={openRequest}
-        setOpenRequest={setOpenRequest}
-        helpOpen={helpOpen}
-        setHelpOpen={setHelpOpen}
-        messagesOpen={messagesOpen}
-        setMessagesOpen={setMessagesOpen}
+        overlay={overlay}
+        setOverlay={setOverlay}
         helpMaximumTop={helpWindow.maximumTop}
         setHelpTop={setHelpTop}
         messagesMaximumTop={messageWindowOf(snapshot.messages, width, height).maximumTop}
@@ -546,10 +530,10 @@ export const App = (props: AppProps): ReactNode => {
         <StatusLine snapshot={snapshot} palette={palette} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />
-      {openRequest === null ? null : (
-        <ConfirmDialog repositories={openRequest.pages.length} palette={palette} />
-      )}
-      {messagesOpen ? (
+      {overlay.kind === 'confirm' ? (
+        <ConfirmDialog repositories={overlay.pages.length} palette={palette} />
+      ) : null}
+      {overlay.kind === 'messages' ? (
         <MessageOverlay
           messages={snapshot.messages}
           palette={palette}
@@ -558,7 +542,7 @@ export const App = (props: AppProps): ReactNode => {
           top={messagesTop}
         />
       ) : null}
-      {helpOpen ? (
+      {overlay.kind === 'help' ? (
         <HelpOverlay catalog={props.catalog} palette={palette} height={height} top={helpTop} />
       ) : null}
     </KeymapProvider>

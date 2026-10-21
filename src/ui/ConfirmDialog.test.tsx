@@ -1,8 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
 
+import { catalog } from '../commands.ts';
+import type { Command } from '../commands.ts';
 import {
   treeThread,
   fourRepoThreads,
+  mount as untrackedMount,
+  threadsEffects,
   track,
   mountWithGroup as untrackedMountWithGroup,
 } from './uiHarness.tsx';
@@ -15,6 +19,7 @@ afterEach(() => {
   }
 });
 
+const mount = track(cleanups, untrackedMount);
 const mountWithGroup = track(cleanups, untrackedMountWithGroup);
 
 const openedPages = ['a', 'b', 'c', 'd'].map((name) => ({
@@ -86,4 +91,64 @@ test('confirm opens the repos captured when the dialog opened, not the refreshed
   await settle();
 
   expect(opens).toEqual(openedPages);
+});
+
+test('a key that shows messages does nothing while the dialog is open', async () => {
+  const commands = catalog.filter((command) => command.id !== 'showMessages');
+  const showMessages = catalog.find((command) => command.id === 'showMessages') as Command;
+
+  commands.push({ ...showMessages, keys: ['m'] });
+
+  const { setup, press } = await mount(
+    'dark',
+    threadsEffects(fourRepoThreads),
+    60,
+    false,
+    24,
+    false,
+    commands,
+  );
+
+  await press('r');
+  await press('o');
+  await press('m');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Open 4 repos');
+  expect(frame).not.toContain('No messages yet');
+});
+
+for (const key of ['y', 'n']) {
+  test(`o shows the dialog again after ${key} closed it`, async () => {
+    const { setup, press, settle } = await mountWithGroup();
+
+    await press('o');
+    await press(key);
+    await settle();
+    await press('o');
+
+    expect(setup.captureCharFrame()).toContain('Open 4 repos');
+  });
+}
+
+test('n leaves help open when no dialog is open', async () => {
+  const { setup, press, settle } = await mountWithGroup();
+
+  await press('?');
+  await press('n');
+  await settle();
+
+  expect(setup.captureCharFrame()).toContain('Toggle help');
+});
+
+test('o shows the dialog after help opened and closed', async () => {
+  const { setup, press, settle } = await mountWithGroup();
+
+  await press('?');
+  await press('?');
+  await settle();
+  await press('o');
+
+  expect(setup.captureCharFrame()).toContain('Open 4 repos');
 });
