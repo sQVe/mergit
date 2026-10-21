@@ -155,13 +155,13 @@ test('the composer hint lists only commands that have keys', async () => {
   expect(await hint(['applyFilterRow', 'closeFilters'])).toBe('Tab edit · - exclude');
 });
 
-test('the no-match row names only the keys that exist', async () => {
+test('the no-match row points to search only when both the close and search keys exist', async () => {
   const label = async (ids: readonly string[]) =>
     boxedTextOf(await composerFrameOf(ids, 'zzzqq'), 'No matches');
 
   expect(await label([])).toBe('No matches. Press Esc, then / to search titles.');
-  expect(await label(['closeFilters'])).toBe('No matches. Press / to search titles.');
-  expect(await label(['openSearch'])).toBe('No matches. Press Esc.');
+  expect(await label(['closeFilters'])).toBe('No matches.');
+  expect(await label(['openSearch'])).toBe('No matches.');
   expect(await label(keyless)).toBe('No matches.');
 });
 

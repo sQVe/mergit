@@ -90,21 +90,16 @@ const itemOf = (row: FilterRow): CandidateItem => {
 const noMatchesItemOf = (catalog: readonly Command[], snapshot: Snapshot): CandidateItem => {
   const close = keyHintOf(catalog, 'closeFilters');
   const search = keyHintOf(catalog, 'openSearch');
-  const steps: string[] = [];
 
   // While a chip is being edited, the first close only ends the edit.
   const closeTimes = snapshot.filterEditing === null ? '' : ' twice';
 
-  if (close !== undefined) {
-    steps.push(`Press ${close}${closeTimes}`);
-  }
-
-  if (search !== undefined) {
-    steps.push(`${close === undefined ? 'Press' : 'then'} ${search} to search titles`);
-  }
+  // Search opens only from the list, so the hint needs a way to close the composer first.
+  const canPointToSearch = close !== undefined && search !== undefined;
+  const searchHint = ` Press ${close}${closeTimes}, then ${search} to search titles.`;
 
   return {
-    label: steps.length === 0 ? 'No matches.' : `No matches. ${steps.join(', ')}.`,
+    label: canPointToSearch ? `No matches.${searchHint}` : 'No matches.',
     count: null,
     marked: false,
     failed: false,

@@ -61,13 +61,22 @@ const rowWidthOf = (command: Command): number => {
 
 export const footerOf = (catalog: readonly Command[], position: string): string => {
   const scrollKeys = [
-    keyNamesOf(catalog, 'scrollHelpDown')[0] ?? '',
-    keyNamesOf(catalog, 'scrollHelpUp')[0] ?? '',
+    ...keyNamesOf(catalog, 'scrollHelpDown').slice(0, 1),
+    ...keyNamesOf(catalog, 'scrollHelpUp').slice(0, 1),
   ];
 
-  const closeKey = keyNamesOf(catalog, 'closeHelp')[0] ?? '';
+  const closeKey = keyNamesOf(catalog, 'closeHelp')[0];
+  const parts = [position];
 
-  return `${position}  ${scrollKeys.join('/')} scroll  ${closeKey} close`;
+  if (scrollKeys.length > 0) {
+    parts.push(`${scrollKeys.join('/')} scroll`);
+  }
+
+  if (closeKey !== undefined) {
+    parts.push(`${closeKey} close`);
+  }
+
+  return parts.join('  ');
 };
 
 export const helpWindowOf = (catalog: readonly Command[], height: number): HelpWindow => {

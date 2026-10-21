@@ -12,8 +12,14 @@ test('the help footer shows the first key of each command', () => {
   expect(footerOf(moved, '1-5 of 9')).toBe('1-5 of 9  n/p scroll  q close');
 });
 
-test('the help footer leaves out the key of a command without keys', () => {
+test('the help footer leaves out an action whose commands have no keys', () => {
   const bare = withKeys({ scrollHelpDown: [], scrollHelpUp: [], closeHelp: [] });
 
-  expect(footerOf(bare, '1-5 of 9')).toBe('1-5 of 9  / scroll   close');
+  expect(footerOf(bare, '1-5 of 9')).toBe('1-5 of 9');
+});
+
+test('the help footer names the one scroll key that exists', () => {
+  const upOnly = withKeys({ scrollHelpDown: [], scrollHelpUp: ['k'], closeHelp: ['q'] });
+
+  expect(footerOf(upOnly, '1-5 of 9')).toBe('1-5 of 9  k scroll  q close');
 });
