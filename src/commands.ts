@@ -42,6 +42,8 @@ export interface Command {
   disabledReason: (snapshot: Snapshot) => string | undefined;
   // A counted command takes the number typed before its key. The count is undefined when none was typed.
   counted?: true;
+  // Keys that still run this command while a count is pending, on the list layer.
+  keysDuringCount?: readonly string[];
   intent: (snapshot: Snapshot, count?: number) => Intent;
   // False lets the key reach the focused input after the command runs.
   preventDefault?: boolean;
@@ -74,6 +76,7 @@ export const catalog: readonly Command[] = [
     label: 'Quit',
     scope: 'global',
     keys: ['q', 'ctrl+c'],
+    keysDuringCount: ['ctrl+c'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'terminal', action: 'quit' }),
   },

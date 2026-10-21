@@ -1066,6 +1066,17 @@ test('5 then ctrl+c passes one quit terminal intent', async () => {
   expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
 });
 
+test('5 then q passes no quit terminal intent', async () => {
+  const { press, terminalIntents } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
+
+  await pressAll(press, ['r', '5', 'q']);
+
+  expect(terminalIntents).toEqual([]);
+});
+
 test('digits typed in the open search line reach the text and the selection stays', async () => {
   const numbered = Array.from({ length: 20 }, (_, index) =>
     makeThread(index + 1, `Item ${index + 1}`),

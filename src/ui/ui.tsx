@@ -179,8 +179,6 @@ const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
   return intent.intent.kind === 'applyFilterRow' || intent.intent.kind === 'takeFilterRow';
 };
 
-const countDigits = 4;
-
 const isPlainKey = (event: KeyEvent): boolean => !event.ctrl && !event.meta && !event.shift;
 
 const leadDigitOf = (event: KeyEvent): { value: number } | undefined =>
@@ -216,7 +214,6 @@ const CountPatterns = (): null => {
 
     const removeMore = keymap.registerSequencePattern({
       name: 'more',
-      max: countDigits - 1,
       match: moreDigitOf,
       finalize: (values) => values.join(''),
     });
@@ -433,20 +430,22 @@ const Keys = (props: KeysProps): ReactNode => {
     },
   });
 
-  // A pending count swallows the next key unless a binding follows it, so Ctrl+C needs one.
-  const quitDuringCount = (scope: Command['scope']) => {
-    const quit = props.catalog.find((command) => command.id === 'quit');
-
-    if (scope !== 'list' || quit === undefined) {
+  // A pending count swallows the next key unless a binding follows it.
+  const commandsDuringCount = (scope: Command['scope']) => {
+    if (scope !== 'list') {
       return [];
     }
 
-    return countPrefixes.map((prefix) => ({
-      key: `${prefix}ctrl+c`,
-      cmd: () => {
-        run(quit);
-      },
-    }));
+    return props.catalog.flatMap((command) =>
+      (command.keysDuringCount ?? []).flatMap((key) =>
+        countPrefixes.map((prefix) => ({
+          key: `${prefix}${key}`,
+          cmd: () => {
+            run(command);
+          },
+        })),
+      ),
+    );
   };
 
   const layerFor = (scope: Command['scope']) => {
@@ -465,7 +464,7 @@ const Keys = (props: KeysProps): ReactNode => {
         ...countedKeys.flatMap((key) =>
           countPrefixes.map((prefix) => bindingFor(scoped, key, prefix)),
         ),
-        ...quitDuringCount(scope),
+        ...commandsDuringCount(scope),
       ],
     };
   };

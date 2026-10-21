@@ -1005,3 +1005,24 @@ test('ctrl+5 then d marks the selected thread done', async () => {
 
   expect(markDoneCount(sent)).toBe(1);
 });
+
+test('10000 then k from the last row selects the first row', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['G', '1', '0', '0', '0', '0', 'k']);
+
+  expect(selectedLine(setup)).toContain('Subscribed or manual');
+});
+
+test('a five-digit count then d hides no thread and the next j moves one row', async () => {
+  const { setup, press, sent } = await countedList();
+
+  await pressAll(press, ['j', 'j', '1', '0', '0', '0', '0', 'd']);
+
+  expect(markDoneCount(sent)).toBe(0);
+  expect(selectedLine(setup)).toContain('Item 01');
+
+  await press('j');
+
+  expect(selectedLine(setup)).toContain('Item 02');
+});
