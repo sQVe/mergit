@@ -33,6 +33,7 @@ import {
   openFilters,
   takeFilterRow,
 } from './filterComposer.ts';
+import { clampListTop, setListRows } from './listViewport.ts';
 import { createMarker } from './marker.ts';
 import { createMessageToast } from './messageToast.ts';
 import { moveSearchCompletion } from './searchCompletion.ts';
@@ -92,7 +93,8 @@ export type ApplicationIntent =
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
-  | { kind: 'openInBrowser'; pages: readonly BrowserPage[] };
+  | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
+  | { kind: 'setListRows'; rows: number };
 
 export interface SavedState {
   grouping: Grouping;
@@ -168,6 +170,7 @@ type StateIntent = Exclude<
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
+  | { kind: 'setListRows'; rows: number }
   | EditIntent
 >;
 
@@ -323,7 +326,7 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const update = (candidate: Snapshot) => {
-    const next = marker.applyLeaving(candidate);
+    const next = clampListTop(marker.applyLeaving(candidate));
 
     if (next === snapshot) {
       return;
@@ -469,7 +472,7 @@ export const createSession = (effects: SessionEffects): Session => {
     showToast: toaster.show,
   });
 
-  snapshot = marker.apply(snapshot);
+  snapshot = clampListTop(marker.apply(snapshot));
 
   const sendEdit = (intent: EditIntent) => {
     switch (intent.kind) {
@@ -511,6 +514,8 @@ export const createSession = (effects: SessionEffects): Session => {
       doneActions.undoDone();
     } else if (intent.kind === 'openInBrowser') {
       browserOpen.open(intent.pages);
+    } else if (intent.kind === 'setListRows') {
+      update(setListRows(snapshot, intent.rows));
     } else if (isEditIntent(intent)) {
       sendEdit(intent);
     } else {

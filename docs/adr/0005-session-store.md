@@ -33,7 +33,7 @@ tests drive the same way production does.
 - Transitions are pure. They receive events and facts, including the current time, and return the
   next snapshot.
 - The UI sends intents. It does not change application state directly.
-- React keeps only focus, modal, and viewport state.
+- The session owns the list viewport, and React keeps focus, modal, and overlay scroll state.
 - The snapshot holds one item per notification thread, with its notification reason. Selection and
   done use the thread ID.
 

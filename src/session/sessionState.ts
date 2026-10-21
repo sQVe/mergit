@@ -37,6 +37,8 @@ export interface Snapshot {
   subjectFacts: ReadonlyMap<ThreadId, SubjectFacts>;
   newThreadIds: ReadonlySet<ThreadId>;
   selectedRowKey: string | null;
+  listRows: number;
+  listTop: number;
   grouping: Grouping;
   foldedNodes: Record<Grouping, ReadonlySet<string>>;
   refreshStatus: 'idle' | 'running';
@@ -87,6 +89,8 @@ export const initialSnapshot: Snapshot = {
   subjectFacts: new Map(),
   newThreadIds: new Set(),
   selectedRowKey: null,
+  listRows: 0,
+  listTop: 0,
   grouping: 'reason',
   foldedNodes: {
     reason: new Set(),

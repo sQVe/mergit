@@ -182,7 +182,10 @@ export const mount = async (options: MountOptions = {}): Promise<MountedApp> => 
   const send = session.send;
 
   session.send = (intent) => {
-    sent.push(intent);
+    if (intent.kind !== 'setListRows') {
+      sent.push(intent);
+    }
+
     send(intent);
   };
 

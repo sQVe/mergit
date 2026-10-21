@@ -775,3 +775,69 @@ test('a wide or emoji title ends in an ellipsis within the row width', async () 
     expect(Bun.stringWidth(line)).toBeLessThanOrEqual(60);
   }
 });
+
+test('the selected row stays in the frame after the terminal shrinks', async () => {
+  const { setup, press, settle, resize } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(numberedThreads(11)),
+    width: 60,
+    height: 8,
+  });
+
+  await press('r');
+  await pressRepeated(setup, settle, 'j', 6);
+  expect(selectedRowText(setup)).toContain('Thread 05');
+
+  await resize(60, 5);
+
+  expect(selectedRowText(setup)).toContain('Thread 05');
+});
+
+test('the selected row stays in the frame above the search line when search opens', async () => {
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(numberedThreads(11)),
+    width: 60,
+    height: 8,
+  });
+
+  await press('r');
+  await pressRepeated(setup, settle, 'j', 6);
+  expect(selectedRowText(setup)).toContain('Thread 05');
+
+  await press('/');
+
+  const lines = frameLines(setup);
+  const selectedIndex = lines.findIndex((line) => line.includes('Thread 05'));
+  const searchIndex = lines.findIndex((line) => line.startsWith('/'));
+
+  expect(selectedRowText(setup)).toContain('Thread 05');
+  expect(selectedIndex).toBeGreaterThanOrEqual(0);
+  expect(selectedIndex).toBeLessThan(searchIndex);
+});
+
+test('the selected row stays in the frame when a refresh adds threads above it', async () => {
+  let feed = numberedThreads(11);
+
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: feedEffects(() => feed),
+    width: 60,
+    height: 8,
+  });
+
+  await press('r');
+  await pressRepeated(setup, settle, 'j', 6);
+  expect(selectedRowText(setup)).toContain('Thread 05');
+
+  const added = Array.from({ length: 4 }, (_, index) => ({
+    ...makeThread(100 + index, `Added ${index + 1}`),
+    updatedAt: '1970-01-02T00:00:00Z',
+  }));
+
+  feed = [...added, ...feed];
+
+  await press('r');
+
+  expect(selectedRowText(setup)).toContain('Thread 05');
+});

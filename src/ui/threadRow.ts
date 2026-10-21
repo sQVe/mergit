@@ -49,26 +49,6 @@ export const formatAge = (updatedAt: string, now: Date): string => {
   return `${minutes}m`;
 };
 
-export const scrollTop = (
-  currentTop: number,
-  selectedIndex: number,
-  height: number,
-  count: number,
-): number => {
-  const maximumTop = Math.max(0, count - height);
-  const clamped = Math.min(currentTop, maximumTop);
-
-  if (selectedIndex < clamped) {
-    return Math.max(0, selectedIndex);
-  }
-
-  if (selectedIndex >= clamped + height) {
-    return Math.min(maximumTop, selectedIndex - height + 1);
-  }
-
-  return clamped;
-};
-
 export const guideWidth = 2;
 
 export const guideFor = (depth: number): string => '│ '.repeat(depth);

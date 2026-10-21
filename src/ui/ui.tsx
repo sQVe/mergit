@@ -386,10 +386,10 @@ const Body = (props: {
   width: number;
   paneWidth: number;
   fullDetail: boolean;
-  searchRoom: number;
+  listHeight: number;
   catalog: readonly Command[];
 }): ReactNode => {
-  const { snapshot, palette, width, paneWidth, searchRoom } = props;
+  const { snapshot, palette, width, paneWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
 
   const facts =
@@ -424,9 +424,7 @@ const Body = (props: {
         snapshot={snapshot}
         palette={palette}
         width={width - paneWidth}
-        reservedRows={
-          searchLineRows(snapshot, searchRoom) + commandLineRows(snapshot) + filterBarRows(snapshot)
-        }
+        height={listHeight}
       />
       {paneWidth > 0 ? (
         <DetailPane
@@ -490,6 +488,15 @@ export const App = (props: AppProps): ReactNode => {
   const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
   const searchRoom = searchRoomOf(snapshot, height);
 
+  const reservedRows =
+    searchLineRows(snapshot, searchRoom) + commandLineRows(snapshot) + filterBarRows(snapshot);
+
+  const listHeight = Math.max(1, height - statusRows - reservedRows);
+
+  useEffect(() => {
+    props.session.send({ kind: 'setListRows', rows: listHeight });
+  }, [props.session, listHeight]);
+
   const widestPane = Math.floor(width * sidePaneShare);
   const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
 
@@ -532,7 +539,7 @@ export const App = (props: AppProps): ReactNode => {
           width={width}
           paneWidth={paneWidth}
           fullDetail={fullDetail}
-          searchRoom={searchRoom}
+          listHeight={listHeight}
           catalog={props.catalog}
         />
         <SearchLine

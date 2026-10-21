@@ -1,6 +1,4 @@
-import { useTerminalDimensions } from '@opentui/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
 
 import type { Snapshot } from '../session/session.ts';
 import { visibleRows } from '../session/session.ts';
@@ -13,7 +11,6 @@ import {
   guideFor,
   guideWidth,
   numberLabelFor,
-  scrollTop,
   typeLabelFor,
 } from './threadRow.ts';
 
@@ -29,7 +26,6 @@ const ageWidth = 5;
 const repositoryWidth = 24;
 const minimumRepositoryWidth = 6;
 const minimumFlatTitleWidth = 12;
-const statusLineHeight = 1;
 
 const NodeLine = (
   props: RowProps & { row: NodeRow; width: number; newThreadIds: ReadonlySet<ThreadId> },
@@ -119,23 +115,13 @@ export const ThreadList = (props: {
   snapshot: Snapshot;
   palette: Palette;
   width: number;
-  reservedRows: number;
+  height: number;
 }): ReactNode => {
-  const { snapshot, palette, width } = props;
+  const { snapshot, palette, width, height } = props;
   const { selectedRowKey, refreshedAt, savedAt, newThreadIds } = snapshot;
   const rows = visibleRows(snapshot);
-  const dimensions = useTerminalDimensions();
-  const [top, setTop] = useState(0);
-  const height = Math.max(1, dimensions.height - statusLineHeight - props.reservedRows);
-  const selectedIndex = rows.findIndex((row) => row.key === selectedRowKey);
-  const visibleTop = scrollTop(top, selectedIndex, height, rows.length);
-
-  if (visibleTop !== top) {
-    setTop(visibleTop);
-  }
-
   const now = savedAt ?? refreshedAt ?? new Date(0);
-  const visible = rows.slice(visibleTop, visibleTop + height);
+  const visible = rows.slice(snapshot.listTop, snapshot.listTop + height);
 
   return (
     <box flexDirection="column" flexGrow={1} width={width}>
