@@ -20,7 +20,7 @@ import { HelpOverlay } from './HelpOverlay.tsx';
 import { helpWindowOf } from './helpWindow.ts';
 import { MessageOverlay } from './MessageOverlay.tsx';
 import { messageWindowOf } from './messageWindow.ts';
-import { hasNotice, Notice } from './Notice.tsx';
+import { Notice, readNoticeMessage } from './Notice.tsx';
 import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
 import { SearchLine, searchLineRows } from './SearchLine.tsx';
@@ -397,14 +397,10 @@ const Body = (props: {
 
   const now = snapshot.savedAt ?? snapshot.refreshedAt ?? new Date(0);
 
-  if (hasNotice(snapshot)) {
-    return (
-      <Notice
-        snapshot={snapshot}
-        palette={palette}
-        refreshKey={keyHintOf(props.catalog, 'refresh')}
-      />
-    );
+  const noticeMessage = readNoticeMessage(snapshot, keyHintOf(props.catalog, 'refresh'));
+
+  if (noticeMessage !== null) {
+    return <Notice message={noticeMessage} palette={palette} />;
   }
 
   if (props.fullDetail) {
