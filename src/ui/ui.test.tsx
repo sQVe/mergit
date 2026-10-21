@@ -809,3 +809,105 @@ test('a key whose text is several characters is not typed into a filter draft th
   expect(session.getSnapshot().filterDraft).toBe('');
   expect(composerInputOf(setup.captureCharFrame())).toBe('');
 });
+
+test('a key bound in help, the list, and global runs only the help command, also after a resize', async () => {
+  const helpToggle = catalog.filter((command) => command.id === 'help');
+
+  const sharedKey = [
+    {
+      id: 'globalX',
+      label: 'Global x',
+      scope: 'global',
+      keys: ['x'],
+      disabledReason: () => undefined,
+      intent: () => ({ kind: 'terminal', action: 'quit' }),
+    },
+    {
+      id: 'listX',
+      label: 'List x',
+      scope: 'list',
+      keys: ['x'],
+      disabledReason: () => undefined,
+      intent: () => ({ kind: 'ui', action: 'openMessages' }),
+    },
+    {
+      id: 'helpX',
+      label: 'Help x',
+      scope: 'help',
+      keys: ['x'],
+      disabledReason: () => undefined,
+      intent: () => ({ kind: 'application', intent: { kind: 'closeCommandLine' } }),
+    },
+  ] satisfies typeof catalog;
+
+  const { press, resize, sent, terminalIntents, setup } = await mount(
+    'dark',
+    idleEffects,
+    60,
+    false,
+    20,
+    false,
+    [...helpToggle, ...sharedKey],
+  );
+
+  await press('?');
+  sent.length = 0;
+  await press('x');
+
+  expect(sent).toEqual([{ kind: 'closeCommandLine' }]);
+
+  await resize(100, 24);
+  await press('x');
+
+  expect(sent).toEqual([{ kind: 'closeCommandLine' }, { kind: 'closeCommandLine' }]);
+  expect(terminalIntents).toEqual([]);
+  expect(setup.captureCharFrame()).not.toContain('No messages yet');
+});
+
+const quitFrom = async (
+  open: (mounted: Awaited<ReturnType<typeof mountFilters>>) => Promise<void>,
+  mountApp: typeof mountFilters = mountFilters,
+) => {
+  const mounted = await mountApp();
+
+  await open(mounted);
+
+  mounted.terminalIntents.length = 0;
+
+  await act(async () => {
+    mounted.setup.mockInput.pressKey('c', { ctrl: true });
+  });
+
+  await mounted.settle();
+
+  return mounted.terminalIntents;
+};
+
+test('ctrl+c gives one quit terminal intent from every scope', async () => {
+  const openers = {
+    list: async () => {},
+    help: async ({ press }: { press: (key: string) => Promise<void> }) => press('?'),
+    messages: async ({ press, setup, settle }: Awaited<ReturnType<typeof mountFilters>>) => {
+      await press(':');
+      await typeText(setup, settle, 'messages');
+      await press('return');
+      expect(setup.captureCharFrame()).toContain('No messages yet');
+    },
+    confirm: async ({ press, setup }: Awaited<ReturnType<typeof mountFilters>>) => {
+      await press('o');
+      expect(setup.captureCharFrame()).toContain('Open 4 repos');
+    },
+    search: async ({ press }: { press: (key: string) => Promise<void> }) => press('/'),
+    command: async ({ press }: { press: (key: string) => Promise<void> }) => press(':'),
+    filter: async ({ press }: { press: (key: string) => Promise<void> }) => press('f'),
+  };
+
+  for (const [name, open] of Object.entries(openers)) {
+    const intents = await quitFrom(
+      open,
+      name === 'confirm' ? () => mountWithGroup() : mountFilters,
+    );
+
+    expect({ name, intents }).toEqual({ name, intents: [{ kind: 'terminal', action: 'quit' }] });
+  }
+});

@@ -45,6 +45,19 @@ export interface Command {
   preventDefault?: boolean;
 }
 
+// A higher number wins a key shared by active scopes, as the keymap sorts layers.
+export const scopePriority: Record<Command['scope'], number> = {
+  help: 50,
+  messages: 50,
+  confirm: 50,
+  input: 40,
+  command: 40,
+  filter: 40,
+  preview: 30,
+  list: 20,
+  global: 10,
+};
+
 const confirmAfterRepositories = 3;
 
 const selectedRowOf = (snapshot: Snapshot) =>
