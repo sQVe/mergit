@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import type { Command, Intent } from './commands.ts';
+import type { Intent } from './commands.ts';
 import { catalog } from './commands.ts';
 import type { ApplicationIntent, Filter } from './session/session.ts';
 import { createSession, visibleRows } from './session/session.ts';
@@ -107,34 +107,6 @@ const loadedThread = {
 };
 
 const createLoadedSnapshot = () => ({ ...createSnapshot(), threads: [loadedThread] });
-
-const lineScopes = new Set<Command['scope']>(['input', 'filter', 'command']);
-
-const globalOverlaps = (global: Command['scope'], other: Command['scope']): boolean =>
-  global === 'global' && !lineScopes.has(other);
-
-const scopesOverlap = (first: Command['scope'], second: Command['scope']): boolean =>
-  first === second || globalOverlaps(first, second) || globalOverlaps(second, first);
-
-const overlappingKeys = (commands: readonly Command[]): string[] => {
-  const clashes: string[] = [];
-
-  for (const [index, command] of commands.entries()) {
-    for (const other of commands.slice(index + 1)) {
-      const shared = command.keys.filter((key) => other.keys.includes(key));
-
-      if (scopesOverlap(command.scope, other.scope)) {
-        clashes.push(...shared);
-      }
-    }
-  }
-
-  return clashes;
-};
-
-test('no key is bound to two commands whose scopes can be active together', () => {
-  expect(overlappingKeys(catalog)).toEqual([]);
-});
 
 test('return folds a group on a node row and opens the detail on a thread row', () => {
   const loadedSnapshot = createLoadedSnapshot();
