@@ -29,7 +29,7 @@ export interface DoneQueue {
 interface Entry {
   threads: readonly NotificationThread[];
   account: string;
-  state: 'waiting' | 'due' | 'sending' | 'sent';
+  state: 'waiting' | 'due' | 'sending';
   cancelTimer: () => void;
 }
 
@@ -42,6 +42,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
   let entries: Entry[] = [];
   let running: Promise<void> | null = null;
   let stopping = false;
+  let hasCompletedSuccess = false;
   const sends = new AbortController();
 
   const isAborted = () => sends.signal.aborted;
@@ -88,14 +89,11 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
         }
       }
 
-      entry.state = 'sent';
+      entries = entries.filter((candidate) => candidate !== entry);
 
       if (sentCount > 0) {
+        hasCompletedSuccess = true;
         effects.onEntrySent();
-      }
-
-      if (failed.length === entry.threads.length) {
-        entries = entries.filter((candidate) => candidate !== entry);
       }
 
       if (failed.length > 0 && !stopping) {
@@ -133,7 +131,7 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
       return { kind: 'undone', threads: waiting.threads };
     }
 
-    return entries.length > 0 ? { kind: 'tooLate' } : { kind: 'nothing' };
+    return entries.length > 0 || hasCompletedSuccess ? { kind: 'tooLate' } : { kind: 'nothing' };
   };
 
   const stop = async (deadline: AbortSignal) => {
