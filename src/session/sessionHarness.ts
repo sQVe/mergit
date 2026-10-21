@@ -11,7 +11,7 @@ import type {
 } from '../github/github.ts';
 import type { BrowserPage, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
-import { createSession, formatFilter, visibleRows } from './session.ts';
+import { createSession, filterRowsOf, formatFilter, visibleRows } from './session.ts';
 import type { FilterRow, SavedSnapshot, SavedState, Session, SessionEffects } from './session.ts';
 
 type Call =
@@ -533,4 +533,33 @@ export const loadFive = async (
   await harness.load(...threads);
 
   return threads;
+};
+
+export const filterThreads = (): NotificationThread[] => [
+  makeThread('1', { repository: 'hups-co/platform' }),
+  makeThread('2', { repository: 'hups-co/web' }),
+  makeThread('3', { repository: 'acme/app' }),
+];
+
+export const rowTexts = (session: ReturnType<typeof makeHarness>['session']): string[] =>
+  filterRowsOf(session.getSnapshot()).map(describeRow);
+
+export const rowSummaryOf = (row: FilterRow): string => {
+  if (row.kind === 'candidate' || row.kind === 'active') {
+    return `${row.kind} ${formatFilter(row.filter)}`;
+  }
+
+  return row.kind === 'field' ? `field ${row.field}` : row.kind;
+};
+
+export const loadWithAuthors = async (): Promise<Harness> => {
+  const harness = makeHarness();
+  const threads = filterThreads();
+
+  await harness.load(...threads);
+  harness.lookups[0]?.resolve(threads.map((thread) => factsOf(thread, 'octo')));
+  await settle();
+  harness.session.send({ kind: 'openFilters' });
+
+  return harness;
 };
