@@ -1,7 +1,7 @@
 import type { KeyEvent, Renderable } from '@opentui/core';
 import type { CommandContext } from '@opentui/keymap';
 import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { KeymapProvider, useBindings } from '@opentui/keymap/react';
+import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -179,7 +179,76 @@ const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
   return intent.intent.kind === 'applyFilterRow' || intent.intent.kind === 'takeFilterRow';
 };
 
-const Keys = (props: KeysProps): null => {
+const countDigits = 4;
+
+const isPlainKey = (event: KeyEvent): boolean => !event.ctrl && !event.meta && !event.shift;
+
+const leadDigitOf = (event: KeyEvent): { value: number } | undefined =>
+  isPlainKey(event) && /^[1-9]$/.test(event.name) ? { value: Number(event.name) } : undefined;
+
+const moreDigitOf = (event: KeyEvent): { value: number } | undefined =>
+  isPlainKey(event) && /^[0-9]$/.test(event.name) ? { value: Number(event.name) } : undefined;
+
+const countOf = (payload: unknown): number | undefined => {
+  if (typeof payload !== 'object' || payload === null || !('lead' in payload)) {
+    return undefined;
+  }
+
+  const more = 'more' in payload ? String(payload.more) : '';
+
+  return Number(`${String(payload.lead)}${more}`);
+};
+
+const countPrefixes = ['{lead}', '{lead}{more}'];
+
+// A child of Keys: React runs a child's effects first on mount and last on unmount, so the
+// patterns exist before the layers register and outlive them.
+const CountPatterns = (): null => {
+  const keymap = useKeymap();
+
+  useEffect(() => {
+    const removeLead = keymap.registerSequencePattern({
+      name: 'lead',
+      max: 1,
+      match: leadDigitOf,
+      finalize: (values) => String(values[0]),
+    });
+
+    const removeMore = keymap.registerSequencePattern({
+      name: 'more',
+      max: countDigits - 1,
+      match: moreDigitOf,
+      finalize: (values) => values.join(''),
+    });
+
+    return () => {
+      removeMore();
+      removeLead();
+    };
+  }, [keymap]);
+
+  return null;
+};
+
+const keymapIds = new WeakMap<AppProps['keymap'], number>();
+
+let keymapsSeen = 0;
+
+// Keys remounts when the keymap changes, so its layers leave before its count patterns do.
+const keymapKeyOf = (keymap: AppProps['keymap']): number => {
+  const known = keymapIds.get(keymap);
+
+  if (known !== undefined) {
+    return known;
+  }
+
+  keymapsSeen += 1;
+  keymapIds.set(keymap, keymapsSeen);
+
+  return keymapsSeen;
+};
+
+const Keys = (props: KeysProps): ReactNode => {
   const { session, onTerminalIntent, setOverlay, setDetailOpen, modal } = props;
 
   const confirmOpen = () => {
@@ -281,14 +350,14 @@ const Keys = (props: KeysProps): null => {
     }
   };
 
-  const run = (command: Command) => {
+  const run = (command: Command, count?: number) => {
     const snapshot = session.getSnapshot();
 
     if (command.disabledReason(snapshot) !== undefined) {
       return;
     }
 
-    const intent = command.intent(snapshot);
+    const intent = command.intent(snapshot, count);
 
     if (isFilterRowIntent(intent) && isComposerBlind(snapshot, props.width, props.height)) {
       return;
@@ -345,31 +414,59 @@ const Keys = (props: KeysProps): null => {
     setDetailOpen,
   ];
 
+  const bindingFor = (scoped: Command[], key: string, prefix: string | undefined) => ({
+    key: `${prefix ?? ''}${key}`,
+    preventDefault: false,
+    cmd: (context: CommandContext<Renderable, KeyEvent>) => {
+      const command = scoped.find((candidate) => candidate.keys.includes(key));
+
+      if (command === undefined) {
+        return;
+      }
+
+      run(command, prefix === undefined ? undefined : countOf(context.payload));
+
+      if (command.preventDefault ?? true) {
+        context.event.preventDefault();
+        context.event.stopPropagation();
+      }
+    },
+  });
+
+  // A pending count swallows the next key unless a binding follows it, so Ctrl+C needs one.
+  const quitDuringCount = (scope: Command['scope']) => {
+    const quit = props.catalog.find((command) => command.id === 'quit');
+
+    if (scope !== 'list' || quit === undefined) {
+      return [];
+    }
+
+    return countPrefixes.map((prefix) => ({
+      key: `${prefix}ctrl+c`,
+      cmd: () => {
+        run(quit);
+      },
+    }));
+  };
+
   const layerFor = (scope: Command['scope']) => {
     const scoped = props.catalog.filter((command) => command.scope === scope);
     const keyStrings = [...new Set(scoped.flatMap((command) => command.keys))];
 
+    const countedKeys = scoped
+      .filter((command) => scope === 'list' && command.counted === true)
+      .flatMap((command) => command.keys);
+
     return {
       priority: scopePriority[scope],
       enabled: () => scopeActive(scope),
-      bindings: keyStrings.map((key) => ({
-        key,
-        preventDefault: false,
-        cmd: (context: CommandContext<Renderable, KeyEvent>) => {
-          const command = scoped.find((candidate) => candidate.keys.includes(key));
-
-          if (command === undefined) {
-            return;
-          }
-
-          run(command);
-
-          if (command.preventDefault ?? true) {
-            context.event.preventDefault();
-            context.event.stopPropagation();
-          }
-        },
-      })),
+      bindings: [
+        ...keyStrings.map((key) => bindingFor(scoped, key, undefined)),
+        ...countedKeys.flatMap((key) =>
+          countPrefixes.map((prefix) => bindingFor(scoped, key, prefix)),
+        ),
+        ...quitDuringCount(scope),
+      ],
     };
   };
 
@@ -377,7 +474,7 @@ const Keys = (props: KeysProps): null => {
     useBindings(() => layerFor(scope), bindingDeps);
   }
 
-  return null;
+  return <CountPatterns />;
 };
 
 const Body = (props: {
@@ -503,6 +600,7 @@ export const App = (props: AppProps): ReactNode => {
   return (
     <KeymapProvider keymap={props.keymap}>
       <Keys
+        key={keymapKeyOf(props.keymap)}
         {...props}
         modal={modal}
         overlay={overlay}

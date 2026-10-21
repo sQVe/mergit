@@ -100,3 +100,39 @@ test('j, k, g, and G move over thread rows in none', async () => {
 
   expect(selected()).toBe('thread:2');
 });
+
+test('a counted selectNext and selectPrevious move that many rows and clamp at the ends', async () => {
+  const { session, load, selected } = makeHarness();
+
+  const [a, b] = [makeThread('1'), makeThread('2')] as const;
+
+  await load(a, b);
+  session.send({ kind: 'selectNext', count: 2 });
+
+  expect(selected()).toBe('thread:1');
+
+  session.send({ kind: 'selectNext', count: 9999 });
+
+  expect(selected()).toBe(`thread:${b.id}`);
+
+  session.send({ kind: 'selectPrevious', count: 3 });
+
+  expect(selected()).toBe('node:review');
+
+  session.send({ kind: 'selectPrevious', count: 9999 });
+
+  expect(selected()).toBe('node:review');
+});
+
+test('a counted selectLast selects that visible row and clamps at the last row', async () => {
+  const { session, load, selected } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectLast', count: 2 });
+
+  expect(selected()).toBe('node:review/acme/app');
+
+  session.send({ kind: 'selectLast', count: 9999 });
+
+  expect(selected()).toBe('thread:2');
+});

@@ -841,3 +841,167 @@ test('the selected row stays in the frame when a refresh adds threads above it',
 
   expect(selectedRowText(setup)).toContain('Thread 05');
 });
+
+const twentyThreads = Array.from({ length: 20 }, (_, index) =>
+  makeThread(index + 1, `Item ${String(index + 1).padStart(2, '0')}`),
+);
+
+// Rows: reason node, repo node, then Item 01 at row 3.
+const countedList = async () => {
+  const mounted = await mount({ themeMode: 'dark', effects: threadsEffects(twentyThreads) });
+
+  await mounted.press('r');
+
+  return mounted;
+};
+
+test('5 then j moves the selection five rows down', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['5', 'j']);
+
+  expect(selectedLine(setup)).toContain('Item 04');
+});
+
+test('5 then Down moves the selection five rows down', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['5', 'down']);
+
+  expect(selectedLine(setup)).toContain('Item 04');
+});
+
+test('3 then k moves the selection three rows up', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['G', '3', 'k']);
+
+  expect(selectedLine(setup)).toContain('Item 17');
+});
+
+test('12 then G selects visible row 12', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['1', '2', 'G']);
+
+  expect(selectedLine(setup)).toContain('Item 10');
+});
+
+test('0 then j moves one row down', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['0', 'j']);
+
+  expect(selectedLine(setup)).toContain('example/repo');
+});
+
+test('9999 then j selects the last row', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['9', '9', '9', '9', 'j']);
+
+  expect(selectedLine(setup)).toContain('Item 20');
+});
+
+test('5 then d hides no thread and the next j moves one row', async () => {
+  const { setup, press, sent } = await countedList();
+
+  await pressAll(press, ['j', 'j', '5', 'd']);
+
+  expect(sent.filter((intent) => (intent as { kind: string }).kind === 'markDone')).toEqual([]);
+  expect(selectedLine(setup)).toContain('Item 01');
+  expect(setup.captureCharFrame()).toContain('Item 01');
+
+  await press('j');
+
+  expect(selectedLine(setup)).toContain('Item 02');
+});
+
+const markDoneCount = (sent: unknown[]) =>
+  sent.filter((intent) => (intent as { kind: string }).kind === 'markDone').length;
+
+test('0 then d marks the selected thread done', async () => {
+  const { press, sent } = await countedList();
+
+  await pressAll(press, ['j', 'j', '0', 'd']);
+
+  expect(markDoneCount(sent)).toBe(1);
+});
+
+test('0 then slash opens the search line', async () => {
+  const { setup, press, settle } = await countedList();
+
+  await pressAll(press, ['0', '/']);
+  await typeText(setup, settle, 'x');
+
+  expect(setup.captureCharFrame()).toContain('/x');
+});
+
+// A leading zero is dropped, so the 5 after it starts a fresh count of five.
+test('0 then 5 then j moves five rows down', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['0', '5', 'j']);
+
+  expect(selectedLine(setup)).toContain('Item 04');
+});
+
+test('1 then 0 then j moves ten rows down', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['1', '0', 'j']);
+
+  expect(selectedLine(setup)).toContain('Item 09');
+});
+
+test('1 then G selects the first visible row', async () => {
+  const { setup, press } = await countedList();
+
+  await pressAll(press, ['G', '1', 'G']);
+
+  expect(selectedLine(setup)).toContain('Subscribed or manual');
+});
+
+test('a counted G on an empty list selects nothing', async () => {
+  const { session, press } = await mount({ themeMode: 'dark', effects: threadsEffects([]) });
+
+  await pressAll(press, ['r', '3', 'G']);
+
+  expect(session.getSnapshot().selectedRowKey).toBeNull();
+});
+
+test('F5 then d marks the selected thread done', async () => {
+  const { setup, press, settle, sent } = await countedList();
+
+  await pressAll(press, ['j', 'j']);
+
+  await act(async () => {
+    setup.mockInput.pressKey('F5');
+  });
+
+  await settle();
+  await press('d');
+
+  expect(markDoneCount(sent)).toBe(1);
+});
+
+test('ctrl+5 then d marks the selected thread done', async () => {
+  const { setup, press, settle, sent } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(twentyThreads),
+    width: 60,
+    height: 24,
+    kittyKeyboard: true,
+  });
+
+  await pressAll(press, ['r', 'j', 'j']);
+
+  await act(async () => {
+    setup.mockInput.pressKey('5', { ctrl: true });
+  });
+
+  await settle();
+  await press('d');
+
+  expect(markDoneCount(sent)).toBe(1);
+});

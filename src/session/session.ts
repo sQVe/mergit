@@ -44,7 +44,7 @@ import {
   openSearch,
   restoreSearch,
 } from './searchTransitions.ts';
-import { jumpTopLevel, moveSelection, selectEdge } from './selectionMoves.ts';
+import { jumpTopLevel, moveSelection, selectEdge, selectRowNumber } from './selectionMoves.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import { initialSnapshot, noticeMessageOf, visibleRows } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
@@ -62,10 +62,10 @@ export { matchCountOf, noticeMessageOf, openThreads, visibleRows } from './sessi
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
-  | { kind: 'selectNext' }
-  | { kind: 'selectPrevious' }
+  | { kind: 'selectNext'; count?: number | undefined }
+  | { kind: 'selectPrevious'; count?: number | undefined }
   | { kind: 'selectFirst' }
-  | { kind: 'selectLast' }
+  | { kind: 'selectLast'; count?: number | undefined }
   | { kind: 'selectNextGroup' }
   | { kind: 'selectPreviousGroup' }
   | { kind: 'toggleFold' }
@@ -191,11 +191,15 @@ const unsavedLabels: Record<UnsavedChange, string> = {
   seen: 'Seen thread',
 };
 
-const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot> = {
-  selectNext: (snapshot) => moveSelection(snapshot, 1),
-  selectPrevious: (snapshot) => moveSelection(snapshot, -1),
+const transitions: Record<
+  StateIntent['kind'],
+  (snapshot: Snapshot, count: number | undefined) => Snapshot
+> = {
+  selectNext: (snapshot, count) => moveSelection(snapshot, count ?? 1),
+  selectPrevious: (snapshot, count) => moveSelection(snapshot, -(count ?? 1)),
   selectFirst: (snapshot) => selectEdge(snapshot, 'first'),
-  selectLast: (snapshot) => selectEdge(snapshot, 'last'),
+  selectLast: (snapshot, count) =>
+    count === undefined ? selectEdge(snapshot, 'last') : selectRowNumber(snapshot, count),
   selectNextGroup: (snapshot) => jumpTopLevel(snapshot, 1),
   selectPreviousGroup: (snapshot) => jumpTopLevel(snapshot, -1),
   toggleFold,
@@ -519,7 +523,9 @@ export const createSession = (effects: SessionEffects): Session => {
     } else if (isEditIntent(intent)) {
       sendEdit(intent);
     } else {
-      update(transitions[intent.kind](snapshot));
+      const count = 'count' in intent ? intent.count : undefined;
+
+      update(transitions[intent.kind](snapshot, count));
 
       if (intent.kind === 'cycleGrouping') {
         saveStateQuietly('grouping');
