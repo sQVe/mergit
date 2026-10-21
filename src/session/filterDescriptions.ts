@@ -1,6 +1,6 @@
 import type { Filter } from '../query.ts';
 import { filterQuery, formatFilter } from '../query.ts';
-import type { FilterRow } from './filterComposer.ts';
+import type { FilterRow } from './filterRows.ts';
 import { openThreads, threadsKnownMatching } from './sessionState.ts';
 import type { Snapshot } from './sessionState.ts';
 

@@ -50,8 +50,9 @@ import { createSubjectLookup } from './subjectLookup.ts';
 import { cycleGrouping, toggleAllFolds, toggleFold } from './treeTransitions.ts';
 
 export type { Snapshot } from './sessionState.ts';
-export { filterCursorOf, filterRowsOf } from './filterComposer.ts';
-export type { FilterRow } from './filterComposer.ts';
+export { filterCursorOf } from './filterComposer.ts';
+export { filterRowsOf } from './filterRows.ts';
+export type { FilterRow } from './filterRows.ts';
 export { describeFilterRow } from './filterDescriptions.ts';
 export { filterCombinationOf, formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
