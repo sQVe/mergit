@@ -1,32 +1,41 @@
 import type { ReactNode } from 'react';
 
+import type { Command } from '../commands.ts';
+import { keyHintOf } from '../commands.ts';
 import type { Snapshot } from '../session/session.ts';
 import { hasNoRows } from './Notice.tsx';
 import type { Palette } from './palette.ts';
 import { formatAge } from './threadRow.ts';
 
 const noticeMarkers = {
-  ghMissing: 'gh missing, press r',
-  notSignedIn: 'not signed in, press r',
+  ghMissing: 'gh missing',
+  notSignedIn: 'not signed in',
 };
 
-const readMarker = (snapshot: Snapshot): string | null => {
+const readMarker = (snapshot: Snapshot, refreshKey: string | undefined): string | null => {
   // With threads loaded, the list stays on screen and the full notice shows as a toast.
   if (snapshot.notice !== null && !hasNoRows(snapshot)) {
-    return noticeMarkers[snapshot.notice];
+    const fix = refreshKey === undefined ? 'refresh' : `press ${refreshKey}`;
+
+    return `${noticeMarkers[snapshot.notice]}, ${fix}`;
   }
 
   return null;
 };
 
-export const StatusLine = (props: { snapshot: Snapshot; palette: Palette }): ReactNode => {
-  const { snapshot, palette } = props;
-  const marker = readMarker(snapshot);
+export const StatusLine = (props: {
+  snapshot: Snapshot;
+  palette: Palette;
+  catalog: readonly Command[];
+}): ReactNode => {
+  const { snapshot, palette, catalog } = props;
+  const marker = readMarker(snapshot, keyHintOf(catalog, 'refresh'));
+  const helpKeys = keyHintOf(catalog, 'help');
 
   return (
     <box height={1} flexShrink={0} flexDirection="row" gap={2}>
       <text fg={palette.dim} flexShrink={0}>
-        ? help
+        {helpKeys === undefined ? 'help' : `${helpKeys} help`}
       </text>
       {snapshot.savedAt === null ? null : (
         <text fg={palette.dim} flexShrink={0}>

@@ -6,7 +6,7 @@ import { testRender } from '@opentui/react/test-utils';
 import { act, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
-import { catalog } from '../commands.ts';
+import { catalog, keyHintOf } from '../commands.ts';
 import type { Command, TerminalIntent } from '../commands.ts';
 import { createSession } from '../session/session.ts';
 import type { Session, SessionEffects } from '../session/session.ts';
@@ -39,6 +39,7 @@ Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
 export const idleEffects: SessionEffects = {
   savedSnapshot: null,
   host: 'github.com',
+  refreshKey: 'r',
   savedState: null,
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true, value: null }),
@@ -149,7 +150,7 @@ export const mount = async (
     });
   };
 
-  const session = createSession(effects);
+  const session = createSession({ ...effects, refreshKey: keyHintOf(appCatalog, 'refresh') });
   let sessionSubscribers = 0;
   const subscribe = session.subscribe;
 
@@ -281,7 +282,7 @@ export const colorOf = (mode: 'light' | 'dark'): string =>
 
 export const statusLineColor = (setup: Setup): string | undefined => {
   const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
-  const span = spans.find((candidate) => candidate.text.includes('? help'));
+  const span = spans.find((candidate) => /^[?] help$/.test(candidate.text));
 
   return span?.fg.toString();
 };

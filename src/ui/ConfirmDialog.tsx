@@ -1,9 +1,25 @@
 import type { ReactNode } from 'react';
 
+import type { Command } from '../commands.ts';
+import { keyHintOf } from '../commands.ts';
 import type { Palette } from './palette.ts';
 
-export const ConfirmDialog = (props: { repositories: number; palette: Palette }): ReactNode => {
-  const { palette } = props;
+const hintPart = (keys: string | undefined, action: string): string | undefined =>
+  keys === undefined ? undefined : `${keys} to ${action}`;
+
+export const ConfirmDialog = (props: {
+  repositories: number;
+  palette: Palette;
+  catalog: readonly Command[];
+}): ReactNode => {
+  const { palette, catalog } = props;
+
+  const parts = [
+    hintPart(keyHintOf(catalog, 'confirmOpen', ' or '), 'open'),
+    hintPart(keyHintOf(catalog, 'cancelOpen', ' or '), 'cancel'),
+  ];
+
+  const hint = parts.filter((part) => part !== undefined).join(', ');
 
   return (
     <box
@@ -21,7 +37,7 @@ export const ConfirmDialog = (props: { repositories: number; palette: Palette })
       paddingRight={1}
     >
       <text fg={palette.text}>Open {props.repositories} repos in the browser?</text>
-      <text fg={palette.dim}>y or Enter to open, n or Esc to cancel</text>
+      <text fg={palette.dim}>{hint}</text>
     </box>
   );
 };

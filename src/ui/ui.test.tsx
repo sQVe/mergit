@@ -3,6 +3,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { act } from 'react';
 
 import { catalog } from '../commands.ts';
+import type { SessionEffects } from '../session/session.ts';
 import type { Setup } from './uiHarness.tsx';
 import {
   idleEffects,
@@ -26,6 +27,10 @@ import {
   mountWithGroup as untrackedMountWithGroup,
   mountFilters as untrackedMountFilters,
   mount as untrackedMount,
+  feedEffects,
+  filterThreads,
+  filterFacts,
+  fourRepoThreads,
 } from './uiHarness.tsx';
 
 const cleanups: (() => void)[] = [];
@@ -910,4 +915,93 @@ test('ctrl+c gives one quit terminal intent from every scope', async () => {
 
     expect({ name, intents }).toEqual({ name, intents: [{ kind: 'terminal', action: 'quit' }] });
   }
+});
+
+const movedKeys: Record<string, readonly string[]> = {
+  refresh: ['shift+r'],
+  help: ['h'],
+  confirmOpen: ['a', 'space'],
+  applyFilterRow: ['ctrl+j'],
+};
+
+const movedKeysCatalog = catalog.map((command) =>
+  Object.assign({}, command, { keys: movedKeys[command.id] ?? command.keys }),
+);
+
+const signedOutEffects = (threads: typeof threeThreads) => {
+  let signedIn = true;
+
+  return {
+    effects: feedEffects(() =>
+      signedIn ? threads : { ok: false as const, failure: { kind: 'notSignedIn' as const } },
+    ),
+    signOut: () => {
+      signedIn = false;
+    },
+  };
+};
+
+const movedMount = (effects: SessionEffects) =>
+  mount('dark', effects, 100, false, 24, false, movedKeysCatalog);
+
+test('a custom catalog shows its keys in the status line and the refresh notices', async () => {
+  const { effects, signOut } = signedOutEffects(threeThreads);
+  const { setup, session, press } = await movedMount(effects);
+
+  await press('R');
+  signOut();
+  await press('R');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('h help');
+  expect(frame).toContain('not signed in, press R');
+  expect(session.getSnapshot().toast?.lines.join(' ')).toContain('then press R');
+});
+
+test('a custom catalog shows its refresh key in the empty-list notice', async () => {
+  const { effects, signOut } = signedOutEffects([]);
+
+  signOut();
+
+  const { setup, press } = await movedMount(effects);
+
+  await press('R');
+
+  expect(setup.captureCharFrame()).toContain('then press R');
+});
+
+test('a custom catalog shows its keys in the confirm dialog', async () => {
+  const { setup, press } = await mount(
+    'dark',
+    feedEffects(() => fourRepoThreads),
+    100,
+    false,
+    24,
+    false,
+    movedKeysCatalog,
+  );
+
+  await press('R');
+  await press('g');
+  await press('o');
+
+  expect(setup.captureCharFrame()).toContain('a or Space to open');
+});
+
+test('a custom catalog shows its keys in the filter composer hint', async () => {
+  const { setup, press } = await mount(
+    'dark',
+    factsEffects(filterThreads, filterFacts),
+    100,
+    false,
+    24,
+    false,
+    movedKeysCatalog,
+  );
+
+  await press('R');
+  await press('f');
+
+  expect(setup.captureCharFrame()).toContain('Ctrl+J apply');
 });

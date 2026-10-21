@@ -1,11 +1,8 @@
 import type { ReactNode } from 'react';
 
 import type { Command } from '../commands.ts';
-import { helpWindowOf, keysTextOf, suffixOf } from './helpWindow.ts';
+import { footerOf, helpWindowOf, keysTextOf, suffixOf } from './helpWindow.ts';
 import type { Palette } from './palette.ts';
-
-const firstKeyOf = (catalog: readonly Command[], id: string): string =>
-  catalog.find((command) => command.id === id)?.keys[0] ?? '';
 
 export const HelpOverlay = (props: {
   catalog: readonly Command[];
@@ -23,8 +20,7 @@ export const HelpOverlay = (props: {
   const top = Math.min(props.top, maximumTop);
   const visible = commands.slice(top, top + viewportRows);
   const position = `${top + 1}-${top + visible.length} of ${commands.length}`;
-  const scrollKeys = [firstKeyOf(catalog, 'scrollHelpDown'), firstKeyOf(catalog, 'scrollHelpUp')];
-  const hint = `${position}  ${scrollKeys.join('/')} scroll  ${firstKeyOf(catalog, 'closeHelp')} close`;
+  const hint = footerOf(catalog, position);
 
   return (
     <box

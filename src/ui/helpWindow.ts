@@ -1,4 +1,5 @@
 import type { Command } from '../commands.ts';
+import { keyNamesOf, readableKeyOf } from '../commands.ts';
 
 export interface HelpWindow {
   commands: readonly Command[];
@@ -22,7 +23,7 @@ const suffixes: Partial<Record<Command['scope'], string>> = {
 export const suffixOf = (command: Command): string | undefined => suffixes[command.scope];
 
 export const keysTextOf = (command: Command): string => {
-  const texts = [...command.keys];
+  const texts = command.keys.map((key) => readableKeyOf(key));
 
   if (command.name !== undefined) {
     texts.push(`:${command.name}`);
@@ -58,18 +59,40 @@ const rowWidthOf = (command: Command): number => {
   return textWidth + rowGap * (texts.length - 1);
 };
 
+export const footerOf = (catalog: readonly Command[], position: string): string => {
+  const scrollKeys = [
+    ...keyNamesOf(catalog, 'scrollHelpDown').slice(0, 1),
+    ...keyNamesOf(catalog, 'scrollHelpUp').slice(0, 1),
+  ];
+
+  const closeKey = keyNamesOf(catalog, 'closeHelp')[0];
+  const parts = [position];
+
+  if (scrollKeys.length > 0) {
+    parts.push(`${scrollKeys.join('/')} scroll`);
+  }
+
+  if (closeKey !== undefined) {
+    parts.push(`${closeKey} close`);
+  }
+
+  return parts.join('  ');
+};
+
 export const helpWindowOf = (catalog: readonly Command[], height: number): HelpWindow => {
   const commands = catalog.filter((command) => command.scope !== 'confirm');
   const overflows = commands.length + borderRows > height;
   const viewportRows = overflows ? Math.max(1, height - borderRows - footerRows) : commands.length;
 
   const widestRow = Math.max(0, ...commands.map(rowWidthOf));
+  const widestPosition = `${commands.length}-${commands.length} of ${commands.length}`;
+  const footerWidth = overflows ? footerOf(catalog, widestPosition).length : 0;
 
   return {
     commands,
     viewportRows,
     maximumTop: commands.length - viewportRows,
     overflows,
-    boxWidth: widestRow + boxChromeColumns,
+    boxWidth: Math.max(widestRow, footerWidth) + boxChromeColumns,
   };
 };

@@ -512,3 +512,53 @@ export const catalog: readonly Command[] = [
     intent: () => ({ kind: 'terminal', action: 'quit' }),
   },
 ];
+
+const readableKeyNames: Record<string, string> = {
+  return: 'Enter',
+  escape: 'Esc',
+  space: 'Space',
+  tab: 'Tab',
+  'shift+tab': 'Shift+Tab',
+  backspace: 'Backspace',
+  up: '↑',
+  down: '↓',
+  left: '←',
+  right: '→',
+};
+
+const shiftLetter = /^shift\+([a-z])$/;
+const controlKey = /^ctrl\+(.+)$/;
+
+export const readableKeyOf = (key: string): string => {
+  const named = readableKeyNames[key];
+
+  if (named !== undefined) {
+    return named;
+  }
+
+  const shifted = shiftLetter.exec(key)?.[1];
+
+  if (shifted !== undefined) {
+    return shifted.toUpperCase();
+  }
+
+  const controlled = controlKey.exec(key)?.[1];
+
+  return controlled === undefined ? key : `Ctrl+${controlled.toUpperCase()}`;
+};
+
+export const keyNamesOf = (commands: readonly Command[], id: string): string[] => {
+  const keys = commands.find((command) => command.id === id)?.keys ?? [];
+
+  return keys.map((key) => readableKeyOf(key));
+};
+
+export const keyHintOf = (
+  commands: readonly Command[],
+  id: string,
+  separator = '/',
+): string | undefined => {
+  const names = keyNamesOf(commands, id);
+
+  return names.length === 0 ? undefined : names.join(separator);
+};

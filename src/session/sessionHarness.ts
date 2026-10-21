@@ -185,6 +185,7 @@ export const makeHarness = (
   const session = createSession({
     savedSnapshot: null,
     host: 'github.com',
+    refreshKey: 'r',
     savedState: null,
     saveState: (state) => {
       saves.push(state);

@@ -45,7 +45,7 @@ import {
 } from './searchTransitions.ts';
 import { jumpTopLevel, moveSelection, selectEdge } from './selectionMoves.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
-import { initialSnapshot, noticeMessages, visibleRows } from './sessionState.ts';
+import { initialSnapshot, noticeMessageOf, visibleRows } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
 import { cycleGrouping, toggleAllFolds, toggleFold } from './treeTransitions.ts';
 
@@ -57,7 +57,7 @@ export { describeFilterRow } from './filterDescriptions.ts';
 export { filterCombinationOf, formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
 export { chosenCandidateIndexOf, searchCandidatesOf } from './searchCompletion.ts';
-export { matchCountOf, noticeMessages, openThreads, visibleRows } from './sessionState.ts';
+export { matchCountOf, noticeMessageOf, openThreads, visibleRows } from './sessionState.ts';
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
@@ -110,6 +110,8 @@ export interface SavedSnapshot {
 export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
   host: string;
+  // The readable text of the refresh key, such as `r`. Empty when the key is unbound.
+  refreshKey: string | undefined;
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
@@ -315,7 +317,7 @@ export const createSession = (effects: SessionEffects): Session => {
       return;
     }
 
-    const message = noticeMessages[next.notice];
+    const message = noticeMessageOf(next.notice, effects.refreshKey);
 
     toaster.show({ title: message.title, lines: [message.text], tone: 'error' });
   };
