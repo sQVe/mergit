@@ -40,7 +40,7 @@ export interface Command {
   name?: string;
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
-  // A counted command takes the number typed before its key. The count is undefined when none was typed.
+  // A counted command takes the number typed before its key.
   counted?: true;
   // Keys that still run this command while a count is pending, on the list layer.
   keysDuringCount?: readonly string[];
