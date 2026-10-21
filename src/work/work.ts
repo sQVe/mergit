@@ -2,7 +2,7 @@ import { invariant } from '../invariant.ts';
 import type { TreeRow } from './workTree.ts';
 import { listedRepositories } from './workTree.ts';
 
-export { buildTree, flattenTree, groupings, treeRows } from './workTree.ts';
+export { groupings, treeRows } from './workTree.ts';
 export type { Grouping, NodeRow, ThreadRow, TreeRow } from './workTree.ts';
 
 export type ThreadId = string & { readonly brand: 'ThreadId' };

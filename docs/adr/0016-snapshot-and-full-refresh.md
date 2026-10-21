@@ -32,7 +32,7 @@ page with its ETag, on change or on a timer. An unchanged poll costs one free re
   changes nothing and runs again.
 - Mergit never caps the page count, because a cap would hide threads that are not done.
 - The snapshot lives in `$XDG_CACHE_HOME/mergit/cache.db` and falls back to
-  `~/.cache/mergit/cache.db`. It uses `bun:sqlite`, and `localState.ts` owns it.
+  `~/.cache/mergit/cache.db`. It uses `bun:sqlite`, and `localState/snapshot.ts` owns it.
 - Rows are scoped by host and account. Mergit never shows rows from another account.
 - The snapshot is disposable. When it is corrupt or has an unknown schema version, Mergit deletes it
   and fetches again. It never holds anything a user would lose.

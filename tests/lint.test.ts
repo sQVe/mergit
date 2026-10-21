@@ -146,10 +146,10 @@ it.each(['lint', 'style:check'])(
         0,
       ],
       [
-        'src/localState.ts',
+        'src/localState/localState.ts',
         [
-          "import { invariant } from './invariant.ts';",
-          "import { work } from './work/work.js';",
+          "import { invariant } from '../invariant.ts';",
+          "import { work } from '../work/work.js';",
           'export const localState = [invariant, work];',
           'export interface LocalState { id: number }',
         ],
@@ -171,7 +171,7 @@ it.each(['lint', 'style:check'])(
         'src/session/session.ts',
         [
           "import type { Github } from '../github/github.ts';",
-          "import { type LocalState } from '../localState.ts';",
+          "import { type LocalState } from '../localState/localState.ts';",
           "import { work } from '../work/work.ts';",
           "export type { Actions } from '../actions.ts';",
           "export type GithubIdentifier = import('../github/github.ts').Github['id'];",
@@ -234,7 +234,7 @@ it.each(['lint', 'style:check'])(
           "import { config } from './config.ts';",
           "import { github } from './github/github.ts';",
           "import { invariant } from './invariant.ts';",
-          "import { localState } from './localState.ts';",
+          "import { localState } from './localState/localState.ts';",
           "import { session } from './session/session.ts';",
           "import { terminal } from './terminal.tsx';",
           "import { ui } from './ui/ui.tsx';",
@@ -271,8 +271,8 @@ it.each(['lint', 'style:check'])(
         [
           "import { github } from '../github/github.ts';",
           "import { type Actions, actions } from '../actions.ts';",
-          "export { localState } from '../localState.ts';",
-          "const loaded = await import('../localState.ts');",
+          "export { localState } from '../localState/localState.ts';",
+          "const loaded = await import('../localState/localState.ts');",
           'export const values = [github, actions, loaded];',
           'export type Value = Actions;',
         ],

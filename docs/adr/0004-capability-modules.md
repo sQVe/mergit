@@ -27,10 +27,11 @@ import which. Modules name their owner, and lint refuses imports that cross the 
 
 ### Modules
 
-- Folder modules: `github/`, `work/`, `session/`, `ui/`. Each has one public entry file named after
-  the folder, such as `session/session.ts`. Other files in the folder are private to the module.
-- Flat modules: `config.ts`, `actions.ts`, `localState.ts`, `commands.ts`, `invariant.ts`,
-  `index.ts`, `terminal.tsx`.
+- Folder modules: `github/`, `work/`, `session/`, `ui/`, `localState/`. Each has one public entry
+  file named after the folder, such as `session/session.ts`. Other files in the folder are private
+  to the module.
+- Flat modules: `config.ts`, `actions.ts`, `commands.ts`, `invariant.ts`, `index.ts`,
+  `terminal.tsx`.
 - A file outside these modules is an error. A new module starts as a flat file. It becomes a folder
   when it needs a second source file.
 
