@@ -150,7 +150,7 @@ export const mount = async (
     });
   };
 
-  const session = createSession({ ...effects, refreshKey: keyHintOf(appCatalog, 'refresh') ?? '' });
+  const session = createSession({ ...effects, refreshKey: keyHintOf(appCatalog, 'refresh') });
   let sessionSubscribers = 0;
   const subscribe = session.subscribe;
 

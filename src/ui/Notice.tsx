@@ -6,12 +6,12 @@ import type { Palette } from './palette.ts';
 
 export const hasNoRows = (snapshot: Snapshot): boolean => visibleRows(snapshot).length === 0;
 
-const readNoticeText = (snapshot: Snapshot, refreshKey: string): string | null =>
+const readNoticeText = (snapshot: Snapshot, refreshKey: string | undefined): string | null =>
   snapshot.notice === null ? null : noticeMessageOf(snapshot.notice, refreshKey).text;
 
 const readMessage = (
   snapshot: Snapshot,
-  refreshKey: string,
+  refreshKey: string | undefined,
 ): { text: string; dim: boolean } | null => {
   const notice = readNoticeText(snapshot, refreshKey);
 
@@ -34,12 +34,12 @@ const readMessage = (
   return null;
 };
 
-export const hasNotice = (snapshot: Snapshot): boolean => readMessage(snapshot, '') !== null;
+export const hasNotice = (snapshot: Snapshot): boolean => readMessage(snapshot, undefined) !== null;
 
 export const Notice = (props: {
   snapshot: Snapshot;
   palette: Palette;
-  refreshKey: string;
+  refreshKey: string | undefined;
 }): ReactNode => {
   const message = readMessage(props.snapshot, props.refreshKey);
 

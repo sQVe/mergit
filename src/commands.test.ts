@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Intent } from './commands.ts';
-import { catalog, keyNamesOf, readableKeyOf } from './commands.ts';
+import { catalog, keyHintOf, keyNamesOf, readableKeyOf } from './commands.ts';
 import type { ApplicationIntent, Filter } from './session/session.ts';
 import { createSession, visibleRows } from './session/session.ts';
 import type { BrowserPage } from './work/work.ts';
@@ -398,4 +398,18 @@ test('readableKeyOf gives each raw key its readable name', () => {
 test('keyNamesOf returns the readable keys of a command by id', () => {
   expect(keyNamesOf(catalog, 'confirmOpen')).toEqual(['y', 'Enter']);
   expect(keyNamesOf(catalog, 'missing')).toEqual([]);
+});
+
+test('keyHintOf joins key names with a slash unless told otherwise', () => {
+  const pair = [{ ...catalog[0]!, id: 'pair', keys: ['a', 'space'] }];
+
+  expect(keyHintOf(pair, 'pair')).toBe('a/Space');
+  expect(keyHintOf(pair, 'pair', ' or ')).toBe('a or Space');
+});
+
+test('keyHintOf gives nothing for a command without keys or an unknown command', () => {
+  const bare = [{ ...catalog[0]!, id: 'bare', keys: [] }];
+
+  expect(keyHintOf(bare, 'bare')).toBeUndefined();
+  expect(keyHintOf(bare, 'missing')).toBeUndefined();
 });

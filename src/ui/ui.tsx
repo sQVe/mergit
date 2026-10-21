@@ -402,7 +402,7 @@ const Body = (props: {
       <Notice
         snapshot={snapshot}
         palette={palette}
-        refreshKey={keyHintOf(props.catalog, 'refresh') ?? ''}
+        refreshKey={keyHintOf(props.catalog, 'refresh')}
       />
     );
   }

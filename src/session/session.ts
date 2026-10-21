@@ -111,7 +111,7 @@ export interface SessionEffects {
   savedSnapshot: SavedSnapshot | null;
   host: string;
   // The readable text of the refresh key, such as `r`. Empty when the key is unbound.
-  refreshKey: string;
+  refreshKey: string | undefined;
   savedState: SavedState | null;
   saveState: (state: SavedState) => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;

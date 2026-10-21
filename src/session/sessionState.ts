@@ -67,9 +67,9 @@ export interface Snapshot {
 
 export const noticeMessageOf = (
   notice: Notice,
-  refreshKey: string,
+  refreshKey: string | undefined,
 ): { title: string; text: string } => {
-  const thenRefresh = refreshKey === '' ? 'then refresh' : `then press ${refreshKey}`;
+  const thenRefresh = refreshKey === undefined ? 'then refresh' : `then press ${refreshKey}`;
 
   if (notice === 'ghMissing') {
     return {
