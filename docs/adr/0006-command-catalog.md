@@ -27,8 +27,7 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Commands
 
-- Each command has an id, a label, a scope (`global`, `list`, `preview`, `help`, or `confirm`), and
-  default keys.
+- Each command has an id, a label, a scope (one of the nine below), and default keys.
 - `disabledReason(snapshot)` returns why the command cannot run, or nothing when it can.
 - `intent(snapshot)` returns an application intent for the session, a UI intent for React, or a
   terminal intent. It performs no I/O. Only `terminal.tsx` handles terminal intents, so the session
@@ -39,17 +38,26 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Scopes
 
-- `list` and `preview` bindings follow focus. `global` bindings work outside modals.
-- `help` and `confirm` bindings work only while their own modal is open, so `escape` in one never
-  runs the other's command.
-- An open modal blocks the commands beneath it. On close, focus returns to the previous target only
-  if it is still mounted.
+- The nine scopes are `global`, `list`, `preview`, `help`, `messages`, `confirm`, `input`,
+  `command`, and `filter`.
+- Each scope has one keymap layer. The layer carries a priority, and a higher priority wins a key
+  that a lower one also binds. From highest to lowest: overlay or dialog (`help`, `messages`,
+  `confirm`), input line (`input`, `command`, `filter`), detail pane (`preview`), list (`list`), and
+  global (`global`). Scopes at one level are never active together, so `escape` in one modal never
+  runs another's command.
+- A higher level shadows the same key in a lower one on purpose.
+- `list` and `preview` bindings follow focus. `global` bindings stay active under help, messages,
+  and the confirmation, and are off while an input line is open.
+- An open modal blocks the `list` and `preview` commands beneath it. On close, focus returns to the
+  previous target only if it is still mounted.
+- A conflict is two commands on one parsed key stroke in one scope. `shift+g` and `Shift+G` are one
+  stroke.
 
 ### Remaps
 
 - Config maps a command id to a list of keys. The list replaces the defaults, and `[]` disables the
   command's keys.
-- Unknown ids, invalid keys, and one key bound to two commands in overlapping scopes stop startup.
+- Unknown ids, invalid keys, and one key bound to two commands in one scope stop startup.
 - Quit signals such as SIGINT still stop Mergit when the quit command has no keys.
 
 ## Consequences

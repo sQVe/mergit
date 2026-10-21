@@ -7,6 +7,7 @@ import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Command, Intent, TerminalIntent } from '../commands.ts';
+import { scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
@@ -82,7 +83,7 @@ const sidePaneShare = 0.36;
 const inputScopes = new Set<Command['scope']>(['input', 'filter', 'command']);
 
 const isActive = (
-  command: Command,
+  scope: Command['scope'],
   state: {
     overlay: Overlay['kind'];
     detailOpen: boolean;
@@ -95,18 +96,18 @@ const isActive = (
   const { searchOpen, filtersOpen, commandLineOpen } = state;
 
   if (commandLineOpen) {
-    return command.scope === 'command';
+    return scope === 'command';
   }
 
   if (searchOpen) {
-    return command.scope === 'input';
+    return scope === 'input';
   }
 
   if (filtersOpen) {
-    return command.scope === 'filter';
+    return scope === 'filter';
   }
 
-  if (inputScopes.has(command.scope)) {
+  if (inputScopes.has(scope)) {
     return false;
   }
 
@@ -116,13 +117,13 @@ const isActive = (
     confirm: overlay === 'confirm',
   };
 
-  const modalScopeOpen = modalScopes[command.scope];
+  const modalScopeOpen = modalScopes[scope];
 
   if (modalScopeOpen !== undefined) {
     return modalScopeOpen;
   }
 
-  if (command.scope === 'global') {
+  if (scope === 'global') {
     return true;
   }
 
@@ -130,7 +131,7 @@ const isActive = (
     return false;
   }
 
-  return command.scope === 'preview' ? detailOpen : !detailOpen;
+  return scope === 'preview' ? detailOpen : !detailOpen;
 };
 
 const composerRowsOf = (snapshot: Snapshot) => (snapshot.filtersOpen ? filterRowsOf(snapshot) : []);
@@ -166,6 +167,9 @@ const isComposerBlind = (snapshot: Snapshot, width: number, height: number): boo
     rows.length > 0 && composerLayoutFor(snapshot, rows, { width, height }).candidateRows === 0
   );
 };
+
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- scopePriority is a Record over Command['scope']
+const scopeOrder = Object.keys(scopePriority) as Command['scope'][];
 
 const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
   if (intent.kind !== 'application') {
@@ -303,19 +307,17 @@ const Keys = (props: KeysProps): null => {
 
   // The scope comes from the live session, because keys in one burst arrive before React
   // renders what the first key changed.
-  const commandFor = (key: string): Command | undefined => {
+  const scopeActive = (scope: Command['scope']): boolean => {
     const { searchOpen, filtersOpen, commandLineOpen } = session.getSnapshot();
     const { overlay, detailOpen } = modal.current;
 
-    const live = {
+    return isActive(scope, {
       overlay: overlay.kind,
       detailOpen: detailOpen && !props.sideLayout,
       searchOpen,
       filtersOpen,
       commandLineOpen,
-    };
-
-    return props.catalog.find((command) => command.keys.includes(key) && isActive(command, live));
+    });
   };
 
   // A key no command takes reaches here. Before the input takes focus, it is typed here.
@@ -328,15 +330,33 @@ const Keys = (props: KeysProps): null => {
     }
   });
 
-  const keyStrings = [...new Set(props.catalog.flatMap((command) => command.keys))];
+  const bindingDeps = [
+    props.overlay,
+    props.helpMaximumTop,
+    props.messagesMaximumTop,
+    setOverlay,
+    props.detailOpen,
+    props.sideLayout,
+    props.width,
+    props.height,
+    props.catalog,
+    session,
+    onTerminalIntent,
+    setDetailOpen,
+  ];
 
-  useBindings(
-    () => ({
+  const layerFor = (scope: Command['scope']) => {
+    const scoped = props.catalog.filter((command) => command.scope === scope);
+    const keyStrings = [...new Set(scoped.flatMap((command) => command.keys))];
+
+    return {
+      priority: scopePriority[scope],
+      enabled: () => scopeActive(scope),
       bindings: keyStrings.map((key) => ({
         key,
         preventDefault: false,
         cmd: (context: CommandContext<Renderable, KeyEvent>) => {
-          const command = commandFor(key);
+          const command = scoped.find((candidate) => candidate.keys.includes(key));
 
           if (command === undefined) {
             return;
@@ -350,22 +370,12 @@ const Keys = (props: KeysProps): null => {
           }
         },
       })),
-    }),
-    [
-      props.overlay,
-      props.helpMaximumTop,
-      props.messagesMaximumTop,
-      setOverlay,
-      props.detailOpen,
-      props.sideLayout,
-      props.width,
-      props.height,
-      props.catalog,
-      session,
-      onTerminalIntent,
-      setDetailOpen,
-    ],
-  );
+    };
+  };
+
+  for (const scope of scopeOrder) {
+    useBindings(() => layerFor(scope), bindingDeps);
+  }
 
   return null;
 };
