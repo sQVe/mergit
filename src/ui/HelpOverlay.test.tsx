@@ -236,6 +236,26 @@ test('a label that does not fit is cut with an ellipsis at the right border', as
   expect(cut).toBe('Esc Close the compose…');
 });
 
+test('at 30 columns every help row stays on one line inside the box', async () => {
+  const size = { width: 30, height: 100 };
+  const { lines, boxWidth: narrowWidth } = helpWindowOf(catalog, size.height, size.width);
+  const innerWidth = narrowWidth - 4;
+  const frame = await frameOf(catalog, size);
+  const rows = boxRowsOf(frame, narrowWidth);
+
+  for (const line of lines) {
+    if (line.kind === 'row') {
+      const gap = line.keys === '' || line.label === '' ? 0 : 1;
+
+      expect(line.keys.length + gap + line.label.length).toBeLessThanOrEqual(innerWidth);
+    }
+  }
+
+  expect(rows).toHaveLength(lines.length);
+  expect(rows.some((row) => row.includes('Selectr'))).toBe(false);
+  expect(rows.some((row) => row.startsWith('gg'))).toBe(true);
+});
+
 test('? opens the overlay and ? closes it', async () => {
   const { setup, press } = await mount({ height: 100 });
 

@@ -91,9 +91,11 @@ const headingOf = (catalog: readonly Command[], section: HelpSection): string =>
 
 const rowOf = (command: Command, innerWidth: number): HelpLine => {
   const keys = keysTextOf(command);
-  const labelWidth = keys === '' ? innerWidth : innerWidth - keys.length - 1;
+  const fittedKeys = fitted(keys, innerWidth);
+  const labelWidth = fittedKeys === '' ? innerWidth : innerWidth - fittedKeys.length - 1;
+  const label = labelWidth > 0 ? fitted(command.label, labelWidth) : '';
 
-  return { kind: 'row', keys, label: fitted(command.label, labelWidth) };
+  return { kind: 'row', keys: fittedKeys, label };
 };
 
 const linesOf = (catalog: readonly Command[], innerWidth: number): HelpLine[] => {
