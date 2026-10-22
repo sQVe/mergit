@@ -35,8 +35,9 @@ local setup and verification.
   directions.
 - Put types beside the code that owns them. Do not add barrels, a shared `types.ts`, or `utils/`.
   Extract shared code only for two existing consumers.
-- Application state lives in the session store, and the UI sends intents to it. React keeps only
-  focus, modal, and viewport state. See [ADR 0005](docs/adr/0005-session-store.md).
+- Application state lives in the session store, and the UI sends intents to it. The session owns the
+  list viewport, and React keeps focus, modal, and overlay scroll state. See
+  [ADR 0005](docs/adr/0005-session-store.md).
 - Define commands and keys only in the catalog in `commands.ts`. See
   [ADR 0006](docs/adr/0006-command-catalog.md).
 - A module that needs I/O declares a record of the functions it uses, beside its own code. Run

@@ -40,7 +40,11 @@ export interface Command {
   name?: string;
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
-  intent: (snapshot: Snapshot) => Intent;
+  // A counted command takes the number typed before its key.
+  counted?: true;
+  // Keys that still run this command while a count is pending, on the list layer.
+  keysDuringCount?: readonly string[];
+  intent: (snapshot: Snapshot, count?: number) => Intent;
   // False lets the key reach the focused input after the command runs.
   preventDefault?: boolean;
 }
@@ -72,6 +76,7 @@ export const catalog: readonly Command[] = [
     label: 'Quit',
     scope: 'global',
     keys: ['q', 'ctrl+c'],
+    keysDuringCount: ['ctrl+c'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'terminal', action: 'quit' }),
   },
@@ -89,7 +94,8 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     keys: ['j', 'down'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'selectNext' } }),
+    counted: true,
+    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectNext', count } }),
   },
   {
     id: 'selectPrevious',
@@ -97,7 +103,11 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     keys: ['k', 'up'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'selectPrevious' } }),
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'selectPrevious', count },
+    }),
   },
   {
     id: 'selectFirst',
@@ -113,7 +123,8 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     keys: ['shift+g'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'selectLast' } }),
+    counted: true,
+    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectLast', count } }),
   },
   {
     id: 'selectNextGroup',

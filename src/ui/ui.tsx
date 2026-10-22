@@ -1,16 +1,15 @@
 import type { KeyEvent, Renderable } from '@opentui/core';
 import type { CommandContext } from '@opentui/keymap';
 import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { KeymapProvider, useBindings } from '@opentui/keymap/react';
+import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
-import type { Command, Intent, TerminalIntent } from '../commands.ts';
+import type { Command, TerminalIntent } from '../commands.ts';
 import { keyHintOf, scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
-import type { BrowserPage } from '../work/work.ts';
 import { CommandLine, commandLineRows } from './CommandLine.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
@@ -27,8 +26,8 @@ import { SearchLine, searchLineRows } from './SearchLine.tsx';
 import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
-
-type UiIntent = Extract<Intent, { kind: 'ui' }>;
+import type { ModalState, Overlay, UiIntent } from './uiState.ts';
+import { useUiState } from './uiState.ts';
 
 type ThemeMode = 'light' | 'dark' | null;
 
@@ -45,27 +44,11 @@ export interface AppProps {
   onTerminalIntent: (intent: TerminalIntent) => void;
 }
 
-type Overlay =
-  | { kind: 'none' }
-  | { kind: 'help' }
-  | { kind: 'messages' }
-  | { kind: 'confirm'; pages: readonly BrowserPage[] };
-
-interface ModalState {
-  overlay: Overlay;
-  detailOpen: boolean;
-}
-
 interface KeysProps extends AppProps {
   modal: RefObject<ModalState>;
   overlay: Overlay;
-  setOverlay: (overlay: Overlay) => void;
-  helpMaximumTop: number;
-  setHelpTop: (update: (top: number) => number) => void;
-  messagesMaximumTop: number;
-  setMessagesTop: (update: (top: number) => number) => void;
   detailOpen: boolean;
-  setDetailOpen: (open: boolean) => void;
+  runUiAction: (intent: UiIntent) => void;
   sideLayout: boolean;
   searchOpen: boolean;
   filtersOpen: boolean;
@@ -179,74 +162,74 @@ const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
   return intent.intent.kind === 'applyFilterRow' || intent.intent.kind === 'takeFilterRow';
 };
 
-const Keys = (props: KeysProps): null => {
-  const { session, onTerminalIntent, setOverlay, setDetailOpen, modal } = props;
+const isPlainKey = (event: KeyEvent): boolean => !event.ctrl && !event.meta && !event.shift;
 
-  const confirmOpen = () => {
-    const { overlay } = modal.current;
+const leadDigitOf = (event: KeyEvent): { value: number } | undefined =>
+  isPlainKey(event) && /^[1-9]$/.test(event.name) ? { value: Number(event.name) } : undefined;
 
-    setOverlay({ kind: 'none' });
+const moreDigitOf = (event: KeyEvent): { value: number } | undefined =>
+  isPlainKey(event) && /^[0-9]$/.test(event.name) ? { value: Number(event.name) } : undefined;
 
-    if (overlay.kind === 'confirm') {
-      session.send({ kind: 'openInBrowser', pages: overlay.pages });
-    }
-  };
+const countOf = (payload: unknown): number | undefined => {
+  if (typeof payload !== 'object' || payload === null || !('lead' in payload)) {
+    return undefined;
+  }
 
-  const openMessages = () => {
-    if (modal.current.overlay.kind === 'confirm') {
-      return;
-    }
+  const more = 'more' in payload ? String(payload.more) : '';
 
-    props.setMessagesTop(() => 0);
-    setOverlay({ kind: 'messages' });
-  };
+  return Number(`${String(payload.lead)}${more}`);
+};
 
-  const toggleHelp = (toggling: boolean) => {
-    const { kind } = modal.current.overlay;
+const countPrefixes = ['{lead}', '{lead}{more}'];
 
-    if (kind === 'confirm') {
-      return;
-    }
+// A child of Keys: React runs a child's effects first on mount and last on unmount, so the
+// patterns exist before the layers register and outlive them.
+const CountPatterns = (): null => {
+  const keymap = useKeymap();
 
-    props.setHelpTop(() => 0);
-    setOverlay(toggling && kind !== 'help' ? { kind: 'help' } : { kind: 'none' });
-  };
+  useEffect(() => {
+    const removeLead = keymap.registerSequencePattern({
+      name: 'lead',
+      max: 1,
+      match: leadDigitOf,
+      finalize: (values) => String(values[0]),
+    });
 
-  const runUiAction = (intent: UiIntent) => {
-    const { action } = intent;
+    const removeMore = keymap.registerSequencePattern({
+      name: 'more',
+      match: moreDigitOf,
+      finalize: (values) => values.join(''),
+    });
 
-    if (intent.action === 'askOpen') {
-      setOverlay({ kind: 'confirm', pages: intent.pages });
-    } else if (action === 'confirmOpen') {
-      confirmOpen();
-    } else if (action === 'cancelOpen') {
-      setOverlay({ kind: 'none' });
-    } else if (action === 'openDetail') {
-      setDetailOpen(!props.sideLayout);
-    } else if (action === 'closeDetail') {
-      setDetailOpen(false);
-    } else if (action === 'openMessages') {
-      openMessages();
-    } else if (action === 'closeMessages') {
-      setOverlay({ kind: 'none' });
-    } else if (intent.action === 'scrollMessages') {
-      const { messagesMaximumTop } = props;
+    return () => {
+      removeMore();
+      removeLead();
+    };
+  }, [keymap]);
 
-      props.setMessagesTop((top) =>
-        Math.min(messagesMaximumTop, Math.max(0, Math.min(top, messagesMaximumTop) + intent.lines)),
-      );
-    } else if (intent.action === 'scrollHelp') {
-      const { lines } = intent;
+  return null;
+};
 
-      const { helpMaximumTop } = props;
+const keymapIds = new WeakMap<AppProps['keymap'], number>();
 
-      props.setHelpTop((top) =>
-        Math.min(helpMaximumTop, Math.max(0, Math.min(top, helpMaximumTop) + lines)),
-      );
-    } else {
-      toggleHelp(action === 'toggleHelp');
-    }
-  };
+let keymapsSeen = 0;
+
+// Keys remounts when the keymap changes, so its layers leave before its count patterns do.
+const keymapKeyOf = (keymap: AppProps['keymap']): number => {
+  const known = keymapIds.get(keymap);
+
+  if (known !== undefined) {
+    return known;
+  }
+
+  keymapsSeen += 1;
+  keymapIds.set(keymap, keymapsSeen);
+
+  return keymapsSeen;
+};
+
+const Keys = (props: KeysProps): ReactNode => {
+  const { session, onTerminalIntent, runUiAction, modal } = props;
 
   const typeIntoPendingInput = (text: string): void => {
     const snapshot = session.getSnapshot();
@@ -281,14 +264,14 @@ const Keys = (props: KeysProps): null => {
     }
   };
 
-  const run = (command: Command) => {
+  const run = (command: Command, count?: number) => {
     const snapshot = session.getSnapshot();
 
     if (command.disabledReason(snapshot) !== undefined) {
       return;
     }
 
-    const intent = command.intent(snapshot);
+    const intent = command.intent(snapshot, count);
 
     if (isFilterRowIntent(intent) && isComposerBlind(snapshot, props.width, props.height)) {
       return;
@@ -332,9 +315,6 @@ const Keys = (props: KeysProps): null => {
 
   const bindingDeps = [
     props.overlay,
-    props.helpMaximumTop,
-    props.messagesMaximumTop,
-    setOverlay,
     props.detailOpen,
     props.sideLayout,
     props.width,
@@ -342,34 +322,64 @@ const Keys = (props: KeysProps): null => {
     props.catalog,
     session,
     onTerminalIntent,
-    setDetailOpen,
+    runUiAction,
   ];
+
+  const bindingFor = (scoped: Command[], key: string, prefix: string | undefined) => ({
+    key: `${prefix ?? ''}${key}`,
+    preventDefault: false,
+    cmd: (context: CommandContext<Renderable, KeyEvent>) => {
+      const command = scoped.find((candidate) => candidate.keys.includes(key));
+
+      if (command === undefined) {
+        return;
+      }
+
+      run(command, prefix === undefined ? undefined : countOf(context.payload));
+
+      if (command.preventDefault ?? true) {
+        context.event.preventDefault();
+        context.event.stopPropagation();
+      }
+    },
+  });
+
+  // A pending count swallows the next key unless a binding follows it.
+  const commandsDuringCount = (scope: Command['scope']) => {
+    if (scope !== 'list') {
+      return [];
+    }
+
+    return props.catalog.flatMap((command) =>
+      (command.keysDuringCount ?? []).flatMap((key) =>
+        countPrefixes.map((prefix) => ({
+          key: `${prefix}${key}`,
+          cmd: () => {
+            run(command);
+          },
+        })),
+      ),
+    );
+  };
 
   const layerFor = (scope: Command['scope']) => {
     const scoped = props.catalog.filter((command) => command.scope === scope);
     const keyStrings = [...new Set(scoped.flatMap((command) => command.keys))];
 
+    const countedKeys = scoped
+      .filter((command) => scope === 'list' && command.counted === true)
+      .flatMap((command) => command.keys);
+
     return {
       priority: scopePriority[scope],
       enabled: () => scopeActive(scope),
-      bindings: keyStrings.map((key) => ({
-        key,
-        preventDefault: false,
-        cmd: (context: CommandContext<Renderable, KeyEvent>) => {
-          const command = scoped.find((candidate) => candidate.keys.includes(key));
-
-          if (command === undefined) {
-            return;
-          }
-
-          run(command);
-
-          if (command.preventDefault ?? true) {
-            context.event.preventDefault();
-            context.event.stopPropagation();
-          }
-        },
-      })),
+      bindings: [
+        ...keyStrings.map((key) => bindingFor(scoped, key, undefined)),
+        ...countedKeys.flatMap((key) =>
+          countPrefixes.map((prefix) => bindingFor(scoped, key, prefix)),
+        ),
+        ...commandsDuringCount(scope),
+      ],
     };
   };
 
@@ -377,7 +387,7 @@ const Keys = (props: KeysProps): null => {
     useBindings(() => layerFor(scope), bindingDeps);
   }
 
-  return null;
+  return <CountPatterns />;
 };
 
 const Body = (props: {
@@ -386,10 +396,10 @@ const Body = (props: {
   width: number;
   paneWidth: number;
   fullDetail: boolean;
-  searchRoom: number;
+  listHeight: number;
   catalog: readonly Command[];
 }): ReactNode => {
-  const { snapshot, palette, width, paneWidth, searchRoom } = props;
+  const { snapshot, palette, width, paneWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
 
   const facts =
@@ -424,9 +434,7 @@ const Body = (props: {
         snapshot={snapshot}
         palette={palette}
         width={width - paneWidth}
-        reservedRows={
-          searchLineRows(snapshot, searchRoom) + commandLineRows(snapshot) + filterBarRows(snapshot)
-        }
+        height={listHeight}
       />
       {paneWidth > 0 ? (
         <DetailPane
@@ -443,28 +451,6 @@ const Body = (props: {
 };
 
 export const App = (props: AppProps): ReactNode => {
-  const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
-  const [helpTop, setHelpTop] = useState(0);
-  const [messagesTop, setMessagesTop] = useState(0);
-  const [detailOpen, setDetailOpenState] = useState(false);
-
-  // Keys in one burst arrive before React renders, so key handling reads this copy, which each
-  // setter updates at once.
-  const modal = useRef<ModalState>({
-    overlay: { kind: 'none' },
-    detailOpen: false,
-  });
-
-  const setOverlay = (next: Overlay) => {
-    modal.current.overlay = next;
-    setOverlayState(next);
-  };
-
-  const setDetailOpen = (open: boolean) => {
-    modal.current.detailOpen = open;
-    setDetailOpenState(open);
-  };
-
   const snapshot = useSyncExternalStore(props.session.subscribe, props.session.getSnapshot);
 
   const themeMode = useSyncExternalStore(
@@ -476,19 +462,30 @@ export const App = (props: AppProps): ReactNode => {
   const { width, height } = useTerminalDimensions();
 
   const helpWindow = helpWindowOf(props.catalog, height);
-
+  const messagesMaximumTop = messageWindowOf(snapshot.messages, width, height).maximumTop;
   const sideLayout = width >= sidePaneMinimumWidth;
-  const fullDetail = detailOpen && !sideLayout;
 
-  useEffect(() => {
-    if (sideLayout) {
-      setDetailOpen(false);
-    }
-  }, [sideLayout]);
+  const { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction } = useUiState(
+    props.session,
+    sideLayout,
+    helpWindow.maximumTop,
+    messagesMaximumTop,
+  );
+
+  const fullDetail = detailOpen && !sideLayout;
 
   const composerRows = composerRowsOf(snapshot);
   const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
   const searchRoom = searchRoomOf(snapshot, height);
+
+  const reservedRows =
+    searchLineRows(snapshot, searchRoom) + commandLineRows(snapshot) + filterBarRows(snapshot);
+
+  const listHeight = Math.max(1, height - statusRows - reservedRows);
+
+  useEffect(() => {
+    props.session.send({ kind: 'setListRows', rows: listHeight });
+  }, [props.session, listHeight]);
 
   const widestPane = Math.floor(width * sidePaneShare);
   const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
@@ -496,16 +493,12 @@ export const App = (props: AppProps): ReactNode => {
   return (
     <KeymapProvider keymap={props.keymap}>
       <Keys
+        key={keymapKeyOf(props.keymap)}
         {...props}
         modal={modal}
         overlay={overlay}
-        setOverlay={setOverlay}
-        helpMaximumTop={helpWindow.maximumTop}
-        setHelpTop={setHelpTop}
-        messagesMaximumTop={messageWindowOf(snapshot.messages, width, height).maximumTop}
-        setMessagesTop={setMessagesTop}
         detailOpen={fullDetail}
-        setDetailOpen={setDetailOpen}
+        runUiAction={runUiAction}
         sideLayout={sideLayout}
         searchOpen={snapshot.searchOpen}
         filtersOpen={snapshot.filtersOpen}
@@ -532,7 +525,7 @@ export const App = (props: AppProps): ReactNode => {
           width={width}
           paneWidth={paneWidth}
           fullDetail={fullDetail}
-          searchRoom={searchRoom}
+          listHeight={listHeight}
           catalog={props.catalog}
         />
         <SearchLine

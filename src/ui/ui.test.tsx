@@ -1,9 +1,15 @@
 import { afterEach, expect, test } from 'bun:test';
 
-import { act } from 'react';
+import { KeyEvent } from '@opentui/core';
+import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
+import { useRenderer } from '@opentui/react';
+import { testRender } from '@opentui/react/test-utils';
+import { act, useMemo, useState } from 'react';
 
 import { catalog } from '../commands.ts';
 import type { SessionEffects } from '../session/session.ts';
+import { createSession, visibleRows } from '../session/session.ts';
+import { App } from './ui.tsx';
 import type { Setup } from './uiHarness.tsx';
 import {
   makeThread,
@@ -1041,4 +1047,225 @@ test('a custom catalog shows its keys in the filter composer hint', async () => 
   await press('f');
 
   expect(setup.captureCharFrame()).toContain('Ctrl+J apply');
+});
+
+test('5 then ctrl+c passes one quit terminal intent', async () => {
+  const { setup, press, settle, terminalIntents } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
+
+  await pressAll(press, ['r', '5']);
+
+  await act(async () => {
+    setup.mockInput.pressKey('c', { ctrl: true });
+  });
+
+  await settle();
+
+  expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
+});
+
+test('5 then q passes no quit terminal intent', async () => {
+  const { press, terminalIntents } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
+
+  await pressAll(press, ['r', '5', 'q']);
+
+  expect(terminalIntents).toEqual([]);
+});
+
+test('digits typed in the open search line reach the text and the selection stays', async () => {
+  const numbered = Array.from({ length: 20 }, (_, index) =>
+    makeThread(index + 1, `Item ${index + 1}`),
+  );
+
+  const { setup, press, settle, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(numbered),
+  });
+
+  await press('r');
+
+  const before = session.getSnapshot().selectedRowKey;
+
+  await press('/');
+  await typeText(setup, settle, '12');
+
+  expect(setup.captureCharFrame()).toContain('/12');
+  expect(session.getSnapshot().selectedRowKey).toBe(before);
+});
+
+test('a slash, 5, and j in one burst type 5j into the search line', async () => {
+  const { setup, press, settle } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(queryThreads),
+  });
+
+  await press('r');
+  await typeText(setup, settle, '/5j');
+
+  expect(setup.captureCharFrame()).toContain('/5j');
+});
+
+test('swapping the keymap A to B to A keeps counts working, drops old layers, and logs no warning', async () => {
+  const session = createSession(
+    threadsEffects(
+      Array.from({ length: 20 }, (_, index) => makeThread(index + 1, `Item ${index + 1}`)),
+    ),
+  );
+
+  const diagnostics: string[] = [];
+  const keymaps: ReturnType<typeof createDefaultOpenTuiKeymap>[] = [];
+  const prepended: ((event: KeyEvent) => void)[] = [];
+  const swapper: { swap: (index: number) => void } = { swap: () => undefined };
+
+  const Swapper = () => {
+    const renderer = useRenderer();
+
+    const pair = useMemo(() => {
+      const { keyInput } = renderer;
+      const prepend = keyInput.prependListener.bind(keyInput);
+
+      // Records each keymap's key listener so a test can call one keymap alone.
+      keyInput.prependListener = ((name: string, listener: (event: KeyEvent) => void) => {
+        if (name === 'keypress') {
+          prepended.push(listener);
+        }
+
+        return prepend(name as 'keypress', listener);
+      }) as typeof keyInput.prependListener;
+
+      return [createDefaultOpenTuiKeymap(renderer), createDefaultOpenTuiKeymap(renderer)] as const;
+    }, [renderer]);
+
+    const [index, setIndex] = useState(0);
+
+    swapper.swap = setIndex;
+    keymaps.splice(0, keymaps.length, ...pair);
+
+    return (
+      <App
+        session={session}
+        catalog={catalog}
+        keymap={pair[index] ?? pair[0]}
+        themeSource={{ getThemeMode: () => 'dark', subscribe: () => () => undefined }}
+        onTerminalIntent={() => undefined}
+      />
+    );
+  };
+
+  const setup = await act(() => testRender(<Swapper />, { width: 60, height: 24 }));
+
+  cleanups.push(() => {
+    act(() => {
+      setup.renderer.destroy();
+    });
+  });
+
+  for (const keymap of keymaps) {
+    keymap.on('warning', (event) => diagnostics.push(JSON.stringify(event)));
+    keymap.on('error', (event) => diagnostics.push(JSON.stringify(event)));
+  }
+
+  const settle = () =>
+    act(async () => {
+      await Bun.sleep(50);
+      await setup.renderOnce();
+    });
+
+  const swapTo = async (index: number) => {
+    await act(() => {
+      swapper.swap(index);
+
+      return Promise.resolve();
+    });
+
+    await settle();
+  };
+
+  const moves: unknown[] = [];
+  const send = session.send;
+
+  session.send = (intent) => {
+    moves.push(intent);
+    send(intent);
+  };
+
+  const selectedIndex = () => {
+    const snapshot = session.getSnapshot();
+
+    return visibleRows(snapshot).findIndex((row) => row.key === snapshot.selectedRowKey);
+  };
+
+  const dispatchTo = async (keymapIndex: number, name: string) => {
+    const listener = prepended[keymapIndex];
+
+    if (listener === undefined) {
+      throw new Error(`No key listener was recorded for keymap ${keymapIndex}.`);
+    }
+
+    await act(() => {
+      listener(
+        new KeyEvent({
+          name,
+          sequence: name,
+          ctrl: false,
+          meta: false,
+          shift: false,
+          option: false,
+          number: false,
+          raw: name,
+          eventType: 'press',
+          source: 'raw',
+        }),
+      );
+
+      return Promise.resolve();
+    });
+
+    await settle();
+  };
+
+  const expectStep = async (active: number) => {
+    const inactive = 1 - active;
+    const start = selectedIndex();
+
+    moves.length = 0;
+    await dispatchTo(inactive, 'j');
+
+    expect(moves).toEqual([]);
+    expect(selectedIndex()).toBe(start);
+
+    await act(async () => {
+      setup.mockInput.pressKey('5');
+      setup.mockInput.pressKey('j');
+    });
+
+    await settle();
+
+    expect(moves).toEqual([{ kind: 'selectNext', count: 5 }]);
+    expect(selectedIndex()).toBe(start + 5);
+    moves.length = 0;
+  };
+
+  await settle();
+
+  await act(() => {
+    session.send({ kind: 'refresh' });
+
+    return Promise.resolve();
+  });
+
+  await settle();
+  await settle();
+  await expectStep(0);
+  await swapTo(1);
+  await expectStep(1);
+  await swapTo(0);
+  await expectStep(0);
+
+  expect(diagnostics).toEqual([]);
 });

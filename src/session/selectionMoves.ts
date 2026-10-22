@@ -14,7 +14,7 @@ export const select = (snapshot: Snapshot, selectedRowKey: string | null): Snaps
 export const selectedIndex = (snapshot: Snapshot, rows: TreeRow[]): number =>
   rows.findIndex((row) => row.key === snapshot.selectedRowKey);
 
-export const moveSelection = (snapshot: Snapshot, step: 1 | -1): Snapshot => {
+export const moveSelection = (snapshot: Snapshot, step: number): Snapshot => {
   const rows = visibleRows(snapshot);
 
   const next = Math.min(Math.max(selectedIndex(snapshot, rows) + step, 0), rows.length - 1);
@@ -27,6 +27,13 @@ export const selectEdge = (snapshot: Snapshot, edge: 'first' | 'last'): Snapshot
   const row = edge === 'first' ? rows[0] : rows.at(-1);
 
   return select(snapshot, row?.key ?? null);
+};
+
+export const selectRowNumber = (snapshot: Snapshot, rowNumber: number): Snapshot => {
+  const rows = visibleRows(snapshot);
+  const index = Math.min(Math.max(rowNumber, 1), rows.length) - 1;
+
+  return select(snapshot, rows[index]?.key ?? null);
 };
 
 export const jumpTopLevel = (snapshot: Snapshot, step: 1 | -1): Snapshot => {

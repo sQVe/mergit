@@ -33,6 +33,7 @@ import {
   openFilters,
   takeFilterRow,
 } from './filterComposer.ts';
+import { clampListTop, setListRows } from './listViewport.ts';
 import { createMarker } from './marker.ts';
 import { createMessageToast } from './messageToast.ts';
 import { moveSearchCompletion } from './searchCompletion.ts';
@@ -43,7 +44,7 @@ import {
   openSearch,
   restoreSearch,
 } from './searchTransitions.ts';
-import { jumpTopLevel, moveSelection, selectEdge } from './selectionMoves.ts';
+import { jumpTopLevel, moveSelection, selectEdge, selectRowNumber } from './selectionMoves.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import { initialSnapshot, noticeMessageOf, visibleRows } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
@@ -61,10 +62,10 @@ export { matchCountOf, noticeMessageOf, openThreads, visibleRows } from './sessi
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
-  | { kind: 'selectNext' }
-  | { kind: 'selectPrevious' }
+  | { kind: 'selectNext'; count?: number | undefined }
+  | { kind: 'selectPrevious'; count?: number | undefined }
   | { kind: 'selectFirst' }
-  | { kind: 'selectLast' }
+  | { kind: 'selectLast'; count?: number | undefined }
   | { kind: 'selectNextGroup' }
   | { kind: 'selectPreviousGroup' }
   | { kind: 'toggleFold' }
@@ -92,7 +93,8 @@ export type ApplicationIntent =
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
-  | { kind: 'openInBrowser'; pages: readonly BrowserPage[] };
+  | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
+  | { kind: 'setListRows'; rows: number };
 
 export interface SavedState {
   grouping: Grouping;
@@ -168,6 +170,7 @@ type StateIntent = Exclude<
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
+  | { kind: 'setListRows'; rows: number }
   | EditIntent
 >;
 
@@ -188,11 +191,15 @@ const unsavedLabels: Record<UnsavedChange, string> = {
   seen: 'Seen thread',
 };
 
-const transitions: Record<StateIntent['kind'], (snapshot: Snapshot) => Snapshot> = {
-  selectNext: (snapshot) => moveSelection(snapshot, 1),
-  selectPrevious: (snapshot) => moveSelection(snapshot, -1),
+const transitions: Record<
+  StateIntent['kind'],
+  (snapshot: Snapshot, count: number | undefined) => Snapshot
+> = {
+  selectNext: (snapshot, count) => moveSelection(snapshot, count ?? 1),
+  selectPrevious: (snapshot, count) => moveSelection(snapshot, -(count ?? 1)),
   selectFirst: (snapshot) => selectEdge(snapshot, 'first'),
-  selectLast: (snapshot) => selectEdge(snapshot, 'last'),
+  selectLast: (snapshot, count) =>
+    count === undefined ? selectEdge(snapshot, 'last') : selectRowNumber(snapshot, count),
   selectNextGroup: (snapshot) => jumpTopLevel(snapshot, 1),
   selectPreviousGroup: (snapshot) => jumpTopLevel(snapshot, -1),
   toggleFold,
@@ -323,7 +330,7 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const update = (candidate: Snapshot) => {
-    const next = marker.applyLeaving(candidate);
+    const next = clampListTop(marker.applyLeaving(candidate));
 
     if (next === snapshot) {
       return;
@@ -469,7 +476,7 @@ export const createSession = (effects: SessionEffects): Session => {
     showToast: toaster.show,
   });
 
-  snapshot = marker.apply(snapshot);
+  snapshot = clampListTop(marker.apply(snapshot));
 
   const sendEdit = (intent: EditIntent) => {
     switch (intent.kind) {
@@ -511,10 +518,14 @@ export const createSession = (effects: SessionEffects): Session => {
       doneActions.undoDone();
     } else if (intent.kind === 'openInBrowser') {
       browserOpen.open(intent.pages);
+    } else if (intent.kind === 'setListRows') {
+      update(setListRows(snapshot, intent.rows));
     } else if (isEditIntent(intent)) {
       sendEdit(intent);
     } else {
-      update(transitions[intent.kind](snapshot));
+      const count = 'count' in intent ? intent.count : undefined;
+
+      update(transitions[intent.kind](snapshot, count));
 
       if (intent.kind === 'cycleGrouping') {
         saveStateQuietly('grouping');
