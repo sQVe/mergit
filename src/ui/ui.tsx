@@ -4,13 +4,12 @@ import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
-import type { Command, Intent, TerminalIntent } from '../commands.ts';
+import type { Command, TerminalIntent } from '../commands.ts';
 import { keyHintOf, scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
-import type { BrowserPage } from '../work/work.ts';
 import { CommandLine, commandLineRows } from './CommandLine.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
@@ -27,8 +26,8 @@ import { SearchLine, searchLineRows } from './SearchLine.tsx';
 import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
-
-type UiIntent = Extract<Intent, { kind: 'ui' }>;
+import type { ModalState, Overlay, UiIntent } from './uiState.ts';
+import { useUiState } from './uiState.ts';
 
 type ThemeMode = 'light' | 'dark' | null;
 
@@ -45,27 +44,11 @@ export interface AppProps {
   onTerminalIntent: (intent: TerminalIntent) => void;
 }
 
-type Overlay =
-  | { kind: 'none' }
-  | { kind: 'help' }
-  | { kind: 'messages' }
-  | { kind: 'confirm'; pages: readonly BrowserPage[] };
-
-interface ModalState {
-  overlay: Overlay;
-  detailOpen: boolean;
-}
-
 interface KeysProps extends AppProps {
   modal: RefObject<ModalState>;
   overlay: Overlay;
-  setOverlay: (overlay: Overlay) => void;
-  helpMaximumTop: number;
-  setHelpTop: (update: (top: number) => number) => void;
-  messagesMaximumTop: number;
-  setMessagesTop: (update: (top: number) => number) => void;
   detailOpen: boolean;
-  setDetailOpen: (open: boolean) => void;
+  runUiAction: (intent: UiIntent) => void;
   sideLayout: boolean;
   searchOpen: boolean;
   filtersOpen: boolean;
@@ -246,73 +229,7 @@ const keymapKeyOf = (keymap: AppProps['keymap']): number => {
 };
 
 const Keys = (props: KeysProps): ReactNode => {
-  const { session, onTerminalIntent, setOverlay, setDetailOpen, modal } = props;
-
-  const confirmOpen = () => {
-    const { overlay } = modal.current;
-
-    setOverlay({ kind: 'none' });
-
-    if (overlay.kind === 'confirm') {
-      session.send({ kind: 'openInBrowser', pages: overlay.pages });
-    }
-  };
-
-  const openMessages = () => {
-    if (modal.current.overlay.kind === 'confirm') {
-      return;
-    }
-
-    props.setMessagesTop(() => 0);
-    setOverlay({ kind: 'messages' });
-  };
-
-  const toggleHelp = (toggling: boolean) => {
-    const { kind } = modal.current.overlay;
-
-    if (kind === 'confirm') {
-      return;
-    }
-
-    props.setHelpTop(() => 0);
-    setOverlay(toggling && kind !== 'help' ? { kind: 'help' } : { kind: 'none' });
-  };
-
-  const runUiAction = (intent: UiIntent) => {
-    const { action } = intent;
-
-    if (intent.action === 'askOpen') {
-      setOverlay({ kind: 'confirm', pages: intent.pages });
-    } else if (action === 'confirmOpen') {
-      confirmOpen();
-    } else if (action === 'cancelOpen') {
-      setOverlay({ kind: 'none' });
-    } else if (action === 'openDetail') {
-      setDetailOpen(!props.sideLayout);
-    } else if (action === 'closeDetail') {
-      setDetailOpen(false);
-    } else if (action === 'openMessages') {
-      openMessages();
-    } else if (action === 'closeMessages') {
-      setOverlay({ kind: 'none' });
-    } else if (intent.action === 'scrollMessages') {
-      const { messagesMaximumTop } = props;
-
-      props.setMessagesTop((top) =>
-        Math.min(messagesMaximumTop, Math.max(0, Math.min(top, messagesMaximumTop) + intent.lines)),
-      );
-    } else if (intent.action === 'scrollHelp') {
-      const { lines } = intent;
-
-      const { helpMaximumTop } = props;
-
-      props.setHelpTop((top) =>
-        Math.min(helpMaximumTop, Math.max(0, Math.min(top, helpMaximumTop) + lines)),
-      );
-    } else {
-      toggleHelp(action === 'toggleHelp');
-    }
-  };
+  const { session, onTerminalIntent, runUiAction, modal } = props;
 
   const typeIntoPendingInput = (text: string): void => {
     const snapshot = session.getSnapshot();
@@ -398,9 +315,6 @@ const Keys = (props: KeysProps): ReactNode => {
 
   const bindingDeps = [
     props.overlay,
-    props.helpMaximumTop,
-    props.messagesMaximumTop,
-    setOverlay,
     props.detailOpen,
     props.sideLayout,
     props.width,
@@ -408,7 +322,7 @@ const Keys = (props: KeysProps): ReactNode => {
     props.catalog,
     session,
     onTerminalIntent,
-    setDetailOpen,
+    runUiAction,
   ];
 
   const bindingFor = (scoped: Command[], key: string, prefix: string | undefined) => ({
@@ -537,28 +451,6 @@ const Body = (props: {
 };
 
 export const App = (props: AppProps): ReactNode => {
-  const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
-  const [helpTop, setHelpTop] = useState(0);
-  const [messagesTop, setMessagesTop] = useState(0);
-  const [detailOpen, setDetailOpenState] = useState(false);
-
-  // Keys in one burst arrive before React renders, so key handling reads this copy, which each
-  // setter updates at once.
-  const modal = useRef<ModalState>({
-    overlay: { kind: 'none' },
-    detailOpen: false,
-  });
-
-  const setOverlay = (next: Overlay) => {
-    modal.current.overlay = next;
-    setOverlayState(next);
-  };
-
-  const setDetailOpen = (open: boolean) => {
-    modal.current.detailOpen = open;
-    setDetailOpenState(open);
-  };
-
   const snapshot = useSyncExternalStore(props.session.subscribe, props.session.getSnapshot);
 
   const themeMode = useSyncExternalStore(
@@ -570,15 +462,17 @@ export const App = (props: AppProps): ReactNode => {
   const { width, height } = useTerminalDimensions();
 
   const helpWindow = helpWindowOf(props.catalog, height);
-
+  const messagesMaximumTop = messageWindowOf(snapshot.messages, width, height).maximumTop;
   const sideLayout = width >= sidePaneMinimumWidth;
-  const fullDetail = detailOpen && !sideLayout;
 
-  useEffect(() => {
-    if (sideLayout) {
-      setDetailOpen(false);
-    }
-  }, [sideLayout]);
+  const { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction } = useUiState(
+    props.session,
+    sideLayout,
+    helpWindow.maximumTop,
+    messagesMaximumTop,
+  );
+
+  const fullDetail = detailOpen && !sideLayout;
 
   const composerRows = composerRowsOf(snapshot);
   const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
@@ -603,13 +497,8 @@ export const App = (props: AppProps): ReactNode => {
         {...props}
         modal={modal}
         overlay={overlay}
-        setOverlay={setOverlay}
-        helpMaximumTop={helpWindow.maximumTop}
-        setHelpTop={setHelpTop}
-        messagesMaximumTop={messageWindowOf(snapshot.messages, width, height).maximumTop}
-        setMessagesTop={setMessagesTop}
         detailOpen={fullDetail}
-        setDetailOpen={setDetailOpen}
+        runUiAction={runUiAction}
         sideLayout={sideLayout}
         searchOpen={snapshot.searchOpen}
         filtersOpen={snapshot.filtersOpen}
