@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { Intent, OverlayMove } from '../commands.ts';
 import type { Session } from '../session/session.ts';
@@ -64,7 +64,9 @@ export const useUiState = (
   // because a changed runUiAction re-registers the key layers and clears a pending count.
   const windows = useRef({ helpWindow, messageWindow });
 
-  windows.current = { helpWindow, messageWindow };
+  useLayoutEffect(() => {
+    windows.current = { helpWindow, messageWindow };
+  });
 
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
