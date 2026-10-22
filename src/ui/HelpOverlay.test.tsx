@@ -6,9 +6,8 @@ import { act } from 'react';
 import { catalog } from '../commands.ts';
 import type { Command } from '../commands.ts';
 import { HelpOverlay } from './HelpOverlay.tsx';
-import { keysTextOf } from './helpWindow.ts';
+import { helpWindowOf } from './helpWindow.ts';
 import { pickPalette } from './palette.ts';
-import type { Setup } from './uiHarness.tsx';
 import { track, mount as untrackedMount } from './uiHarness.tsx';
 
 const cleanups: (() => void)[] = [];
@@ -21,42 +20,235 @@ afterEach(() => {
 
 const mount = track(cleanups, untrackedMount);
 
-const scrollToEnd = async (
-  setup: Setup,
-  press: (key: string) => Promise<void>,
-  key: string,
-): Promise<void> => {
-  let before = '';
+const boxWidth = 64;
 
-  while (setup.captureCharFrame() !== before) {
-    before = setup.captureCharFrame();
-    await press(key);
-  }
+const sectionTitles = [
+  'App',
+  'Moving',
+  'Folding',
+  'Threads',
+  'Search',
+  'Filters',
+  'Command line',
+  'Overlays',
+];
+
+const totalLines = helpWindowOf(catalog, 1000, 80).lines.length;
+const fitsHeight = totalLines + 3;
+
+// The text between the left and right padding of each row inside the help box.
+const boxRowsOf = (frame: string, width = boxWidth): string[] => {
+  const lines = frame.split('\n');
+  const first = lines.findIndex((line) => line.includes('╭'));
+  const last = lines.findIndex((line) => line.includes('╰'));
+
+  return lines.slice(first + 1, last).map((line) => line.slice(4, width));
 };
 
-const tallRows = catalog.length + 10;
+const borderRowOf = (frame: string): number =>
+  frame.split('\n').findIndex((line) => line.includes('╰'));
 
-test('? opens the overlay with every command label and ? closes it', async () => {
-  const { setup, press } = await mount({ height: tallRows });
+const isHeading = (text: string): boolean =>
+  sectionTitles.some((title) => text.startsWith(title) && !text.includes('  '));
+
+const isFooter = (text: string): boolean => /\d+-\d+ of \d+/u.test(text);
+
+const renderOverlay = async (
+  custom: readonly Command[],
+  size: { width: number; height: number },
+  top = 0,
+) => {
+  const setup = await act(() =>
+    testRender(
+      <HelpOverlay
+        catalog={custom}
+        palette={pickPalette('dark')}
+        height={size.height}
+        helpWindow={helpWindowOf(custom, size.height, size.width)}
+        top={top}
+      />,
+      size,
+    ),
+  );
+
+  cleanups.push(() => {
+    setup.renderer.destroy();
+  });
+
+  await act(() => setup.renderOnce());
+
+  return setup;
+};
+
+const frameOf = async (
+  custom: readonly Command[],
+  size: { width: number; height: number },
+  top = 0,
+): Promise<string> => {
+  const setup = await renderOverlay(custom, size, top);
+
+  return setup.captureCharFrame();
+};
+
+// One frame per page of help, from the first line to the last.
+const framesThroughHelp = async (
+  custom: readonly Command[],
+  size: { width: number; height: number },
+): Promise<string[]> => {
+  const { viewportRows, maximumTop } = helpWindowOf(custom, size.height, size.width);
+  const frames: string[] = [];
+
+  for (let top = 0; top < maximumTop + viewportRows; top += viewportRows) {
+    frames.push(await frameOf(custom, size, Math.min(top, maximumTop)));
+  }
+
+  return frames;
+};
+
+const rowTextsOf = (frames: string[]): string[] =>
+  frames.flatMap((frame) => boxRowsOf(frame).map((row) => row.trim()));
+
+test('help at 80x24 sits above the status line with keys at the left and labels at the right', async () => {
+  const { setup, press } = await mount({ width: 80, height: 24 });
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+  const lines = frame.split('\n');
+  const rows = boxRowsOf(frame);
+  const quitRow = rows.find((row) => row.endsWith('Quit'));
+
+  expect(frame).toContain('App');
+  expect(borderRowOf(frame)).toBe(22);
+  expect(quitRow?.startsWith('q/Ctrl+C')).toBe(true);
+  expect(quitRow?.length).toBe(boxWidth - 4);
+
+  const quitLine = lines.find((line) => line.includes('q/Ctrl+C')) ?? '';
+
+  expect(quitLine.slice(2, 4)).toBe('│ ');
+  expect(quitLine.slice(boxWidth, boxWidth + 2)).toBe(' │');
+});
+
+for (const size of [
+  { width: 80, height: 24 },
+  { width: 120, height: 40 },
+]) {
+  test(`help at ${size.width}x${size.height} shows the sections in order with aligned rows`, async () => {
+    const frames = await framesThroughHelp(catalog, size);
+    const headings: string[] = [];
+
+    for (const frame of frames) {
+      expect(borderRowOf(frame)).toBe(size.height - 2);
+
+      for (const row of boxRowsOf(frame)) {
+        const text = row.trim();
+        const title = sectionTitles.find((candidate) => text.startsWith(candidate));
+
+        if (isHeading(text) && title !== undefined && !headings.includes(title)) {
+          headings.push(title);
+        }
+
+        if (text === '' || isHeading(text) || isFooter(text)) {
+          continue;
+        }
+
+        expect(row[0]).not.toBe(' ');
+        expect(row.length).toBe(boxWidth - 4);
+        expect(row.at(-1)).not.toBe(' ');
+      }
+
+      for (const line of frame.split('\n')) {
+        if (line.slice(2, 4) === '│ ') {
+          expect(line[boxWidth + 1]).toBe('│');
+          expect(line[boxWidth]).toBe(' ');
+        }
+      }
+    }
+
+    expect(headings).toEqual(sectionTitles);
+  });
+}
+
+test('help rows carry no scope suffix', async () => {
+  const frames = await framesThroughHelp(catalog, { width: 80, height: 24 });
+
+  const suffixed = rowTextsOf(frames).filter((row) =>
+    /\((search line|filter composer|command line)\)$/u.test(row),
+  );
+
+  expect(rowTextsOf(frames).length).toBeGreaterThan(totalLines);
+  expect(suffixed).toEqual([]);
+});
+
+test('help shows the keys and named commands of a custom catalog', async () => {
+  const quit = catalog.find((command) => command.id === 'quit') as Command;
+
+  const custom: readonly Command[] = [
+    ...catalog.map((command) =>
+      command.id === 'selectNext' ? Object.assign({}, command, { keys: ['n', 'down'] }) : command,
+    ),
+    { ...quit, id: 'quitByName', label: 'Leave Mergit', name: 'bye', keys: [] },
+    { ...quit, id: 'quitByKeyAndName', label: 'Go away', name: 'away', keys: ['x', 'ctrl+x'] },
+  ];
+
+  const frame = await frameOf(custom, { width: 80, height: 100 });
+  const rows = boxRowsOf(frame).map((row) => row.trim());
+
+  expect(rows.find((row) => row.endsWith('Select next row'))).toMatch(/^n\/↓\s+Select next row$/u);
+  expect(rows.find((row) => row.endsWith('Leave Mergit'))).toMatch(/^:bye\s+Leave Mergit$/u);
+  expect(rows.find((row) => row.endsWith('Go away'))).toMatch(/^x\/Ctrl\+X\/:away\s+Go away$/u);
+});
+
+test('help lists the shared input line commands and quit once each', async () => {
+  const frame = await frameOf(catalog, { width: 80, height: 100 });
+  const rows = boxRowsOf(frame).map((row) => row.trim());
+  const countOf = (label: string) => rows.filter((row) => row.endsWith(label)).length;
+
+  expect(countOf('Clear an input line')).toBe(1);
+  expect(countOf('Close an empty input line')).toBe(1);
+  expect(countOf('Quit')).toBe(1);
+});
+
+test('section headings name the opener keys from the catalog', async () => {
+  const frame = await frameOf(catalog, { width: 80, height: 100 });
+  const rows = boxRowsOf(frame).map((row) => row.trim());
+
+  expect(rows).toContain('Search (opens with /)');
+  expect(rows).toContain('Filters (opens with f)');
+  expect(rows).toContain('Command line (opens with :)');
+});
+
+test('a section heading leaves out the opener when the opener has no key', async () => {
+  const custom = catalog.map((command) =>
+    command.id === 'openSearch' ? Object.assign({}, command, { keys: [] }) : command,
+  );
+
+  const frame = await frameOf(custom, { width: 80, height: 100 });
+
+  expect(boxRowsOf(frame).map((row) => row.trim())).toContain('Search');
+});
+
+test('a label that does not fit is cut with an ellipsis at the right border', async () => {
+  const frames = await framesThroughHelp(catalog, { width: 30, height: 24 });
+  const rows = frames.flatMap((frame) => boxRowsOf(frame, 26));
+  const cut = rows.find((row) => row.startsWith('Esc Close the comp'));
+
+  expect(cut).toBe('Esc Close the compose…');
+});
+
+test('? opens the overlay and ? closes it', async () => {
+  const { setup, press } = await mount({ height: 100 });
 
   await press('?');
 
   const open = setup.captureCharFrame();
-  const listed = catalog.filter((command) => command.scope !== 'confirm');
 
-  for (const command of listed) {
-    expect(open).toContain(command.label);
-  }
-
+  expect(open).toContain('Toggle help');
   expect(open).not.toContain('Confirm opening');
 
   await press('?');
 
-  const closed = setup.captureCharFrame();
-
-  for (const command of catalog) {
-    expect(closed).not.toContain(command.label);
-  }
+  expect(setup.captureCharFrame()).not.toContain('Toggle help');
 });
 
 test('Escape closes the overlay', async () => {
@@ -69,105 +261,37 @@ test('Escape closes the overlay', async () => {
 });
 
 test('escape does nothing while the overlay is closed', async () => {
-  const { setup, press } = await mount({ height: tallRows });
+  const { setup, press } = await mount({ height: 100 });
 
   await press('escape');
 
   expect(setup.captureCharFrame()).not.toContain('Close help');
 });
 
-test('the overlay lists the close help command from the catalog', async () => {
-  const { setup, press } = await mount({ height: tallRows });
+const scrollHeight = 40;
+const scrollMaximumTop = helpWindowOf(catalog, scrollHeight, 80).maximumTop;
+const scrollViewport = helpWindowOf(catalog, scrollHeight, 80).viewportRows;
 
-  await press('?');
-
-  expect(setup.captureCharFrame()).toContain('Close help');
-});
-
-test('the help overlay lists the search line keys and still shows Close help', async () => {
-  const { setup, press } = await mount({ height: tallRows });
-
-  await press('?');
-
-  const frame = setup.captureCharFrame();
-
-  for (const id of ['submitInput', 'cancelInput', 'clearInput', 'closeEmptyInput']) {
-    const command = catalog.find((candidate) => candidate.id === id);
-
-    expect(frame).toContain(command?.label ?? 'missing');
-  }
-
-  expect(frame).toContain('Close help');
-});
-
-test('help fits inside an 80x24 terminal and scrolls to Close help', async () => {
-  const { setup, press } = await mount({ width: 80 });
-
-  await press('?');
-
-  const lines = setup.captureCharFrame().split('\n');
-  const bottomBorder = lines.findIndex((line) => line.includes('╰'));
-
-  expect(bottomBorder).toBeGreaterThan(0);
-  expect(bottomBorder).toBeLessThan(24);
-  expect(lines[0]).toContain('Help');
-
-  await scrollToEnd(setup, press, 'j');
-
-  const scrolled = setup.captureCharFrame();
-
-  expect(scrolled).toContain('Close help');
-  expect(scrolled).toContain('Esc');
-});
-
-test('scrolling 80x24 help reaches every listed command and shows the position', async () => {
-  const { setup, press } = await mount({ width: 80 });
-
-  await press('?');
-
-  const listed = catalog.filter((command) => command.scope !== 'confirm');
-  const seen = new Set<string>();
-  const positions: string[] = [];
-
-  let previous = '';
-
-  while (setup.captureCharFrame() !== previous) {
-    const frame = setup.captureCharFrame();
-
-    positions.push(/\d+-\d+ of \d+/.exec(frame)?.[0] ?? 'none');
-
-    for (const command of listed) {
-      if (frame.includes(command.label)) {
-        seen.add(command.id);
-      }
-    }
-
-    previous = frame;
-    await press('j');
-  }
-
-  expect(seen.size).toBe(listed.length);
-  expect(positions[0]).toBe(`1-21 of ${listed.length}`);
-  expect(positions.at(-1)).toBe(`${listed.length - 20}-${listed.length} of ${listed.length}`);
-});
-
-test('scrolling up stops at the first command and down stops at the last', async () => {
-  const { setup, press } = await mount({ width: 80 });
+test('scrolling stops at the first line and at the last', async () => {
+  const { setup, press } = await mount({ width: 80, height: scrollHeight });
 
   await press('?');
   await press('k');
   await press('up');
 
-  expect(setup.captureCharFrame()).toContain('1-21 of');
+  expect(setup.captureCharFrame()).toContain(`1-${scrollViewport} of ${totalLines}`);
+  expect(setup.captureCharFrame()).not.toContain('Close help');
 
-  await scrollToEnd(setup, press, 'down');
+  for (let presses = 0; presses < scrollMaximumTop; presses += 1) {
+    await press('j');
+  }
 
   const bottom = setup.captureCharFrame();
-  const total = catalog.filter((command) => command.scope !== 'confirm').length;
 
-  expect(bottom).toContain(`-${total} of ${total}`);
+  expect(bottom).toContain(`${totalLines - scrollViewport + 1}-${totalLines} of ${totalLines}`);
+  expect(bottom).toContain('Close help');
 
-  await press('j');
+  await press('down');
 
   expect(setup.captureCharFrame()).toBe(bottom);
 
@@ -176,177 +300,89 @@ test('scrolling up stops at the first command and down stops at the last', async
   expect(setup.captureCharFrame()).not.toBe(bottom);
 });
 
-test('the first scroll key after a resize moves one row from what is shown', async () => {
-  const { setup, press, resize } = await mount({ width: 80 });
+test('the first scroll key after a resize moves one line from what is shown', async () => {
+  const { setup, press, resize } = await mount({ width: 80, height: scrollHeight });
 
   await press('?');
 
-  await scrollToEnd(setup, press, 'j');
+  for (let presses = 0; presses < scrollMaximumTop; presses += 1) {
+    await press('j');
+  }
 
-  const total = catalog.filter((command) => command.scope !== 'confirm').length;
+  await resize(80, scrollHeight + 4);
 
-  expect(setup.captureCharFrame()).toContain(`${total - 20}-${total} of ${total}`);
+  const grown = scrollViewport + 4;
 
-  await resize(80, 30);
-
-  expect(setup.captureCharFrame()).toContain(`${total - 26}-${total} of ${total}`);
+  expect(setup.captureCharFrame()).toContain(
+    `${totalLines - grown + 1}-${totalLines} of ${totalLines}`,
+  );
 
   await press('k');
 
-  expect(setup.captureCharFrame()).toContain(`${total - 27}-${total - 1} of ${total}`);
+  expect(setup.captureCharFrame()).toContain(
+    `${totalLines - grown}-${totalLines - 1} of ${totalLines}`,
+  );
 });
 
-const rightEdgeOf = (frame: string): number => frame.split('\n')[0]?.lastIndexOf('╮') ?? -1;
+test('the help box keeps its width at every scroll position', async () => {
+  const frames = await framesThroughHelp(catalog, { width: 80, height: 24 });
 
-test('the help box keeps its width while scrolling', async () => {
-  const { setup, press } = await mount({ width: 80 });
+  for (const frame of frames) {
+    const border = frame.split('\n').find((line) => line.includes('╭')) ?? '';
 
-  await press('?');
-
-  const atTop = rightEdgeOf(setup.captureCharFrame());
-
-  await scrollToEnd(setup, press, 'j');
-
-  const atEnd = rightEdgeOf(setup.captureCharFrame());
-
-  expect(atTop).toBeGreaterThan(0);
-  expect(atEnd).toBe(atTop);
-});
-
-test('the widest help rows show in full at 80x24', async () => {
-  const { setup, press } = await mount({ width: 80 });
-
-  await press('?');
-
-  await scrollToEnd(setup, press, 'j');
-
-  const frame = setup.captureCharFrame();
-  const position = /(\d+)-(\d+) of \d+/u.exec(frame);
-  const first = Number(position?.[1]);
-  const last = Number(position?.[2]);
-  const listed = catalog.filter((command) => command.scope !== 'confirm');
-  const shown = listed.slice(first - 1, last);
-
-  expect(shown.length).toBeGreaterThan(0);
-
-  for (const command of shown) {
-    const keys = keysTextOf(command);
-
-    expect(frame).toContain(`${keys}  ${command.label}`);
+    expect(border.lastIndexOf('╮')).toBe(boxWidth + 1);
   }
 });
 
 test('help that fits shows no position hint', async () => {
-  const { setup, press } = await mount({ width: 80, height: tallRows });
+  const frame = await frameOf(catalog, { width: 80, height: fitsHeight });
 
-  await press('?');
-
-  expect(setup.captureCharFrame()).not.toMatch(/\d+-\d+ of \d+/);
+  expect(frame).not.toMatch(/\d+-\d+ of \d+/);
+  expect(frame).not.toContain('scroll');
+  expect(frame).toContain('Close help');
+  expect(borderRowOf(frame)).toBe(fitsHeight - 2);
 });
 
-test('a command without keys renders its label', async () => {
-  const nameOnly: Command = {
-    id: 'nameOnly',
-    label: 'Run by name',
-    scope: 'global',
-    keys: [],
-    disabledReason: () => undefined,
-    intent: () => ({ kind: 'terminal', action: 'quit' }),
-  };
+test('help one row shorter overflows and shows the footer with the scroll and close keys', async () => {
+  const frame = await frameOf(catalog, { width: 80, height: fitsHeight - 1 });
 
-  const setup = await act(() =>
-    testRender(
-      <HelpOverlay catalog={[nameOnly]} palette={pickPalette('dark')} height={24} top={0} />,
-      { width: 80, height: 24 },
-    ),
-  );
-
-  cleanups.push(() => {
-    setup.renderer.destroy();
-  });
-
-  await act(() => setup.renderOnce());
-
-  expect(setup.captureCharFrame()).toContain('Run by name');
-});
-
-test('a command with a name and no keys is listed as :<name>', async () => {
-  const quit = catalog.find((command) => command.id === 'quit') as Command;
-
-  const named: Command = {
-    ...quit,
-    id: 'quitByName',
-    label: 'Leave Mergit',
-    name: 'bye',
-    keys: [],
-  };
-
-  const { setup, press } = await mount({ height: tallRows + 1, catalog: [...catalog, named] });
-
-  await press('?');
-
-  const frame = setup.captureCharFrame();
-  const row = frame.split('\n').find((line) => line.includes('Leave Mergit'));
-
-  expect(row).toContain(':bye');
-});
-
-test('a command line command is listed with the command line suffix', async () => {
-  const { setup, press } = await mount({ width: 80, height: tallRows });
-
-  await press('?');
-
-  const frame = setup.captureCharFrame();
-  const row = frame.split('\n').find((line) => line.includes('Run the command'));
-
-  expect(row).toContain('(command line)');
+  expect(frame).toContain(`1-${totalLines - 2} of ${totalLines}  j/k scroll  Esc close`);
 });
 
 test('help lists the :messages command', async () => {
-  const { setup, press } = await mount({ height: tallRows });
-
-  await press('?');
-
-  const frame = setup.captureCharFrame();
+  const frame = await frameOf(catalog, { width: 80, height: 100 });
 
   expect(frame).toContain(':messages');
   expect(frame).toContain('Show recent messages');
 });
 
-const listedCount = catalog.filter((command) => command.scope !== 'confirm').length;
+test('help shows readable key names instead of raw ones', async () => {
+  const frame = await frameOf(catalog, { width: 80, height: 100 });
 
-test('help with height equal to the commands plus the border shows every row and no footer', async () => {
-  const { setup, press } = await mount({ width: 80, height: listedCount + 2 });
-
-  await press('?');
-
-  const frame = setup.captureCharFrame();
-
-  expect(frame).not.toMatch(/\d+-\d+ of \d+/);
-  expect(frame).not.toContain('scroll');
-
-  for (const command of catalog.filter((candidate) => candidate.scope !== 'confirm')) {
-    expect(frame).toContain(command.label);
-  }
-});
-
-test('help one row shorter overflows and shows the footer with the scroll and close keys', async () => {
-  const { setup, press } = await mount({ width: 80, height: listedCount + 1 });
-
-  await press('?');
-
-  const frame = setup.captureCharFrame();
-
-  expect(frame).toContain(`1-${listedCount - 2} of ${listedCount}  j/k scroll  Esc close`);
+  expect(frame).toContain('Enter');
+  expect(frame).toContain('G');
+  expect(frame).not.toContain('return');
+  expect(frame).not.toContain('shift+g');
 });
 
 const commandOf = (id: string, keys: string[]): Command => ({
   id,
   label: `Label of ${id}`,
   scope: 'global',
+  section: 'app',
   keys,
   disabledReason: () => undefined,
   intent: () => ({ kind: 'terminal', action: 'quit' }),
+});
+
+test('a command without keys renders its label at the right border', async () => {
+  const setup = await renderOverlay([commandOf('nameOnly', [])], { width: 80, height: 24 });
+  const frame = setup.captureCharFrame();
+  const row = frame.split('\n').find((line) => line.includes('Label of nameOnly')) ?? '';
+
+  expect(row.slice(boxWidth - 'Label of nameOnly'.length, boxWidth + 2)).toBe(
+    'Label of nameOnly │',
+  );
 });
 
 test('the footer names the scroll and close keys that the catalog gives', async () => {
@@ -358,34 +394,40 @@ test('the footer names the scroll and close keys that the catalog gives', async 
     commandOf('another', ['a']),
   ];
 
-  const setup = await act(() =>
-    testRender(<HelpOverlay catalog={custom} palette={pickPalette('dark')} height={5} top={0} />, {
-      width: 80,
-      height: 5,
-    }),
-  );
-
-  cleanups.push(() => {
-    setup.renderer.destroy();
-  });
-
-  await act(() => setup.renderOnce());
-
+  const setup = await renderOverlay(custom, { width: 80, height: 7 });
   const frame = setup.captureCharFrame();
 
-  expect(frame).toContain('1-2 of 5  n/p scroll  x close');
+  expect(frame).toContain('1-3 of 6  n/p scroll  x close');
   expect(frame).toContain('╰');
 });
 
-test('help shows readable key names instead of raw ones', async () => {
-  const { setup, press } = await mount({ height: tallRows });
+test('help at 40x24 keeps the footer on one row and the Moving rows apart', async () => {
+  const { setup, press } = await mount({ width: 40, height: 24 });
 
   await press('?');
 
-  const open = setup.captureCharFrame();
+  const lines = setup.captureCharFrame().split('\n');
+  const firstRows = lines.filter((line) => line.includes('Select first row'));
+  const lastRows = lines.filter((line) => line.includes('Select last row'));
+  const footers = lines.filter((line) => /\d+-\d+ of \d+/u.test(line));
 
-  expect(open).toContain('Enter');
-  expect(open).toContain('G');
-  expect(open).not.toContain('return');
-  expect(open).not.toContain('shift+g');
+  expect(firstRows).toHaveLength(1);
+  expect(lastRows).toHaveLength(1);
+  expect(firstRows[0]).not.toBe(lastRows[0]);
+  expect(footers).toHaveLength(1);
+  expect(footers[0]?.trimEnd().endsWith('│')).toBe(true);
+});
+
+test('help separates each section from the next with one empty row', async () => {
+  const frame = await frameOf(catalog, { width: 80, height: fitsHeight + 2 });
+  const rows = boxRowsOf(frame).map((row) => row.trim());
+  const emptyRowCount = rows.filter((row) => row === '').length;
+
+  expect(emptyRowCount).toBe(sectionTitles.length - 1);
+
+  rows.forEach((row, index) => {
+    if (row === '') {
+      expect(isHeading(rows[index + 1] ?? '')).toBe(true);
+    }
+  });
 });

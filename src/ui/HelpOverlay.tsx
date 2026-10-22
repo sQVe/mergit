@@ -1,33 +1,50 @@
 import type { ReactNode } from 'react';
 
 import type { Command } from '../commands.ts';
-import { footerOf, helpWindowOf, keysTextOf, suffixOf } from './helpWindow.ts';
+import { boxChromeColumns, footerOf } from './helpWindow.ts';
+import type { HelpLine, HelpWindow } from './helpWindow.ts';
 import type { Palette } from './palette.ts';
+
+const lineOf = (line: HelpLine, index: number, palette: Palette): ReactNode => {
+  if (line.kind === 'heading') {
+    return (
+      <text key={index} fg={palette.heading}>
+        {line.text}
+      </text>
+    );
+  }
+
+  return (
+    <box key={index} flexDirection="row" justifyContent="space-between">
+      <text fg={palette.key}>{line.keys}</text>
+      <text fg={palette.text}>{line.label}</text>
+    </box>
+  );
+};
 
 export const HelpOverlay = (props: {
   catalog: readonly Command[];
   palette: Palette;
   height: number;
+  helpWindow: HelpWindow;
   top: number;
 }): ReactNode => {
   const { palette, catalog } = props;
 
-  const { commands, viewportRows, maximumTop, overflows, boxWidth } = helpWindowOf(
-    catalog,
-    props.height,
-  );
+  const { lines, viewportRows, maximumTop, overflows, boxWidth, boxHeight } = props.helpWindow;
 
   const top = Math.min(props.top, maximumTop);
-  const visible = commands.slice(top, top + viewportRows);
-  const position = `${top + 1}-${top + visible.length} of ${commands.length}`;
-  const hint = footerOf(catalog, position);
+  const visible = lines.slice(top, top + viewportRows);
+  const position = `${top + 1}-${top + visible.length} of ${lines.length}`;
+  const hint = footerOf(catalog, position, boxWidth - boxChromeColumns);
 
   return (
     <box
       position="absolute"
-      top={0}
+      top={props.height - 1 - boxHeight}
       left={2}
       width={boxWidth}
+      height={boxHeight}
       border
       borderStyle="rounded"
       borderColor={palette.key}
@@ -38,18 +55,7 @@ export const HelpOverlay = (props: {
       paddingLeft={1}
       paddingRight={1}
     >
-      {visible.map((command) => {
-        const suffix = suffixOf(command);
-        const keysText = keysTextOf(command);
-
-        return (
-          <box key={command.id} flexDirection="row" gap={2}>
-            {keysText === '' ? null : <text fg={palette.key}>{keysText}</text>}
-            <text fg={palette.text}>{command.label}</text>
-            {suffix === undefined ? null : <text fg={palette.dim}>{suffix}</text>}
-          </box>
-        );
-      })}
+      {visible.map((line, index) => lineOf(line, index, palette))}
       {overflows ? <text fg={palette.dim}>{hint}</text> : null}
     </box>
   );

@@ -1,65 +1,131 @@
-import type { Command } from '../commands.ts';
-import { keyNamesOf, readableKeyOf } from '../commands.ts';
+import type { Command, HelpSection } from '../commands.ts';
+import { helpSections, keyHintOf, keyNamesOf, readableKeyOf } from '../commands.ts';
+
+export type HelpLine =
+  | { kind: 'heading'; text: string }
+  | { kind: 'row'; keys: string; label: string };
 
 export interface HelpWindow {
-  commands: readonly Command[];
+  lines: readonly HelpLine[];
   viewportRows: number;
   maximumTop: number;
   overflows: boolean;
   boxWidth: number;
+  boxHeight: number;
 }
 
 const borderRows = 2;
 const footerRows = 1;
-const boxChromeColumns = 4;
-const rowGap = 2;
+const statusRows = 1;
 
-const suffixes: Partial<Record<Command['scope'], string>> = {
-  input: '(search line)',
-  filter: '(filter composer)',
-  command: '(command line)',
+export const boxChromeColumns = 4;
+const minimumBoxWidth = 20;
+const maximumBoxWidth = 64;
+const terminalMargin = 4;
+const ellipsis = '…';
+
+const sectionTitles: Record<HelpSection, string> = {
+  app: 'App',
+  moving: 'Moving',
+  folding: 'Folding',
+  threads: 'Threads',
+  search: 'Search',
+  filters: 'Filters',
+  commandLine: 'Command line',
+  overlays: 'Overlays',
 };
 
-export const suffixOf = (command: Command): string | undefined => suffixes[command.scope];
+const sectionOpeners: Partial<Record<HelpSection, string>> = {
+  search: 'openSearch',
+  filters: 'openFilters',
+  commandLine: 'openCommandLine',
+};
 
-export const keysTextOf = (command: Command): string => {
+const keysTextOf = (command: Command): string => {
   const texts = command.keys.map((key) => readableKeyOf(key));
 
   if (command.name !== undefined) {
     texts.push(`:${command.name}`);
   }
 
-  return texts.join(' ');
+  return texts.join('/');
 };
 
-const rowTextsOf = (command: Command): string[] => {
-  const texts: string[] = [];
-
-  const keysText = keysTextOf(command);
-
-  if (keysText !== '') {
-    texts.push(keysText);
+const fitted = (text: string, width: number): string => {
+  if (text.length <= width) {
+    return text;
   }
 
-  texts.push(command.label);
+  return `${text.slice(0, Math.max(0, width - 1))}${ellipsis}`;
+};
 
-  const suffix = suffixOf(command);
+const listedCommandsOf = (catalog: readonly Command[]): Command[] => {
+  const seenConfigIds = new Set<string>();
+  const listed: Command[] = [];
 
-  if (suffix !== undefined) {
-    texts.push(suffix);
+  for (const command of catalog) {
+    const hidden = command.hiddenFromHelp === true;
+    const repeated = command.configId !== undefined && seenConfigIds.has(command.configId);
+
+    if (hidden || repeated) {
+      continue;
+    }
+
+    if (command.configId !== undefined) {
+      seenConfigIds.add(command.configId);
+    }
+
+    listed.push(command);
   }
 
-  return texts;
+  return listed;
 };
 
-const rowWidthOf = (command: Command): number => {
-  const texts = rowTextsOf(command);
-  const textWidth = texts.reduce((sum, text) => sum + text.length, 0);
+const headingOf = (catalog: readonly Command[], section: HelpSection): string => {
+  const title = sectionTitles[section];
+  const openerId = sectionOpeners[section];
+  const opener = openerId === undefined ? undefined : keyHintOf(catalog, openerId);
 
-  return textWidth + rowGap * (texts.length - 1);
+  return opener === undefined ? title : `${title} (opens with ${opener})`;
 };
 
-export const footerOf = (catalog: readonly Command[], position: string): string => {
+const rowOf = (command: Command, innerWidth: number): HelpLine => {
+  const keys = keysTextOf(command);
+  const labelWidth = keys === '' ? innerWidth : innerWidth - keys.length - 1;
+
+  return { kind: 'row', keys, label: fitted(command.label, labelWidth) };
+};
+
+const linesOf = (catalog: readonly Command[], innerWidth: number): HelpLine[] => {
+  const listed = listedCommandsOf(catalog);
+  const lines: HelpLine[] = [];
+
+  for (const section of helpSections) {
+    const commands = listed.filter((command) => command.section === section);
+
+    if (commands.length === 0) {
+      continue;
+    }
+
+    if (lines.length > 0) {
+      lines.push({ kind: 'row', keys: '', label: '' });
+    }
+
+    lines.push({ kind: 'heading', text: fitted(headingOf(catalog, section), innerWidth) });
+
+    for (const command of commands) {
+      lines.push(rowOf(command, innerWidth));
+    }
+  }
+
+  return lines;
+};
+
+export const footerOf = (
+  catalog: readonly Command[],
+  position: string,
+  innerWidth: number,
+): string => {
   const scrollKeys = [
     ...keyNamesOf(catalog, 'scrollHelpDown').slice(0, 1),
     ...keyNamesOf(catalog, 'scrollHelpUp').slice(0, 1),
@@ -76,23 +142,35 @@ export const footerOf = (catalog: readonly Command[], position: string): string 
     parts.push(`${closeKey} close`);
   }
 
-  return parts.join('  ');
+  while (parts.length > 1 && parts.join('  ').length > innerWidth) {
+    parts.pop();
+  }
+
+  return fitted(parts.join('  '), innerWidth);
 };
 
-export const helpWindowOf = (catalog: readonly Command[], height: number): HelpWindow => {
-  const commands = catalog.filter((command) => command.scope !== 'confirm');
-  const overflows = commands.length + borderRows > height;
-  const viewportRows = overflows ? Math.max(1, height - borderRows - footerRows) : commands.length;
+export const helpWindowOf = (
+  catalog: readonly Command[],
+  height: number,
+  width: number,
+): HelpWindow => {
+  const boxWidth = Math.max(minimumBoxWidth, Math.min(width - terminalMargin, maximumBoxWidth));
+  const lines = linesOf(catalog, boxWidth - boxChromeColumns);
+  const availableRows = Math.max(1, height - statusRows);
+  const overflows = lines.length + borderRows > availableRows;
 
-  const widestRow = Math.max(0, ...commands.map(rowWidthOf));
-  const widestPosition = `${commands.length}-${commands.length} of ${commands.length}`;
-  const footerWidth = overflows ? footerOf(catalog, widestPosition).length : 0;
+  const viewportRows = overflows
+    ? Math.max(1, availableRows - borderRows - footerRows)
+    : lines.length;
+
+  const boxHeight = viewportRows + borderRows + (overflows ? footerRows : 0);
 
   return {
-    commands,
+    lines,
     viewportRows,
-    maximumTop: commands.length - viewportRows,
+    maximumTop: lines.length - viewportRows,
     overflows,
-    boxWidth: Math.max(widestRow, footerWidth) + boxChromeColumns,
+    boxWidth,
+    boxHeight,
   };
 };
