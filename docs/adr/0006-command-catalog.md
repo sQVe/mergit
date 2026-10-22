@@ -35,7 +35,9 @@ remaps read the same records, and tests assert intents without running effects.
 - `intent(snapshot, count)` returns an application intent for the session, a UI intent for React, or
   a terminal intent. It performs no I/O. `count` is the number typed before the key, or `undefined`
   when none was typed. Only the commands marked `counted` use it: `selectNext`, `selectPrevious`,
-  and `selectLast`, on the list layer. A key that is not a counted command cancels a pending count,
+  `selectLast`, `selectFirst`, `centerSelectedRow`, `topSelectedRow`, `bottomSelectedRow`,
+  `halfPageDown`, `halfPageUp`, `pageDown`, and `pageUp`, on the list layer. Esc cancels a pending
+  count or key sequence. A key that does not finish it cancels it, does not run, and shows a notice,
   except the keys a command lists in `keysDuringCount`, such as Ctrl+C on `quit`. Only
   `terminal.tsx` handles terminal intents, so the session never owns the process lifetime.
 - Keymap layers, help, and availability come from the catalog. Key handlers read the latest
@@ -57,7 +59,8 @@ remaps read the same records, and tests assert intents without running effects.
 - An open modal blocks the `list` and `preview` commands beneath it. On close, focus returns to the
   previous target only if it is still mounted.
 - A conflict is two commands on one parsed key stroke in one scope. `shift+g` and `Shift+G` are one
-  stroke.
+  stroke. A single key that is the first stroke of another command's sequence in the same scope is
+  also a conflict, such as `g` beside `gg`.
 
 ### Remaps
 

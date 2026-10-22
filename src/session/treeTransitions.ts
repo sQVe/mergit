@@ -1,5 +1,5 @@
 import { invariant } from '../invariant.ts';
-import type { NodeRow, NotificationThread, TreeRow } from '../work/work.ts';
+import type { NotificationThread, TreeRow } from '../work/work.ts';
 import { groupings } from '../work/work.ts';
 import { select, selectedIndex } from './selectionMoves.ts';
 import { deepestNodeHolding, topLevelRowOf } from './selectionRepair.ts';
@@ -19,7 +19,7 @@ const nodeKeyOf = (row: TreeRow): string | null => {
   return nodeRowKey === null ? null : nodeRowKey.slice('node:'.length);
 };
 
-export const toggleFold = (snapshot: Snapshot): Snapshot => {
+const setNodeFold = (snapshot: Snapshot, fold: boolean | 'toggle'): Snapshot => {
   const rows = visibleRows(snapshot);
   const row = rows[selectedIndex(snapshot, rows)];
 
@@ -30,37 +30,40 @@ export const toggleFold = (snapshot: Snapshot): Snapshot => {
   }
 
   const folds = new Set(snapshot.foldedNodes[snapshot.grouping]);
+  const folded = fold === 'toggle' ? !folds.has(nodeKey) : fold;
 
-  if (!folds.delete(nodeKey)) {
+  if (folded) {
     folds.add(nodeKey);
+  } else {
+    folds.delete(nodeKey);
   }
 
   return select(withFolds(snapshot, folds), nodeRowOf(row));
 };
 
-export const toggleAllFolds = (snapshot: Snapshot): Snapshot => {
+export const toggleFold = (snapshot: Snapshot): Snapshot => setNodeFold(snapshot, 'toggle');
+
+export const openFold = (snapshot: Snapshot): Snapshot => setNodeFold(snapshot, false);
+
+export const closeFold = (snapshot: Snapshot): Snapshot => setNodeFold(snapshot, true);
+
+const setAllFolds = (snapshot: Snapshot, fold: boolean): Snapshot => {
   const rows = visibleRows(snapshot);
+  const unfolded = visibleRows(withFolds(snapshot, new Set()));
 
-  const topLevel = rows.filter((row): row is NodeRow => row.kind === 'node' && row.topLevel);
+  const nodeKeys = unfolded.flatMap((row) => (row.kind === 'node' ? [row.nodeKey] : []));
 
-  const folds = new Set(snapshot.foldedNodes[snapshot.grouping]);
-  const anyFolded = topLevel.some((row) => folds.has(row.nodeKey));
-
-  for (const row of topLevel) {
-    if (anyFolded) {
-      folds.delete(row.nodeKey);
-    } else {
-      folds.add(row.nodeKey);
-    }
-  }
-
-  const folded = withFolds(snapshot, folds);
+  const folded = withFolds(snapshot, fold ? new Set(nodeKeys) : new Set());
   const holder = topLevelRowOf(rows, selectedIndex(snapshot, rows));
 
   const stillVisible = visibleRows(folded).some((row) => row.key === snapshot.selectedRowKey);
 
   return select(folded, stillVisible ? snapshot.selectedRowKey : (holder?.key ?? null));
 };
+
+export const openAllFolds = (snapshot: Snapshot): Snapshot => setAllFolds(snapshot, false);
+
+export const closeAllFolds = (snapshot: Snapshot): Snapshot => setAllFolds(snapshot, true);
 
 const anchorThread = (row: TreeRow | undefined): NotificationThread | undefined =>
   row?.kind === 'thread' ? row.thread : row?.threads[0];

@@ -44,8 +44,8 @@ const sectionOpeners: Partial<Record<HelpSection, string>> = {
 const keysTextOf = (command: Command): string => {
   const texts = command.keys.map((key) => readableKeyOf(key));
 
-  if (command.name !== undefined) {
-    texts.push(`:${command.name}`);
+  for (const name of command.names ?? []) {
+    texts.push(`:${name}`);
   }
 
   return texts.join('/');

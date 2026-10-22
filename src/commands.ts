@@ -23,6 +23,12 @@ export type Intent =
 
 export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 
+interface ParsedStroke {
+  name: string;
+  ctrl?: boolean;
+  shift?: boolean;
+}
+
 export interface Command {
   id: string;
   // Input-line copies of one action share this id and show as one help row.
@@ -40,8 +46,8 @@ export interface Command {
     | 'messages';
   section: HelpSection;
   hiddenFromHelp?: true;
-  // The word typed after `:` that runs this command.
-  name?: string;
+  // The words typed after `:` that run this command.
+  names?: readonly string[];
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
   // A counted command takes the number typed before its key.
@@ -93,6 +99,7 @@ export const catalog: readonly Command[] = [
     label: 'Quit',
     scope: 'global',
     section: 'app',
+    names: ['q', 'qa'],
     keys: ['q', 'ctrl+c'],
     keysDuringCount: ['ctrl+c'],
     disabledReason: () => undefined,
@@ -135,9 +142,10 @@ export const catalog: readonly Command[] = [
     label: 'Select first row',
     scope: 'list',
     section: 'moving',
-    keys: ['g'],
+    keys: ['gg'],
     disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'selectFirst' } }),
+    counted: true,
+    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectFirst', count } }),
   },
   {
     id: 'selectLast',
@@ -172,9 +180,136 @@ export const catalog: readonly Command[] = [
     label: 'Fold or unfold node',
     scope: 'list',
     section: 'folding',
-    keys: ['z', 'space'],
+    keys: ['za', 'space'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'application', intent: { kind: 'toggleFold' } }),
+  },
+  {
+    id: 'openFold',
+    label: 'Open fold',
+    scope: 'list',
+    section: 'folding',
+    keys: ['zo'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'openFold' } }),
+  },
+  {
+    id: 'closeFold',
+    label: 'Close fold',
+    scope: 'list',
+    section: 'folding',
+    keys: ['zc'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'closeFold' } }),
+  },
+  {
+    id: 'openAllFolds',
+    label: 'Open all folds',
+    scope: 'list',
+    section: 'folding',
+    keys: ['zshift+r'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'openAllFolds' } }),
+  },
+  {
+    id: 'closeAllFolds',
+    label: 'Close all folds',
+    scope: 'list',
+    section: 'folding',
+    keys: ['zshift+m'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'application', intent: { kind: 'closeAllFolds' } }),
+  },
+  {
+    id: 'centerSelectedRow',
+    label: 'Center the selected row',
+    scope: 'list',
+    section: 'moving',
+    keys: ['zz'],
+    disabledReason: () => undefined,
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'placeSelectedRow', position: 'center', count },
+    }),
+  },
+  {
+    id: 'topSelectedRow',
+    label: 'Put the selected row at the top',
+    scope: 'list',
+    section: 'moving',
+    keys: ['zt'],
+    disabledReason: () => undefined,
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'placeSelectedRow', position: 'top', count },
+    }),
+  },
+  {
+    id: 'bottomSelectedRow',
+    label: 'Put the selected row at the bottom',
+    scope: 'list',
+    section: 'moving',
+    keys: ['zb'],
+    disabledReason: () => undefined,
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'placeSelectedRow', position: 'bottom', count },
+    }),
+  },
+  {
+    id: 'halfPageDown',
+    label: 'Half page down',
+    scope: 'list',
+    section: 'moving',
+    keys: ['ctrl+d'],
+    disabledReason: () => undefined,
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'scrollPage', direction: 'down', size: 'half', count },
+    }),
+  },
+  {
+    id: 'halfPageUp',
+    label: 'Half page up',
+    scope: 'list',
+    section: 'moving',
+    keys: ['ctrl+u'],
+    disabledReason: () => undefined,
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'scrollPage', direction: 'up', size: 'half', count },
+    }),
+  },
+  {
+    id: 'pageDown',
+    label: 'Page down',
+    scope: 'list',
+    section: 'moving',
+    keys: ['ctrl+f'],
+    disabledReason: () => undefined,
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'scrollPage', direction: 'down', size: 'full', count },
+    }),
+  },
+  {
+    id: 'pageUp',
+    label: 'Page up',
+    scope: 'list',
+    section: 'moving',
+    keys: ['ctrl+b'],
+    disabledReason: () => undefined,
+    counted: true,
+    intent: (_snapshot, count) => ({
+      kind: 'application',
+      intent: { kind: 'scrollPage', direction: 'up', size: 'full', count },
+    }),
   },
   {
     id: 'activateRow',
@@ -188,15 +323,6 @@ export const catalog: readonly Command[] = [
       selectedRowOf(snapshot)?.kind === 'thread'
         ? { kind: 'ui', action: 'openDetail' }
         : { kind: 'application', intent: { kind: 'toggleFold' } },
-  },
-  {
-    id: 'toggleAllFolds',
-    label: 'Fold or unfold all groups',
-    scope: 'list',
-    section: 'folding',
-    keys: ['shift+z'],
-    disabledReason: () => undefined,
-    intent: () => ({ kind: 'application', intent: { kind: 'toggleAllFolds' } }),
   },
   {
     id: 'cycleGrouping',
@@ -241,7 +367,7 @@ export const catalog: readonly Command[] = [
     label: 'Open in browser',
     scope: 'list',
     section: 'threads',
-    keys: ['o'],
+    keys: ['o', 'gx'],
     disabledReason: (snapshot) =>
       selectedRowOf(snapshot) === undefined ? 'Select a row to open it' : undefined,
     intent: (snapshot) => {
@@ -451,7 +577,7 @@ export const catalog: readonly Command[] = [
     label: 'Show recent messages',
     scope: 'global',
     section: 'app',
-    name: 'messages',
+    names: ['messages'],
     keys: [],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'openMessages' }),
@@ -616,25 +742,52 @@ const readableKeyNames: Record<string, string> = {
   right: '→',
 };
 
-const shiftLetter = /^shift\+([a-z])$/;
-const controlKey = /^ctrl\+(.+)$/;
+export const readableStrokeOf = (stroke: ParsedStroke): string => {
+  if (stroke.ctrl === true) {
+    return `Ctrl+${stroke.name.toUpperCase()}`;
+  }
+
+  if (stroke.shift !== true) {
+    return readableKeyNames[stroke.name] ?? stroke.name;
+  }
+
+  const shiftedName = readableKeyNames[`shift+${stroke.name}`];
+
+  if (shiftedName !== undefined) {
+    return shiftedName;
+  }
+
+  return /^[a-z]$/.test(stroke.name) ? stroke.name.toUpperCase() : `shift+${stroke.name}`;
+};
+
+const modifiedStroke = /^(ctrl|shift)\+(.+)$/;
+
+const strokeOf = (key: string): string => {
+  const modified = modifiedStroke.exec(key);
+  const modifier = modified?.[1];
+  const name = modified?.[2];
+
+  if (name === undefined) {
+    return readableStrokeOf({ name: key });
+  }
+
+  return readableStrokeOf({ name, ctrl: modifier === 'ctrl', shift: modifier === 'shift' });
+};
+
+// A known name or modifier form is one stroke, and any other character is one stroke.
+const strokePattern =
+  /shift\+tab|return|escape|space|tab|backspace|up|down|left|right|(?:shift|ctrl)\+[a-z]|./gu;
+
+const strokesOf = (key: string): string[] => key.match(strokePattern) ?? [];
 
 export const readableKeyOf = (key: string): string => {
-  const named = readableKeyNames[key];
-
-  if (named !== undefined) {
-    return named;
+  if (key in readableKeyNames) {
+    return strokeOf(key);
   }
 
-  const shifted = shiftLetter.exec(key)?.[1];
-
-  if (shifted !== undefined) {
-    return shifted.toUpperCase();
-  }
-
-  const controlled = controlKey.exec(key)?.[1];
-
-  return controlled === undefined ? key : `Ctrl+${controlled.toUpperCase()}`;
+  return strokesOf(key)
+    .map((stroke) => strokeOf(stroke))
+    .join('');
 };
 
 export const keyNamesOf = (commands: readonly Command[], id: string): string[] => {

@@ -33,7 +33,7 @@ import {
   openFilters,
   takeFilterRow,
 } from './filterComposer.ts';
-import { clampListTop, setListRows } from './listViewport.ts';
+import { clampListTop, placeSelectedRow, scrollPage, setListRows } from './listViewport.ts';
 import { createMarker } from './marker.ts';
 import { createMessageToast } from './messageToast.ts';
 import { moveSearchCompletion } from './searchCompletion.ts';
@@ -48,7 +48,14 @@ import { jumpTopLevel, moveSelection, selectEdge, selectRowNumber } from './sele
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import { initialSnapshot, noticeMessageOf, visibleRows } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
-import { cycleGrouping, toggleAllFolds, toggleFold } from './treeTransitions.ts';
+import {
+  closeAllFolds,
+  closeFold,
+  cycleGrouping,
+  openAllFolds,
+  openFold,
+  toggleFold,
+} from './treeTransitions.ts';
 
 export type { Snapshot } from './sessionState.ts';
 export { filterCursorOf } from './filterComposer.ts';
@@ -64,17 +71,32 @@ export type ApplicationIntent =
   | { kind: 'refresh' }
   | { kind: 'selectNext'; count?: number | undefined }
   | { kind: 'selectPrevious'; count?: number | undefined }
-  | { kind: 'selectFirst' }
+  | { kind: 'selectFirst'; count?: number | undefined }
   | { kind: 'selectLast'; count?: number | undefined }
   | { kind: 'selectNextGroup' }
   | { kind: 'selectPreviousGroup' }
   | { kind: 'toggleFold' }
-  | { kind: 'toggleAllFolds' }
+  | { kind: 'openFold' }
+  | { kind: 'closeFold' }
+  | { kind: 'openAllFolds' }
+  | { kind: 'closeAllFolds' }
+  | {
+      kind: 'scrollPage';
+      direction: 'down' | 'up';
+      size: 'half' | 'full';
+      count?: number | undefined;
+    }
+  | {
+      kind: 'placeSelectedRow';
+      position: 'center' | 'top' | 'bottom';
+      count?: number | undefined;
+    }
   | { kind: 'cycleGrouping' }
   | { kind: 'openCommandLine' }
   | { kind: 'editCommandLine'; text: string }
   | { kind: 'closeCommandLine' }
   | { kind: 'reportUnknownCommand'; name: string }
+  | { kind: 'reportCancelledKeys'; keys: string }
   | { kind: 'openSearch' }
   | { kind: 'editSearch'; text: string }
   | { kind: 'keepSearch' }
@@ -158,6 +180,7 @@ type EditIntent = Extract<
       | 'editSearch'
       | 'editCommandLine'
       | 'reportUnknownCommand'
+      | 'reportCancelledKeys'
       | 'editFilterDraft'
       | 'moveFilterCursor';
   }
@@ -174,10 +197,20 @@ type StateIntent = Exclude<
   | EditIntent
 >;
 
+type StateIntentByKind = { [Intent in StateIntent as Intent['kind']]: Intent };
+
+type Transitions = {
+  [Kind in keyof StateIntentByKind]: (
+    snapshot: Snapshot,
+    intent: StateIntentByKind[Kind],
+  ) => Snapshot;
+};
+
 const editKinds = new Set<string>([
   'editSearch',
   'editCommandLine',
   'reportUnknownCommand',
+  'reportCancelledKeys',
   'editFilterDraft',
   'moveFilterCursor',
 ]);
@@ -191,19 +224,28 @@ const unsavedLabels: Record<UnsavedChange, string> = {
   seen: 'Seen thread',
 };
 
-const transitions: Record<
-  StateIntent['kind'],
-  (snapshot: Snapshot, count: number | undefined) => Snapshot
-> = {
-  selectNext: (snapshot, count) => moveSelection(snapshot, count ?? 1),
-  selectPrevious: (snapshot, count) => moveSelection(snapshot, -(count ?? 1)),
-  selectFirst: (snapshot) => selectEdge(snapshot, 'first'),
-  selectLast: (snapshot, count) =>
-    count === undefined ? selectEdge(snapshot, 'last') : selectRowNumber(snapshot, count),
+const selectEdgeOrRow = (
+  snapshot: Snapshot,
+  edge: 'first' | 'last',
+  count: number | undefined,
+): Snapshot =>
+  count === undefined ? selectEdge(snapshot, edge) : selectRowNumber(snapshot, count);
+
+const transitions: Transitions = {
+  selectNext: (snapshot, intent) => moveSelection(snapshot, intent.count ?? 1),
+  selectPrevious: (snapshot, intent) => moveSelection(snapshot, -(intent.count ?? 1)),
+  selectFirst: (snapshot, intent) => selectEdgeOrRow(snapshot, 'first', intent.count),
+  selectLast: (snapshot, intent) => selectEdgeOrRow(snapshot, 'last', intent.count),
   selectNextGroup: (snapshot) => jumpTopLevel(snapshot, 1),
   selectPreviousGroup: (snapshot) => jumpTopLevel(snapshot, -1),
   toggleFold,
-  toggleAllFolds,
+  openFold,
+  closeFold,
+  openAllFolds,
+  closeAllFolds,
+  scrollPage: (snapshot, intent) =>
+    scrollPage(snapshot, intent.direction, intent.size, intent.count),
+  placeSelectedRow: (snapshot, intent) => placeSelectedRow(snapshot, intent.position, intent.count),
   cycleGrouping,
   openCommandLine,
   closeCommandLine,
@@ -220,6 +262,13 @@ const transitions: Record<
   leaveFilters,
   clearFilters,
 };
+
+// Generic over the kind, so TypeScript pairs each intent with its own transition.
+const applyTransition = <Kind extends keyof StateIntentByKind>(
+  snapshot: Snapshot,
+  kind: Kind,
+  intent: StateIntentByKind[Kind],
+): Snapshot => transitions[kind](snapshot, intent);
 
 const stateWarningMarker = 'state not saved';
 
@@ -410,6 +459,10 @@ export const createSession = (effects: SessionEffects): Session => {
     toaster.show({ title: `Unknown command: ${name}`, lines: [], tone: 'error' });
   };
 
+  const reportCancelledKeys = (keys: string) => {
+    toaster.show({ title: `Cancelled ${keys}`, lines: [], tone: 'info' });
+  };
+
   const reportStateWrite = (outcome: StateWriteOutcome) => {
     if (stopped) {
       return;
@@ -492,6 +545,10 @@ export const createSession = (effects: SessionEffects): Session => {
         reportUnknownCommand(intent.name);
 
         break;
+      case 'reportCancelledKeys':
+        reportCancelledKeys(intent.keys);
+
+        break;
       case 'editFilterDraft':
         update(editFilterDraft(snapshot, intent.text));
 
@@ -523,9 +580,7 @@ export const createSession = (effects: SessionEffects): Session => {
     } else if (isEditIntent(intent)) {
       sendEdit(intent);
     } else {
-      const count = 'count' in intent ? intent.count : undefined;
-
-      update(transitions[intent.kind](snapshot, count));
+      update(applyTransition(snapshot, intent.kind, intent));
 
       if (intent.kind === 'cycleGrouping') {
         saveStateQuietly('grouping');

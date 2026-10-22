@@ -173,7 +173,7 @@ const selectedLine = (setup: Setup): string | undefined => selectedRowText(setup
 test('folding a node hides its children and keeps its count', async () => {
   const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
-  await pressAll(press, ['r', 'j', 'z']);
+  await pressAll(press, ['r', 'j', 'z', 'a']);
 
   const frame = setup.captureCharFrame();
 
@@ -183,7 +183,7 @@ test('folding a node hides its children and keeps its count', async () => {
   expect(frame).toContain('Crash on start');
   expect(selectedLine(setup)).toStartWith('│ ▸ example/alpha 2');
 
-  await press('z');
+  await pressAll(press, ['z', 'a']);
 
   expect(setup.captureCharFrame()).toContain('Fix parser');
   expect(setup.captureCharFrame()).toContain('│ ▾ example/alpha 2');
@@ -290,7 +290,7 @@ test('j and k move the selection one row, and g and G jump to the first and last
   await press('G');
   expect(selectedLine(setup)).toContain('Release v1');
 
-  await press('g');
+  await pressAll(press, ['g', 'g']);
   expect(selectedLine(setup)).toBe('▾ Review requested 2');
 });
 
@@ -312,7 +312,7 @@ test('J and K move the selection to the next and previous group', async () => {
 test('z and Space fold the node that holds the selection, from a thread or a node', async () => {
   const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
-  await pressAll(press, ['r', 'j', 'j', 'z']);
+  await pressAll(press, ['r', 'j', 'j', 'z', 'a']);
 
   expect(setup.captureCharFrame()).not.toContain('Fix parser');
   expect(selectedLine(setup)).toBe('│ ▸ example/alpha 2');
@@ -354,25 +354,6 @@ test('Enter on a group below 90 columns folds it and opens no detail', async () 
   expect(setup.captureCharFrame()).not.toContain('Repo ');
 });
 
-test('Z folds every group, and unfolds them when all are folded', async () => {
-  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
-
-  await pressAll(press, ['r', 'j', 'j', 'Z']);
-
-  expect(frameLines(setup).slice(0, 3)).toEqual([
-    '▸ Review requested 2',
-    '▸ Mention 2',
-    '▸ Release 1',
-  ]);
-
-  expect(selectedLine(setup)).toBe('▸ Review requested 2');
-
-  await press('Z');
-
-  expect(setup.captureCharFrame()).toContain('Fix parser');
-  expect(setup.captureCharFrame()).toContain('│ ▾ example/beta 1');
-});
-
 test('a node row with a long repository name keeps its marker and count, open and folded', async () => {
   const longRepository = 'example/a-valid-repository-name-longer-than-the-terminal-width';
   const threads = [treeThread(1, 'Fix parser', { repository: longRepository })];
@@ -385,7 +366,7 @@ test('a node row with a long repository name keeps its marker and count, open an
 
   expect(nodeLine()).toMatch(/^│ ▾ example\/a-valid.*… 1$/);
 
-  await pressAll(press, ['j', 'z']);
+  await pressAll(press, ['j', 'z', 'a']);
 
   expect(nodeLine()).toMatch(/^│ ▸ example\/a-valid.*… 1$/);
 });
@@ -435,7 +416,7 @@ test('d on a repo node with 5 threads hides all 5 at once', async () => {
     effects: threadsEffects(fiveThreads),
   });
 
-  await pressAll(press, ['r', 'g', 'j']);
+  await pressAll(press, ['r', 'g', 'g', 'j']);
 
   expect(selectedLine(setup)).toContain('example/repo');
 
@@ -455,7 +436,7 @@ test('d on a repo node with 5 threads hides all 5 at once', async () => {
 test('d on a folded group hides every thread under it, and one u brings them all back', async () => {
   const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects(treeThreads) });
 
-  await pressAll(press, ['r', 'g', 'z']);
+  await pressAll(press, ['r', 'g', 'g', 'z', 'a']);
 
   const before = setup.captureCharFrame();
 
@@ -597,7 +578,7 @@ test('moving the selection inside the window leaves the window where it is', asy
   expect(frameLines(setup)[0]).toBe(first);
   expect(selectedRowText(setup)).toContain('Thread 28');
 
-  await press('g');
+  await pressAll(press, ['g', 'g']);
 
   expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 40');
   expect(selectedRowText(setup)).toContain('Subscribed or manual');
@@ -642,7 +623,7 @@ test('jumping to the last row shows the last rows at the bottom of the window, a
   expect(lines.at(-2)).toContain('Thread 11');
   expect(selectedRowText(setup)).toContain('Thread 11');
 
-  await press('g');
+  await pressAll(press, ['g', 'g']);
 
   expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 11');
   expect(threadRowsOf(setup)).toHaveLength(5);
@@ -709,7 +690,7 @@ test('a list shorter than the window never scrolls', async () => {
   expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 3');
   expect(selectedRowText(setup)).toContain('Third');
 
-  await press('g');
+  await pressAll(press, ['g', 'g']);
 
   expect(frameLines(setup)[0]).toBe('▾ Subscribed or manual 3');
 });

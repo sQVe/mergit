@@ -7,6 +7,7 @@ import {
   treeThread,
   queryThreads,
   typeText,
+  pressAll,
   pressCtrlU,
   track,
   mount as untrackedMount,
@@ -165,7 +166,7 @@ test('d on a group node under a search marks only its matching threads done', as
   await press('/');
   await typeText(setup, settle, 'acme/app');
   await press('return');
-  await press('g');
+  await pressAll(press, ['g', 'g']);
 
   await press('d');
 

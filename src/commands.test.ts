@@ -80,12 +80,11 @@ test('tree commands list their keys and return their intents', () => {
   const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
 
   const expected = [
-    ['selectFirst', ['g'], 'selectFirst'],
+    ['selectFirst', ['gg'], 'selectFirst'],
     ['selectLast', ['shift+g'], 'selectLast'],
     ['selectNextGroup', ['shift+j'], 'selectNextGroup'],
     ['selectPreviousGroup', ['shift+k'], 'selectPreviousGroup'],
-    ['toggleFold', ['z', 'space'], 'toggleFold'],
-    ['toggleAllFolds', ['shift+z'], 'toggleAllFolds'],
+    ['toggleFold', ['za', 'space'], 'toggleFold'],
     ['cycleGrouping', ['s'], 'cycleGrouping'],
   ] as const;
 
@@ -209,7 +208,7 @@ test('o on a thread row, a repo node, and a group node sends the expected open i
 
   const threadRow = rows.find((row) => row.kind === 'thread' && row.thread.id === threads[0]?.id);
 
-  expect(command?.keys).toEqual(['o']);
+  expect(command?.keys).toEqual(['o', 'gx']);
   expect(command?.scope).toBe('list');
   expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null })).toBeDefined();
 
@@ -385,6 +384,9 @@ test('readableKeyOf gives each raw key its readable name', () => {
     ['backspace', 'Backspace'],
     ['ctrl+c', 'Ctrl+C'],
     ['shift+g', 'G'],
+    ['zshift+r', 'zR'],
+    ['gg', 'gg'],
+    ['ctrl+d', 'Ctrl+D'],
     ['up', '↑'],
     ['down', '↓'],
     ['q', 'q'],

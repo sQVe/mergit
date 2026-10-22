@@ -136,3 +136,16 @@ test('a counted selectLast selects that visible row and clamps at the last row',
 
   expect(selected()).toBe('thread:2');
 });
+
+test('a counted selectFirst selects that visible row and clamps at the last row', async () => {
+  const { session, load, selected } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectFirst', count: 3 });
+
+  expect(selected()).toBe('thread:1');
+
+  session.send({ kind: 'selectFirst', count: 9999 });
+
+  expect(selected()).toBe('thread:2');
+});

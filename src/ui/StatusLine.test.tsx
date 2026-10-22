@@ -349,3 +349,21 @@ test('the status line adds no gap for a warning, a marker, or an error that is a
   expect(exactRow).toBe(wideRow);
   expect(wideGaps).toBeNull();
 });
+
+test('pending keys show at the right end of the status line', async () => {
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
+
+  await press('r');
+  await pressAll(press, ['1', '2']);
+
+  const line =
+    setup
+      .captureCharFrame()
+      .split('\n')
+      .find((row) => row.includes('? help')) ?? '';
+
+  expect(line.trimEnd().endsWith('12')).toBe(true);
+});

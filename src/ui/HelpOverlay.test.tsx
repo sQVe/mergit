@@ -187,8 +187,8 @@ test('help shows the keys and named commands of a custom catalog', async () => {
     ...catalog.map((command) =>
       command.id === 'selectNext' ? Object.assign({}, command, { keys: ['n', 'down'] }) : command,
     ),
-    { ...quit, id: 'quitByName', label: 'Leave Mergit', name: 'bye', keys: [] },
-    { ...quit, id: 'quitByKeyAndName', label: 'Go away', name: 'away', keys: ['x', 'ctrl+x'] },
+    { ...quit, id: 'quitByName', label: 'Leave Mergit', names: ['bye'], keys: [] },
+    { ...quit, id: 'quitByKeyAndName', label: 'Go away', names: ['away'], keys: ['x', 'ctrl+x'] },
   ];
 
   const frame = await frameOf(custom, { width: 80, height: 100 });

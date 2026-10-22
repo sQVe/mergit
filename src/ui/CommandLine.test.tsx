@@ -26,7 +26,7 @@ const quitCommand = catalog.find((command) => command.id === 'quit');
 
 const namedCatalog: readonly Command[] = [
   ...catalog,
-  { ...(quitCommand as Command), id: 'quitByName', name: 'bye', keys: [] },
+  { ...(quitCommand as Command), id: 'quitByName', names: ['bye'], keys: [] },
 ];
 
 const mountNamed = (manualTime = false) =>

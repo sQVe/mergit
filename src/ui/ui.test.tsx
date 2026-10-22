@@ -12,6 +12,7 @@ import { createSession, visibleRows } from '../session/session.ts';
 import { App } from './ui.tsx';
 import type { Setup } from './uiHarness.tsx';
 import {
+  burst,
   makeThread,
   threadsEffects,
   colorOf,
@@ -110,7 +111,7 @@ test('the tree keys reach the session as their intents', async () => {
 
   await press('r');
 
-  const keys = ['g', 'G', 'J', 'K', 'z', 'space', 'return', 'Z', 's'];
+  const keys = ['g', 'g', 'G', 'J', 'K', 'z', 'a', 'space', 'return', 's'];
 
   for (const key of keys) {
     await press(key === 'space' ? ' ' : key);
@@ -124,7 +125,6 @@ test('the tree keys reach the session as their intents', async () => {
     { kind: 'toggleFold' },
     { kind: 'toggleFold' },
     { kind: 'toggleFold' },
-    { kind: 'toggleAllFolds' },
     { kind: 'cycleGrouping' },
   ]);
 });
@@ -355,22 +355,6 @@ test('in a terminal too short for any candidate row Enter adds nothing', async (
   expect(setup.captureCharFrame().split('\n')[0]).not.toContain('kind:');
 });
 
-const burst = async (setup: Setup, keys: string[]) => {
-  await act(async () => {
-    for (const key of keys) {
-      if (key === 'escape') {
-        setup.mockInput.pressEscape();
-      } else if (key === 'return') {
-        setup.mockInput.pressEnter();
-      } else {
-        for (const character of key) {
-          setup.mockInput.pressKey(character);
-        }
-      }
-    }
-  });
-};
-
 test('keys sent in the same burst as f go to the draft and run no list command', async () => {
   const { setup, settle, press, sent } = await mountFilters();
 
@@ -557,7 +541,7 @@ test('Enter and j in one burst open the detail and leave the list selection alon
 });
 
 test('search-line keys do nothing in the list when no search is open', async () => {
-  const { press, sent, setup, settle } = await mount({
+  const { press, sent } = await mount({
     themeMode: 'dark',
     effects: threadsEffects(threeThreads),
   });
@@ -565,11 +549,7 @@ test('search-line keys do nothing in the list when no search is open', async () 
   await press('r');
   sent.length = 0;
 
-  await act(async () => {
-    setup.mockInput.pressKey('u', { ctrl: true });
-  });
-
-  await settle();
+  await press('tab');
   await press('backspace');
 
   expect(sent).toEqual([]);
@@ -1032,7 +1012,7 @@ test('a custom catalog shows its keys in the confirm dialog', async () => {
   });
 
   await press('R');
-  await press('g');
+  await pressAll(press, ['g', 'g']);
   await press('o');
 
   expect(setup.captureCharFrame()).toContain('a or Space to open');
