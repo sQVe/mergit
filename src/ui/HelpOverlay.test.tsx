@@ -417,3 +417,17 @@ test('help at 40x24 keeps the footer on one row and the Moving rows apart', asyn
   expect(footers).toHaveLength(1);
   expect(footers[0]?.trimEnd().endsWith('│')).toBe(true);
 });
+
+test('help separates each section from the next with one empty row', async () => {
+  const frame = await frameOf(catalog, { width: 80, height: fitsHeight + 2 });
+  const rows = boxRowsOf(frame).map((row) => row.trim());
+  const emptyRowCount = rows.filter((row) => row === '').length;
+
+  expect(emptyRowCount).toBe(sectionTitles.length - 1);
+
+  rows.forEach((row, index) => {
+    if (row === '') {
+      expect(isHeading(rows[index + 1] ?? '')).toBe(true);
+    }
+  });
+});

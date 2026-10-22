@@ -3,7 +3,6 @@ import { helpSections, keyHintOf, keyNamesOf, readableKeyOf } from '../commands.
 
 export type HelpLine =
   | { kind: 'heading'; text: string }
-  | { kind: 'blank' }
   | { kind: 'row'; keys: string; label: string };
 
 export interface HelpWindow {
@@ -109,7 +108,7 @@ const linesOf = (catalog: readonly Command[], innerWidth: number): HelpLine[] =>
     }
 
     if (lines.length > 0) {
-      lines.push({ kind: 'blank' });
+      lines.push({ kind: 'row', keys: '', label: '' });
     }
 
     lines.push({ kind: 'heading', text: fitted(headingOf(catalog, section), innerWidth) });

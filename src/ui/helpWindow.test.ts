@@ -58,3 +58,10 @@ test('the help footer is never wider than the inner width of the box', () => {
     expect(footerOf(catalog, '100-120 of 120', inner).length).toBeLessThanOrEqual(inner);
   }
 });
+
+test('the help footer keeps every part when the text exactly fills the inner width', () => {
+  const text = '1-5 of 99  j/k scroll';
+
+  expect(footerOf(catalog, '1-5 of 99', text.length)).toBe(text);
+  expect(footerOf(catalog, '1-5 of 99', text.length - 1)).toBe('1-5 of 99');
+});

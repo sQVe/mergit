@@ -6,10 +6,6 @@ import type { HelpLine, HelpWindow } from './helpWindow.ts';
 import type { Palette } from './palette.ts';
 
 const lineOf = (line: HelpLine, index: number, palette: Palette): ReactNode => {
-  if (line.kind === 'blank') {
-    return <text key={index}> </text>;
-  }
-
   if (line.kind === 'heading') {
     return (
       <text key={index} fg={palette.heading}>
@@ -59,7 +55,7 @@ export const HelpOverlay = (props: {
       paddingLeft={1}
       paddingRight={1}
     >
-      {visible.map((line, index) => lineOf(line, top + index, palette))}
+      {visible.map((line, index) => lineOf(line, index, palette))}
       {overflows ? <text fg={palette.dim}>{hint}</text> : null}
     </box>
   );
