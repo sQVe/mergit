@@ -39,7 +39,6 @@ export interface Command {
     | 'command'
     | 'messages';
   section: HelpSection;
-  // Help lists no row for this command.
   hiddenFromHelp?: true;
   // The word typed after `:` that runs this command.
   name?: string;
