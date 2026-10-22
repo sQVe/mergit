@@ -1203,8 +1203,12 @@ test('swapping the keymap A to B to A keeps counts working, drops old layers, an
   const dispatchTo = async (keymapIndex: number, name: string) => {
     const listener = prepended[keymapIndex];
 
+    if (listener === undefined) {
+      throw new Error(`No key listener was recorded for keymap ${keymapIndex}.`);
+    }
+
     await act(() => {
-      listener?.(
+      listener(
         new KeyEvent({
           name,
           sequence: name,
