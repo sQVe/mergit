@@ -18,8 +18,13 @@ export type Intent =
     }
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
-  | { kind: 'ui'; action: 'scrollHelp' | 'scrollMessages'; lines: number }
+  | { kind: 'ui'; action: 'scrollOverlay'; move: OverlayMove }
   | { kind: 'terminal'; action: 'quit' };
+
+export type OverlayMove =
+  | { kind: 'lines'; lines: number }
+  | { kind: 'page'; direction: 'down' | 'up'; size: 'half' | 'full' }
+  | { kind: 'edge'; edge: 'top' | 'bottom' };
 
 export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 
@@ -50,6 +55,9 @@ export interface Command {
   names?: readonly string[];
   keys: readonly string[];
   disabledReason: (snapshot: Snapshot) => string | undefined;
+  // The help and messages layers also bind this command's keys, and run this move on the open
+  // overlay.
+  overlayMove?: OverlayMove;
   // A counted command takes the number typed before its key.
   counted?: true;
   // Keys that still run this command while a count is pending, on the list layer.
@@ -120,6 +128,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['j', 'down'],
+    overlayMove: { kind: 'lines', lines: 1 },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectNext', count } }),
@@ -130,6 +139,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['k', 'up'],
+    overlayMove: { kind: 'lines', lines: -1 },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({
@@ -143,6 +153,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['gg'],
+    overlayMove: { kind: 'edge', edge: 'top' },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectFirst', count } }),
@@ -153,6 +164,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['shift+g'],
+    overlayMove: { kind: 'edge', edge: 'bottom' },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectLast', count } }),
@@ -265,6 +277,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['ctrl+d'],
+    overlayMove: { kind: 'page', direction: 'down', size: 'half' },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({
@@ -278,6 +291,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['ctrl+u'],
+    overlayMove: { kind: 'page', direction: 'up', size: 'half' },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({
@@ -291,6 +305,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['ctrl+f'],
+    overlayMove: { kind: 'page', direction: 'down', size: 'full' },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({
@@ -304,6 +319,7 @@ export const catalog: readonly Command[] = [
     scope: 'list',
     section: 'moving',
     keys: ['ctrl+b'],
+    overlayMove: { kind: 'page', direction: 'up', size: 'full' },
     disabledReason: () => undefined,
     counted: true,
     intent: (_snapshot, count) => ({
@@ -568,7 +584,7 @@ export const catalog: readonly Command[] = [
     label: 'Close help',
     scope: 'help',
     section: 'overlays',
-    keys: ['escape'],
+    keys: ['q', 'escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'closeHelp' }),
   },
@@ -587,45 +603,9 @@ export const catalog: readonly Command[] = [
     label: 'Close messages',
     scope: 'messages',
     section: 'overlays',
-    keys: ['escape'],
+    keys: ['q', 'escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'closeMessages' }),
-  },
-  {
-    id: 'scrollMessagesDown',
-    label: 'Scroll messages down',
-    scope: 'messages',
-    section: 'overlays',
-    keys: ['j', 'down'],
-    disabledReason: () => undefined,
-    intent: () => ({ kind: 'ui', action: 'scrollMessages', lines: 1 }),
-  },
-  {
-    id: 'scrollMessagesUp',
-    label: 'Scroll messages up',
-    scope: 'messages',
-    section: 'overlays',
-    keys: ['k', 'up'],
-    disabledReason: () => undefined,
-    intent: () => ({ kind: 'ui', action: 'scrollMessages', lines: -1 }),
-  },
-  {
-    id: 'scrollHelpDown',
-    label: 'Scroll help down',
-    scope: 'help',
-    section: 'overlays',
-    keys: ['j', 'down'],
-    disabledReason: () => undefined,
-    intent: () => ({ kind: 'ui', action: 'scrollHelp', lines: 1 }),
-  },
-  {
-    id: 'scrollHelpUp',
-    label: 'Scroll help up',
-    scope: 'help',
-    section: 'overlays',
-    keys: ['k', 'up'],
-    disabledReason: () => undefined,
-    intent: () => ({ kind: 'ui', action: 'scrollHelp', lines: -1 }),
   },
   {
     id: 'confirmOpen',

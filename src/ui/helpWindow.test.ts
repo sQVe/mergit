@@ -7,19 +7,19 @@ const withKeys = (keys: Record<string, readonly string[]>) =>
   catalog.map((command) => Object.assign({}, command, { keys: keys[command.id] ?? command.keys }));
 
 test('the help footer shows the first key of each command', () => {
-  const moved = withKeys({ scrollHelpDown: ['n', 'x'], scrollHelpUp: ['p'], closeHelp: ['q'] });
+  const moved = withKeys({ selectNext: ['n', 'x'], selectPrevious: ['p'], closeHelp: ['q'] });
 
   expect(footerOf(moved, '1-5 of 9', 60)).toBe('1-5 of 9  n/p scroll  q close');
 });
 
 test('the help footer leaves out an action whose commands have no keys', () => {
-  const bare = withKeys({ scrollHelpDown: [], scrollHelpUp: [], closeHelp: [] });
+  const bare = withKeys({ selectNext: [], selectPrevious: [], closeHelp: [] });
 
   expect(footerOf(bare, '1-5 of 9', 60)).toBe('1-5 of 9');
 });
 
 test('the help footer names the one scroll key that exists', () => {
-  const upOnly = withKeys({ scrollHelpDown: [], scrollHelpUp: ['k'], closeHelp: ['q'] });
+  const upOnly = withKeys({ selectNext: [], selectPrevious: ['k'], closeHelp: ['q'] });
 
   expect(footerOf(upOnly, '1-5 of 9', 60)).toBe('1-5 of 9  k scroll  q close');
 });
@@ -42,7 +42,7 @@ test('the help box leaves the status line free and grows by line count', () => {
 });
 
 test('the help footer drops the close hint, then the scroll hint, to fit a narrow width', () => {
-  expect(footerOf(catalog, '1-5 of 99', 30)).toBe('1-5 of 99  j/k scroll');
+  expect(footerOf(catalog, '1-5 of 99', 29)).toBe('1-5 of 99  j/k scroll');
   expect(footerOf(catalog, '1-5 of 99', 20)).toBe('1-5 of 99');
 });
 

@@ -366,7 +366,7 @@ test('help that fits shows no position hint', async () => {
 test('help one row shorter overflows and shows the footer with the scroll and close keys', async () => {
   const frame = await frameOf(catalog, { width: 80, height: fitsHeight - 1 });
 
-  expect(frame).toContain(`1-${totalLines - 2} of ${totalLines}  j/k scroll  Esc close`);
+  expect(frame).toContain(`1-${totalLines - 2} of ${totalLines}  j/k scroll  q close`);
 });
 
 test('help lists the :messages command', async () => {
@@ -407,8 +407,8 @@ test('a command without keys renders its label at the right border', async () =>
 
 test('the footer names the scroll and close keys that the catalog gives', async () => {
   const custom = [
-    commandOf('scrollHelpDown', ['n', 'down']),
-    commandOf('scrollHelpUp', ['p', 'up']),
+    commandOf('selectNext', ['n', 'down']),
+    commandOf('selectPrevious', ['p', 'up']),
     commandOf('closeHelp', ['x']),
     commandOf('other', ['o']),
     commandOf('another', ['a']),

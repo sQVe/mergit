@@ -7,7 +7,7 @@ import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useSyncExternalStore } from 'react';
 
-import type { Command, TerminalIntent } from '../commands.ts';
+import type { Command, OverlayMove, TerminalIntent } from '../commands.ts';
 import { keyHintOf, readableStrokeOf, scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
@@ -154,6 +154,30 @@ const isComposerBlind = (snapshot: Snapshot, width: number, height: number): boo
 
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- scopePriority is a Record over Command['scope']
 const scopeOrder = Object.keys(scopePriority) as Command['scope'][];
+
+const isOverlayScope = (scope: Command['scope']): boolean =>
+  scope === 'help' || scope === 'messages';
+
+const scrollCopyOf = (command: Command, scope: Command['scope'], move: OverlayMove): Command => ({
+  ...command,
+  scope,
+  intent: () => ({ kind: 'ui', action: 'scrollOverlay', move }),
+});
+
+const commandsOfLayer = (catalog: readonly Command[], scope: Command['scope']): Command[] => {
+  const own = catalog.filter((command) => command.scope === scope);
+  const copies: Command[] = [];
+
+  if (isOverlayScope(scope)) {
+    for (const command of catalog) {
+      if (command.overlayMove !== undefined) {
+        copies.push(scrollCopyOf(command, scope, command.overlayMove));
+      }
+    }
+  }
+
+  return [...own, ...copies];
+};
 
 const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
   if (intent.kind !== 'application') {
@@ -393,7 +417,7 @@ const Keys = (props: KeysProps): ReactNode => {
   };
 
   const layerFor = (scope: Command['scope']) => {
-    const scoped = props.catalog.filter((command) => command.scope === scope);
+    const scoped = commandsOfLayer(props.catalog, scope);
     const keyStrings = [...new Set(scoped.flatMap((command) => command.keys))];
 
     const countedKeys = scoped
@@ -498,8 +522,8 @@ export const App = (props: AppProps): ReactNode => {
   const { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction } = useUiState(
     props.session,
     sideLayout,
-    helpWindow.maximumTop,
-    messageWindow.maximumTop,
+    helpWindow,
+    messageWindow,
   );
 
   const fullDetail = detailOpen && !sideLayout;

@@ -1,7 +1,7 @@
 import type { RefObject } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import type { Intent } from '../commands.ts';
+import type { Intent, OverlayMove } from '../commands.ts';
 import type { Session } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 
@@ -27,15 +27,47 @@ export interface UiState {
   runUiAction: (intent: UiIntent) => void;
 }
 
-const clampTop = (top: number, lines: number, maximumTop: number): number =>
-  Math.min(maximumTop, Math.max(0, Math.min(top, maximumTop) + lines));
+interface ScrollWindow {
+  viewportRows: number;
+  maximumTop: number;
+}
+
+const topAfter = (top: number, move: OverlayMove, window: ScrollWindow): number => {
+  const { viewportRows, maximumTop } = window;
+  const current = Math.min(top, maximumTop);
+  const halfPage = Math.max(1, Math.floor(viewportRows / 2));
+
+  const target = {
+    lines: () => (move.kind === 'lines' ? current + move.lines : current),
+    page: () => {
+      if (move.kind !== 'page') {
+        return current;
+      }
+
+      const size = move.size === 'half' ? halfPage : viewportRows;
+
+      return current + (move.direction === 'down' ? size : -size);
+    },
+    edge: () => (move.kind === 'edge' && move.edge === 'bottom' ? maximumTop : 0),
+  }[move.kind]();
+
+  return Math.min(maximumTop, Math.max(0, target));
+};
 
 export const useUiState = (
   session: Session,
   sideLayout: boolean,
-  helpMaximumTop: number,
-  messagesMaximumTop: number,
+  helpWindow: ScrollWindow,
+  messageWindow: ScrollWindow,
 ): UiState => {
+  // Callers pass fresh window objects every render. Reading them here keeps runUiAction stable,
+  // because a changed runUiAction re-registers the key layers and clears a pending count.
+  const windows = useRef({ helpWindow, messageWindow });
+
+  useLayoutEffect(() => {
+    windows.current = { helpWindow, messageWindow };
+  });
+
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
   const [messagesTop, setMessagesTop] = useState(0);
@@ -96,6 +128,16 @@ export const useUiState = (
         setOverlay(toggling && kind !== 'help' ? { kind: 'help' } : { kind: 'none' });
       };
 
+      const scrollOverlay = (move: OverlayMove) => {
+        const { kind } = modal.current.overlay;
+
+        if (kind === 'help') {
+          setHelpTop((top) => topAfter(top, move, windows.current.helpWindow));
+        } else if (kind === 'messages') {
+          setMessagesTop((top) => topAfter(top, move, windows.current.messageWindow));
+        }
+      };
+
       const { action } = intent;
 
       if (intent.action === 'askOpen') {
@@ -112,19 +154,13 @@ export const useUiState = (
         openMessages();
       } else if (action === 'closeMessages') {
         setOverlay({ kind: 'none' });
-      } else if (intent.action === 'scrollMessages') {
-        const { lines } = intent;
-
-        setMessagesTop((top) => clampTop(top, lines, messagesMaximumTop));
-      } else if (intent.action === 'scrollHelp') {
-        const { lines } = intent;
-
-        setHelpTop((top) => clampTop(top, lines, helpMaximumTop));
+      } else if (intent.action === 'scrollOverlay') {
+        scrollOverlay(intent.move);
       } else {
         toggleHelp(action === 'toggleHelp');
       }
     },
-    [session, sideLayout, helpMaximumTop, messagesMaximumTop, setOverlay, setDetailOpen],
+    [session, sideLayout, setOverlay, setDetailOpen],
   );
 
   return { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction };

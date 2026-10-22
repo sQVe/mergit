@@ -62,13 +62,13 @@ test('q passes a quit terminal intent and sends nothing to the session', async (
   expect(sent).toEqual([]);
 });
 
-test('q still quits while the overlay is open', async () => {
+test('q closes the overlay and does not quit', async () => {
   const { press, terminalIntents } = await mount();
 
   await press('?');
   await press('q');
 
-  expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
+  expect(terminalIntents).toEqual([]);
 });
 
 test('ctrl+c passes a quit terminal intent', async () => {

@@ -129,8 +129,8 @@ export const footerOf = (
   innerWidth: number,
 ): string => {
   const scrollKeys = [
-    ...keyNamesOf(catalog, 'scrollHelpDown').slice(0, 1),
-    ...keyNamesOf(catalog, 'scrollHelpUp').slice(0, 1),
+    ...keyNamesOf(catalog, 'selectNext').slice(0, 1),
+    ...keyNamesOf(catalog, 'selectPrevious').slice(0, 1),
   ];
 
   const closeKey = keyNamesOf(catalog, 'closeHelp')[0];
