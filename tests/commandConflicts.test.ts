@@ -64,3 +64,24 @@ test('a help command and a global command may share a key', () => {
 
   expect(clashes).toEqual([]);
 });
+
+const bindingsOfLayer = (commands: readonly Command[], scope: Command['scope']): Command[] => [
+  ...commands.filter((command) => command.scope === scope),
+  ...commands
+    .filter((command) => command.overlayMove !== undefined)
+    .map((command) => Object.assign({}, command, { scope })),
+];
+
+test('no overlay layer binds a key to two commands, counting the list move keys', () => {
+  for (const scope of ['help', 'messages'] as const) {
+    expect(overlappingKeys(bindingsOfLayer(catalog, scope))).toEqual([]);
+  }
+});
+
+test('an overlay command that takes a list move key clashes in its layer', () => {
+  const clashes = overlappingKeys(
+    bindingsOfLayer([...catalog, stubCommand('closeHelp2', 'help', ['j'])], 'help'),
+  );
+
+  expect(clashes).toEqual(['help j: closeHelp2, selectNext']);
+});

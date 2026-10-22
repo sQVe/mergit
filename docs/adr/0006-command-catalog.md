@@ -58,6 +58,9 @@ remaps read the same records, and tests assert intents without running effects.
   and the confirmation, and are off while an input line is open.
 - An open modal blocks the `list` and `preview` commands beneath it. On close, focus returns to the
   previous target only if it is still mounted.
+- A command with an `overlayMove`, such as `selectNext` or `halfPageDown`, also binds its keys in
+  the `help` and `messages` layers, where they scroll the open overlay. A remap of the list command
+  moves both. The conflict rule below covers these keys in those layers too.
 - A conflict is two commands on one parsed key stroke in one scope. `shift+g` and `Shift+G` are one
   stroke. A single key that is the first stroke of another command's sequence in the same scope is
   also a conflict, such as `g` beside `gg`.
