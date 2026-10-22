@@ -35,7 +35,11 @@ test('at 90 columns and up, the side pane shows the selected thread and follows 
     { ...makeThread(2, 'Second title'), repository: 'acme/beta' },
   ];
 
-  const { setup, press } = await mount('dark', threadsEffects(threads), 100);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threads),
+    width: 100,
+  });
 
   await press('r');
   await press('j');
@@ -75,7 +79,11 @@ const mixedThreads = [
 ];
 
 test('at 90 columns and up, the side pane summarizes a selected group and repo by type and reason', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(mixedThreads), 100);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(mixedThreads),
+    width: 100,
+  });
 
   await press('r');
 
@@ -109,7 +117,11 @@ test('the side pane counts distinct unknown types separately by full name', asyn
     },
   ];
 
-  const { setup, press } = await mount('dark', threadsEffects(threads), 100);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threads),
+    width: 100,
+  });
 
   await press('r');
   await press('j');
@@ -122,7 +134,10 @@ test('the side pane counts distinct unknown types separately by full name', asyn
 });
 
 test('below 90 columns, Enter on a thread opens the full-width detail and Escape returns to the same row', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await pressAll(press, ['r', 'j', 'j', 'j']);
 
@@ -149,7 +164,10 @@ test('below 90 columns, Enter on a thread opens the full-width detail and Escape
 });
 
 test('j and k do not move the selection while the full-width detail is open', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await pressAll(press, ['r', 'j', 'j', 'j', 'return', 'j', 'k', 'k']);
 
@@ -165,7 +183,7 @@ test('the side pane shows the state and author of a thread with known facts', as
   const threads = [makeThread(1, 'First title')];
   const effects = factsEffects(threads, new Map([['1', { state: 'merged', author: 'octo' }]]));
 
-  const { setup, press } = await mount('dark', effects, 100);
+  const { setup, press } = await mount({ themeMode: 'dark', effects, width: 100 });
 
   await press('r');
   await press('j');
@@ -178,7 +196,11 @@ test('the side pane shows the state and author of a thread with known facts', as
 });
 
 test('the side pane leaves out State and Author for a thread with no facts', async () => {
-  const { setup, press } = await mount('dark', threadsEffects([makeThread(1, 'First title')]), 100);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects([makeThread(1, 'First title')]),
+    width: 100,
+  });
 
   await press('r');
   await press('j');
@@ -196,7 +218,7 @@ test('the side pane leaves out Author when the author is unknown', async () => {
   const threads = [makeThread(1, 'First title')];
   const effects = factsEffects(threads, new Map([['1', { state: 'closed', author: null }]]));
 
-  const { setup, press } = await mount('dark', effects, 100);
+  const { setup, press } = await mount({ themeMode: 'dark', effects, width: 100 });
 
   await press('r');
   await press('j');
@@ -244,11 +266,19 @@ test('the side pane of a new thread has a New line, and not for a thread that is
 });
 
 test('the side pane of a node with new threads shows their count on a New line', async () => {
-  const withNew = await mount('dark', newMarkerEffects(newMarkerThreads, ['1']), 100);
+  const withNew = await mount({
+    themeMode: 'dark',
+    effects: newMarkerEffects(newMarkerThreads, ['1']),
+    width: 100,
+  });
 
   await withNew.press('r');
 
-  const without = await mount('dark', newMarkerEffects(newMarkerThreads, ['1', '2']), 100);
+  const without = await mount({
+    themeMode: 'dark',
+    effects: newMarkerEffects(newMarkerThreads, ['1', '2']),
+    width: 100,
+  });
 
   await without.press('r');
 
@@ -257,7 +287,11 @@ test('the side pane of a node with new threads shows their count on a New line',
 });
 
 test('the side pane counts are whole numbers at the start of their line', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(mixedThreads), 100);
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(mixedThreads),
+    width: 100,
+  });
 
   await press('r');
 

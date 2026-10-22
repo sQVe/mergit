@@ -30,7 +30,7 @@ const namedCatalog: readonly Command[] = [
 ];
 
 const mountNamed = (manualTime = false) =>
-  mount('dark', effects, 60, manualTime, 24, false, namedCatalog);
+  mount({ themeMode: 'dark', effects, manualTime, catalog: namedCatalog });
 
 const slideMilliseconds = 200;
 

@@ -81,7 +81,7 @@ const rowOf = (frame: string, text: string): string =>
 test(':messages lists the shown toasts newest first, each with its time and tone', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 30);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 30 });
 
   await showTwoToasts(mounted);
   await openMessages(mounted);
@@ -103,7 +103,7 @@ test(':messages lists the shown toasts newest first, each with its time and tone
 test(':messages still lists toasts that already cleared', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 30);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 30 });
 
   await showTwoToasts(mounted);
 
@@ -125,7 +125,7 @@ test(':messages still lists toasts that already cleared', async () => {
 test('Esc closes the message overlay', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 30);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 30 });
 
   await openMessages(mounted);
 
@@ -139,7 +139,7 @@ test('Esc closes the message overlay', async () => {
 test('the overlay shows only the newest messages that fit the terminal height', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 6);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 6 });
 
   for (const name of ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff']) {
     await mounted.press(':');
@@ -171,7 +171,7 @@ const names = ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff'];
 test('j scrolls the overlay to an older message that was out of view', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 6);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 6 });
 
   await sendUnknownCommands(mounted, names);
   await openMessages(mounted);
@@ -189,7 +189,7 @@ test('j scrolls the overlay to an older message that was out of view', async () 
 test('scrolling stops at the first and the last message', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 6);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 6 });
 
   await sendUnknownCommands(mounted, names);
   await openMessages(mounted);
@@ -221,7 +221,7 @@ test('scrolling stops at the first and the last message', async () => {
 test('the overlay shows its position when the list overflows', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 6);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 6 });
 
   await sendUnknownCommands(mounted, names);
   await openMessages(mounted);
@@ -243,7 +243,7 @@ test('two toasts with the same title shown at the same time stay separate rows w
       }),
   };
 
-  const mounted = await mount('dark', sameTime, 80, false, 24);
+  const mounted = await mount({ themeMode: 'dark', effects: sameTime, width: 80 });
 
   await mounted.press('r');
   await mounted.press('o');
@@ -276,7 +276,7 @@ test('two toasts with the same title shown at the same time stay separate rows w
 test('? over the messages overlay closes it and j then scrolls help', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 12);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 12 });
 
   await openMessages(mounted);
   await mounted.press('?');
@@ -292,7 +292,7 @@ test('? over the messages overlay closes it and j then scrolls help', async () =
 test('a long message wraps in a narrow terminal and scrolling reaches its end', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 40, false, 8);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 40, height: 8 });
 
   await sendUnknownCommands(mounted, [`${'long'.repeat(60)}ENDMARKER`]);
   await openMessages(mounted);
@@ -316,7 +316,7 @@ test('a long message wraps in a narrow terminal and scrolling reaches its end', 
 test('a message of wide characters wraps by cell width and scrolling reaches its end', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 40, false, 8);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 40, height: 8 });
 
   await sendUnknownCommands(mounted, [`${'界'.repeat(55)}ENDMARKER`]);
   await openMessages(mounted);
@@ -329,17 +329,16 @@ test('a message of wide characters wraps by cell width and scrolling reaches its
 test('a message with line breaks shows each line as its own row and scrolling reaches the last', async () => {
   const details = ['first detail', ...Array.from({ length: 10 }, (_, index) => `detail ${index}`)];
 
-  const mounted = await mount(
-    'dark',
-    {
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: {
       ...effects,
       openInBrowser: () =>
         Promise.resolve({ ok: false, message: [...details, 'ENDMARKER'].join('\r\n') }),
     },
-    80,
-    false,
-    8,
-  );
+    width: 80,
+    height: 8,
+  });
 
   await mounted.press('r');
   await mounted.press('o');
@@ -355,7 +354,7 @@ test('the empty messages overlay at 80x24 is a readable box with nothing from th
     makeThread(index + 1, `Thread ${index + 1}`),
   );
 
-  const mounted = await mount('dark', threadsEffects(threads), 80, false, 24);
+  const mounted = await mount({ themeMode: 'dark', effects: threadsEffects(threads), width: 80 });
 
   await mounted.press('r');
   await openMessages(mounted);
@@ -379,7 +378,7 @@ test('the empty messages overlay at 80x24 is a readable box with nothing from th
 test('a list that exactly fills the box shows no position and one row more shows it', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 4);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 4 });
 
   await sendUnknownCommands(mounted, ['aaa', 'bbb']);
   await openMessages(mounted);
@@ -404,7 +403,7 @@ test('a list that exactly fills the box shows no position and one row more shows
 test('the overlay says No messages yet only while there are no messages', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 80, false, 12);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 80, height: 12 });
 
   await openMessages(mounted);
 
@@ -423,7 +422,7 @@ test('the overlay says No messages yet only while there are no messages', async 
 test('a wrapped title shows its time and tone on the first row only', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 40, false, 12);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 40, height: 12 });
 
   await sendUnknownCommands(mounted, [`${'long'.repeat(20)}ENDMARKER`]);
   await openMessages(mounted);
@@ -441,7 +440,7 @@ test('a wrapped title shows its time and tone on the first row only', async () =
 test('a character wider than the box column gets its own row with no empty row before it', async () => {
   calls = 0;
 
-  const mounted = await mount('dark', effects, 20, false, 40);
+  const mounted = await mount({ themeMode: 'dark', effects, width: 20, height: 40 });
 
   await sendUnknownCommands(mounted, ['界']);
   await openMessages(mounted);
@@ -459,16 +458,15 @@ test('a character wider than the box column gets its own row with no empty row b
 });
 
 test('a detail line that starts with a wide character gets no empty row before it', async () => {
-  const mounted = await mount(
-    'dark',
-    {
+  const mounted = await mount({
+    themeMode: 'dark',
+    effects: {
       ...effects,
       openInBrowser: () => Promise.resolve({ ok: false, message: 'head\r\n界' }),
     },
-    20,
-    false,
-    70,
-  );
+    width: 20,
+    height: 70,
+  });
 
   await mounted.press('r');
   await mounted.press('o');

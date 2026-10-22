@@ -4,15 +4,20 @@ import type { Snapshot } from '../session/session.ts';
 import { noticeMessageOf, openThreads, visibleRows } from '../session/session.ts';
 import type { Palette } from './palette.ts';
 
+interface NoticeMessage {
+  text: string;
+  dim: boolean;
+}
+
 export const hasNoRows = (snapshot: Snapshot): boolean => visibleRows(snapshot).length === 0;
 
 const readNoticeText = (snapshot: Snapshot, refreshKey: string | undefined): string | null =>
   snapshot.notice === null ? null : noticeMessageOf(snapshot.notice, refreshKey).text;
 
-const readMessage = (
+export const readNoticeMessage = (
   snapshot: Snapshot,
   refreshKey: string | undefined,
-): { text: string; dim: boolean } | null => {
+): NoticeMessage | null => {
   const notice = readNoticeText(snapshot, refreshKey);
 
   if (notice !== null && hasNoRows(snapshot)) {
@@ -34,24 +39,12 @@ const readMessage = (
   return null;
 };
 
-export const hasNotice = (snapshot: Snapshot): boolean => readMessage(snapshot, undefined) !== null;
-
-export const Notice = (props: {
-  snapshot: Snapshot;
-  palette: Palette;
-  refreshKey: string | undefined;
-}): ReactNode => {
-  const message = readMessage(props.snapshot, props.refreshKey);
-
-  if (message === null) {
-    return null;
-  }
-
-  const color = message.dim ? props.palette.dim : props.palette.text;
+export const Notice = (props: { message: NoticeMessage; palette: Palette }): ReactNode => {
+  const color = props.message.dim ? props.palette.dim : props.palette.text;
 
   return (
     <box flexGrow={1} alignItems="center" justifyContent="center">
-      <text fg={color}>{message.text}</text>
+      <text fg={color}>{props.message.text}</text>
     </box>
   );
 };

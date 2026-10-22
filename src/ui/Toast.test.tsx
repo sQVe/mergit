@@ -45,7 +45,7 @@ const failWrite = async (
 };
 
 test('a failed write shows a toast and no unsaved marker in the status line', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
   await failWrite(session, advance);
@@ -57,7 +57,7 @@ test('a failed write shows a toast and no unsaved marker in the status line', as
 });
 
 test('a toast shows its title, reason, and file, each on a row starting with the bar and with no line border', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
   await failWrite(session, advance);
@@ -80,7 +80,7 @@ test('a toast shows its title, reason, and file, each on a row starting with the
 });
 
 test('a toast with short lines draws a block narrower than the width limit', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
   await failWrite(session, advance);
@@ -105,7 +105,11 @@ test('a toast on a full list keeps the list height and wraps a long reason', asy
     makeThread(index + 1, `Thread ${index + 1}`),
   );
 
-  const { setup, session, press, advance } = await mount('dark', threadsEffects(threads), 60, true);
+  const { setup, session, press, advance } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threads),
+    manualTime: true,
+  });
 
   await press('r');
   await press('s');
@@ -154,7 +158,12 @@ test('a toast on a terminal too narrow for text renders nothing and still expire
     },
   };
 
-  const { setup, session, press, settle, advance } = await mount('dark', effects, 6, true);
+  const { setup, session, press, settle, advance } = await mount({
+    themeMode: 'dark',
+    effects,
+    width: 6,
+    manualTime: true,
+  });
 
   await press('s');
   await failWrite(session, advance);
@@ -185,7 +194,11 @@ const titleColumn = (frame: string) => {
 };
 
 test('a toast on a terminal with two text columns stays within five text rows', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 9, true);
+  const { setup, session, press, advance } = await mount({
+    themeMode: 'dark',
+    width: 9,
+    manualTime: true,
+  });
 
   await press('s');
   await failWrite(session, advance);
@@ -202,7 +215,7 @@ const toastDuration = (session: {
 }) => session.getSnapshot().toast?.durationMilliseconds ?? 0;
 
 test('a toast block starts at its title row with no empty row above it', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
   await failWrite(session, advance);
@@ -214,7 +227,11 @@ test('a toast block starts at its title row with no empty row above it', async (
 });
 
 test('a toast with a long reason is at most 40 columns wide', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 80, true);
+  const { setup, session, press, advance } = await mount({
+    themeMode: 'dark',
+    width: 80,
+    manualTime: true,
+  });
 
   await press('s');
   await failWrite(session, advance, longReason);
@@ -229,7 +246,7 @@ test('a toast with a long reason is at most 40 columns wide', async () => {
 });
 
 test('the time-left bar is shorter after half the toast duration than after the slide, and not empty', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
 
@@ -247,7 +264,7 @@ test('the time-left bar is shorter after half the toast duration than after the 
 });
 
 test('a toast starts away from its resting column and sits at it, with the title on screen, after the slide', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
 
@@ -269,7 +286,7 @@ test('a toast starts away from its resting column and sits at it, with the title
 });
 
 test('a newer toast starts with a full bar again', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
 
@@ -314,7 +331,12 @@ const markColumn = (frame: string) =>
 
 test('an expired toast stays on screen away from its resting column and is gone after the exit', async () => {
   const { effects, callbacks } = expiringEffects();
-  const { setup, session, press, advance } = await mount('dark', effects, 60, true);
+
+  const { setup, session, press, advance } = await mount({
+    themeMode: 'dark',
+    effects,
+    manualTime: true,
+  });
 
   await press('s');
   await failWrite(session, advance);
@@ -339,7 +361,12 @@ test('an expired toast stays on screen away from its resting column and is gone 
 
 test('a new toast during an exit appears at once and slides in', async () => {
   const { effects, callbacks } = expiringEffects();
-  const { setup, session, press, advance } = await mount('dark', effects, 60, true);
+
+  const { setup, session, press, advance } = await mount({
+    themeMode: 'dark',
+    effects,
+    manualTime: true,
+  });
 
   await press('s');
   await failWrite(session, advance);
@@ -372,7 +399,7 @@ test('a new toast during an exit appears at once and slides in', async () => {
 });
 
 test('a long reason is wrapped once and the path after it stays visible', async () => {
-  const { setup, session, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await act(async () => {
     session.reportStateWrite({ ok: false, reason: `${'A'.repeat(45)} ENDPATH`, path: '~/s.json' });
@@ -395,7 +422,7 @@ test('a long reason is wrapped once and the path after it stays visible', async 
 });
 
 test('a toast with a wide reason wraps by cells and keeps its title and the end of the reason', async () => {
-  const { setup, session, press, advance } = await mount('dark', idleEffects, 60, true);
+  const { setup, session, press, advance } = await mount({ themeMode: 'dark', manualTime: true });
 
   await press('s');
   await failWrite(session, advance, `${'界'.repeat(20)}END`);

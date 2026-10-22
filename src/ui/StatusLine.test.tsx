@@ -31,9 +31,9 @@ test('the status line shows ? help', async () => {
 });
 
 test('the status line color follows the theme mode, and dark when it is unknown', async () => {
-  const light = await mount('light');
-  const dark = await mount('dark');
-  const unknown = await mount(null);
+  const light = await mount({ themeMode: 'light' });
+  const dark = await mount({ themeMode: 'dark' });
+  const unknown = await mount();
 
   expect(statusLineColor(light.setup)).toBe(colorOf('light'));
   expect(statusLineColor(dark.setup)).toBe(colorOf('dark'));
@@ -52,7 +52,7 @@ test('a failed refresh keeps the rows and shows the error in the status line', a
       : threeThreads,
   );
 
-  const { setup, press } = await mount('dark', effects);
+  const { setup, press } = await mount({ themeMode: 'dark', effects });
 
   await press('r');
   fail = true;
@@ -71,7 +71,7 @@ test('a sign-in failure after a load keeps the rows and shows the fix in the sta
     signedIn ? threeThreads : { ok: false as const, failure: { kind: 'notSignedIn' as const } },
   );
 
-  const { setup, press } = await mount('dark', effects);
+  const { setup, press } = await mount({ themeMode: 'dark', effects });
 
   await press('r');
   signedIn = false;
@@ -93,7 +93,7 @@ test('the status line says the feed is busy when the list could not be checked',
       }),
   };
 
-  const { setup, press } = await mount('dark', effects);
+  const { setup, press } = await mount({ themeMode: 'dark', effects });
 
   expect(setup.captureCharFrame()).not.toContain('feed busy');
 
@@ -110,7 +110,7 @@ test('the status line names the rate limit pause and its end', async () => {
     failure: { kind: 'rateLimited' as const, resetAt },
   }));
 
-  const { setup, press } = await mount('dark', effects);
+  const { setup, press } = await mount({ themeMode: 'dark', effects });
 
   expect(setup.captureCharFrame()).not.toContain('paused until');
 
@@ -124,8 +124,8 @@ test('the status line names the rate limit pause and its end', async () => {
 
 test('the status line shows the age of the saved list, and not without one', async () => {
   const savedAt = new Date(Date.now() - 3 * 3_600_000);
-  const saved = await mount('dark', savedEffects(savedAt, threeThreads));
-  const fresh = await mount('dark', threadsEffects(threeThreads));
+  const saved = await mount({ themeMode: 'dark', effects: savedEffects(savedAt, threeThreads) });
+  const fresh = await mount({ themeMode: 'dark', effects: threadsEffects(threeThreads) });
 
   expect(saved.setup.captureCharFrame()).toContain('saved 3h ago');
   expect(fresh.setup.captureCharFrame()).not.toContain('saved');
@@ -147,17 +147,15 @@ const statusRowOf = (frame: string) => {
 };
 
 test('the status line keeps every item whole at 80 columns with a state warning', async () => {
-  const { setup, press } = await mount(
-    'dark',
-    {
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: {
       ...savedEffects(new Date(), threeThreads),
       readFeed: () => new Promise(() => {}),
       stateWarning: startupWarning,
     },
-    80,
-    false,
-    24,
-  );
+    width: 80,
+  });
 
   await press('r');
 
@@ -177,7 +175,7 @@ test('the status line names the key r in full at 80 columns when gh is missing a
       .readFeed,
   };
 
-  const { setup, press } = await mount('dark', effects, 80, false, 24);
+  const { setup, press } = await mount({ themeMode: 'dark', effects, width: 80 });
 
   await press('r');
 
@@ -188,7 +186,10 @@ test('the status line names the key r in full at 80 columns when gh is missing a
 });
 
 test('the status line stays on the last row in the full-width detail', async () => {
-  const { setup, press } = await mount('dark', threadsEffects(threeThreads));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(threeThreads),
+  });
 
   await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
 
@@ -223,7 +224,7 @@ test('the status line keeps the state warning whole when the feed is busy and a 
     },
   };
 
-  const { setup, press } = await mount('dark', effects, 80, false, 24);
+  const { setup, press } = await mount({ themeMode: 'dark', effects, width: 80 });
 
   await press('r');
   hang = true;
@@ -245,7 +246,7 @@ test('a gh missing toast shows the install text and the key r at 80x24 with rows
       .readFeed,
   };
 
-  const { setup, press, settle } = await mount('dark', effects, 80, false, 24);
+  const { setup, press, settle } = await mount({ themeMode: 'dark', effects, width: 80 });
 
   await press('r');
   await settle();
@@ -274,7 +275,7 @@ test('the status line shows refreshing... while a refresh runs and drops it when
     },
   };
 
-  const { setup, press, settle } = await mount('dark', effects);
+  const { setup, press, settle } = await mount({ themeMode: 'dark', effects });
 
   expect(setup.captureCharFrame()).not.toContain('refreshing...');
 
@@ -296,7 +297,7 @@ test('the status line leaves the notice to the screen body when no rows are show
       .readFeed,
   };
 
-  const { setup, press } = await mount('dark', effects, 80, false, 24);
+  const { setup, press } = await mount({ themeMode: 'dark', effects, width: 80 });
 
   await press('r');
 
@@ -330,7 +331,7 @@ const busyStatusRowAt = async (width: number): Promise<string> => {
     },
   };
 
-  const { setup, press } = await mount('dark', effects, width, false, 24);
+  const { setup, press } = await mount({ themeMode: 'dark', effects, width });
 
   await press('r');
   hang = true;

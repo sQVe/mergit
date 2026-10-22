@@ -1,5 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
 
+import { RGBA } from '@opentui/core';
+
+import { pickPalette } from './palette.ts';
+import type { Setup } from './uiHarness.tsx';
 import {
   makeThread,
   threadsEffects,
@@ -32,8 +36,28 @@ test('an empty inbox shows its notice, and loading shows before the first refres
   expect(setup.captureCharFrame()).toContain('No open notifications');
 });
 
+const noticeColorOf = (setup: Setup, text: string): string | undefined => {
+  const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+
+  return spans.find((span) => span.text.includes(text))?.fg.toString();
+};
+
+test('the loading notice is dim, and the empty inbox notice uses the text color', async () => {
+  const palette = pickPalette('dark');
+  const { setup, press } = await mount({ themeMode: 'dark' });
+
+  expect(noticeColorOf(setup, 'Loading notifications')).toBe(RGBA.fromHex(palette.dim).toString());
+
+  await press('r');
+
+  expect(noticeColorOf(setup, 'No open notifications')).toBe(RGBA.fromHex(palette.text).toString());
+});
+
 test('marking the only thread done shows the empty inbox notice', async () => {
-  const { setup, press } = await mount('dark', threadsEffects([makeThread(1, 'Only thread')]));
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects([makeThread(1, 'Only thread')]),
+  });
 
   await press('r');
   await press('j');
@@ -71,7 +95,7 @@ test('a search that hides every open thread shows a no-match notice', async () =
 });
 
 test('an inbox with no open threads keeps the empty inbox notice', async () => {
-  const { setup, press } = await mount('dark', threadsEffects([]));
+  const { setup, press } = await mount({ themeMode: 'dark', effects: threadsEffects([]) });
 
   await press('r');
 
