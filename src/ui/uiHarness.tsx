@@ -472,7 +472,7 @@ export const queryThreads: readonly NotificationThread[] = queryThreadOverrides.
 );
 
 export const burst = async (setup: Setup, keys: string[]): Promise<void> => {
-  // oxlint-disable-next-line typescript/require-await -- the burst keeps the async act its callers were written against
+  // oxlint-disable-next-line typescript/require-await -- a sync callback returns no thenable, which the await on act rejects
   await act(async () => {
     for (const key of keys) {
       if (key === 'escape') {
