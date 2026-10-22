@@ -2,6 +2,7 @@ export interface Palette {
   text: string;
   dim: string;
   key: string;
+  heading: string;
   overlayBackground: string;
   selectedBackground: string;
   typeLabel: string;
@@ -15,6 +16,7 @@ const darkPalette: Palette = {
   text: '#d7dae0',
   dim: '#4f5866',
   key: '#e5c07b',
+  heading: '#61afef',
   overlayBackground: '#1c2029',
   selectedBackground: '#2c313c',
   typeLabel: '#61afef',
@@ -28,6 +30,7 @@ const lightPalette: Palette = {
   text: '#383a42',
   dim: '#a0a1a7',
   key: '#946200',
+  heading: '#2f6fb3',
   overlayBackground: '#f3f4f6',
   selectedBackground: '#dfe3ea',
   typeLabel: '#2f6fb3',

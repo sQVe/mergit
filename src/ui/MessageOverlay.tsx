@@ -1,28 +1,20 @@
 import type { ReactNode } from 'react';
 
-import type { Snapshot } from '../session/session.ts';
-import { messageWindowOf } from './messageWindow.ts';
+import type { MessageWindow } from './messageWindow.ts';
 import type { Palette } from './palette.ts';
-
-type Message = Snapshot['messages'][number];
 
 const timeColumns = 8;
 const toneColumns = 5;
 
 export const MessageOverlay = (props: {
-  messages: readonly Message[];
+  messageWindow: MessageWindow;
   palette: Palette;
-  width: number;
   height: number;
   top: number;
 }): ReactNode => {
   const { palette } = props;
 
-  const { rows, viewportRows, maximumTop, overflows } = messageWindowOf(
-    props.messages,
-    props.width,
-    props.height,
-  );
+  const { rows, viewportRows, maximumTop, overflows } = props.messageWindow;
 
   const top = Math.min(props.top, maximumTop);
   const visible = rows.slice(top, top + viewportRows);

@@ -37,6 +37,7 @@ const stubCommand = (id: string, scope: Command['scope'], keys: string[]): Comma
   id,
   label: id,
   scope,
+  section: 'app',
   keys,
   disabledReason: () => undefined,
   intent: () => ({ kind: 'ui', action: 'openDetail' }),

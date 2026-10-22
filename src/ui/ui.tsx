@@ -461,15 +461,15 @@ export const App = (props: AppProps): ReactNode => {
   const palette = pickPalette(themeMode);
   const { width, height } = useTerminalDimensions();
 
-  const helpWindow = helpWindowOf(props.catalog, height);
-  const messagesMaximumTop = messageWindowOf(snapshot.messages, width, height).maximumTop;
+  const helpWindow = helpWindowOf(props.catalog, height, width);
+  const messageWindow = messageWindowOf(snapshot.messages, width, height);
   const sideLayout = width >= sidePaneMinimumWidth;
 
   const { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction } = useUiState(
     props.session,
     sideLayout,
     helpWindow.maximumTop,
-    messagesMaximumTop,
+    messageWindow.maximumTop,
   );
 
   const fullDetail = detailOpen && !sideLayout;
@@ -547,15 +547,20 @@ export const App = (props: AppProps): ReactNode => {
       ) : null}
       {overlay.kind === 'messages' ? (
         <MessageOverlay
-          messages={snapshot.messages}
+          messageWindow={messageWindow}
           palette={palette}
-          width={width}
           height={height}
           top={messagesTop}
         />
       ) : null}
       {overlay.kind === 'help' ? (
-        <HelpOverlay catalog={props.catalog} palette={palette} height={height} top={helpTop} />
+        <HelpOverlay
+          catalog={props.catalog}
+          palette={palette}
+          height={height}
+          helpWindow={helpWindow}
+          top={helpTop}
+        />
       ) : null}
     </KeymapProvider>
   );

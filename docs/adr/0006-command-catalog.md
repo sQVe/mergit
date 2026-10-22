@@ -27,7 +27,12 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Commands
 
-- Each command has an id, a label, a scope (one of the nine below), and default keys.
+- Each command has an id, a label, a scope (one of the nine below), a help section, and default
+  keys.
+- Each command names its help section: app, moving, folding, threads, search, filters, command line,
+  or overlays. Help lists the sections in that fixed order. Input-line copies of one action, such as
+  clearing the line, share a `configId` and show as one help row. A command marked `hiddenFromHelp`
+  has no help row.
 - `disabledReason(snapshot)` returns why the command cannot run, or nothing when it can.
 - `intent(snapshot, count)` returns an application intent for the session, a UI intent for React, or
   a terminal intent. It performs no I/O. `count` is the number typed before the key, or `undefined`
