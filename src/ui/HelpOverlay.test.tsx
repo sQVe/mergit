@@ -187,8 +187,8 @@ test('help shows the keys and named commands of a custom catalog', async () => {
     ...catalog.map((command) =>
       command.id === 'selectNext' ? Object.assign({}, command, { keys: ['n', 'down'] }) : command,
     ),
-    { ...quit, id: 'quitByName', label: 'Leave Mergit', name: 'bye', keys: [] },
-    { ...quit, id: 'quitByKeyAndName', label: 'Go away', name: 'away', keys: ['x', 'ctrl+x'] },
+    { ...quit, id: 'quitByName', label: 'Leave Mergit', names: ['bye'], keys: [] },
+    { ...quit, id: 'quitByKeyAndName', label: 'Go away', names: ['away'], keys: ['x', 'ctrl+x'] },
   ];
 
   const frame = await frameOf(custom, { width: 80, height: 100 });
@@ -234,6 +234,26 @@ test('a label that does not fit is cut with an ellipsis at the right border', as
   const cut = rows.find((row) => row.startsWith('Esc Close the comp'));
 
   expect(cut).toBe('Esc Close the compose…');
+});
+
+test('at 30 columns every help row stays on one line inside the box', async () => {
+  const size = { width: 30, height: 100 };
+  const { lines, boxWidth: narrowWidth } = helpWindowOf(catalog, size.height, size.width);
+  const innerWidth = narrowWidth - 4;
+  const frame = await frameOf(catalog, size);
+  const rows = boxRowsOf(frame, narrowWidth);
+
+  for (const line of lines) {
+    if (line.kind === 'row') {
+      const gap = line.keys === '' || line.label === '' ? 0 : 1;
+
+      expect(line.keys.length + gap + line.label.length).toBeLessThanOrEqual(innerWidth);
+    }
+  }
+
+  expect(rows).toHaveLength(lines.length);
+  expect(rows.some((row) => row.includes('Selectr'))).toBe(false);
+  expect(rows.some((row) => row.startsWith('gg'))).toBe(true);
 });
 
 test('? opens the overlay and ? closes it', async () => {

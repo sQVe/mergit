@@ -448,7 +448,7 @@ export const mountWithGroup = async (
 
   const mounted = await mount({ themeMode: 'dark', effects });
 
-  await pressAll(mounted.press, ['r', 'g']);
+  await pressAll(mounted.press, ['r', 'g', 'g']);
 
   return { ...mounted, opens };
 };
@@ -470,6 +470,23 @@ const queryThreadOverrides: readonly (readonly [string, Partial<NotificationThre
 export const queryThreads: readonly NotificationThread[] = queryThreadOverrides.map(
   ([title, overrides], index) => treeThread(index + 1, title, overrides),
 );
+
+export const burst = async (setup: Setup, keys: string[]): Promise<void> => {
+  // oxlint-disable-next-line typescript/require-await -- a sync callback returns no thenable, which the await on act rejects
+  await act(async () => {
+    for (const key of keys) {
+      if (key === 'escape') {
+        setup.mockInput.pressEscape();
+      } else if (key === 'return') {
+        setup.mockInput.pressEnter();
+      } else {
+        for (const character of key) {
+          setup.mockInput.pressKey(character);
+        }
+      }
+    }
+  });
+};
 
 export const typeText = async (
   setup: Setup,

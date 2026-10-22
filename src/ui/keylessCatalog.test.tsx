@@ -12,6 +12,7 @@ import {
   filterThreads,
   fourRepoThreads,
   mount as untrackedMount,
+  pressAll,
   savedEffects,
   threeThreads,
   track,
@@ -84,7 +85,7 @@ const confirmHintOf = async (ids: readonly string[]): Promise<string> => {
   });
 
   await settle();
-  await press('g');
+  await pressAll(press, ['g', 'g']);
   await press('o');
 
   const lines = setup.captureCharFrame().split('\n');

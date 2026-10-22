@@ -140,7 +140,7 @@ test('each cycleGrouping intent saves the full state with the done records uncha
 
   await settle();
   session.send({ kind: 'selectNext' });
-  session.send({ kind: 'toggleAllFolds' });
+  session.send({ kind: 'closeAllFolds' });
 
   expect(saved).toEqual([]);
 

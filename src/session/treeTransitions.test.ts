@@ -54,31 +54,148 @@ test('toggleFold does nothing without rows', () => {
   expect(session.getSnapshot()).toBe(before);
 });
 
-test('toggleAllFolds folds every top-level node, moves the cursor into the group, then unfolds them all', async () => {
+test('closeFold folds the node of a thread row and selects the node', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(reviewThread);
+  session.send({ kind: 'closeFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.has('review/acme/app')).toBe(true);
+  expect(selected()).toBe('node:review/acme/app');
+  expect(threadKeys(session)).not.toContain('thread:1');
+
+  session.send({ kind: 'closeFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.has('review/acme/app')).toBe(true);
+  expect(selected()).toBe('node:review/acme/app');
+});
+
+test('closeFold folds a node row and keeps it folded on a second call', async () => {
+  const { session, load, selected } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectNext' });
+
+  expect(selected()).toBe('node:review/acme/app');
+
+  session.send({ kind: 'closeFold' });
+  session.send({ kind: 'closeFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.has('review/acme/app')).toBe(true);
+  expect(selected()).toBe('node:review/acme/app');
+  expect(threadKeys(session)).not.toContain('thread:1');
+});
+
+test('openFold unfolds a folded node row and leaves an open node open', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(reviewThread);
+  session.send({ kind: 'closeFold' });
+  session.send({ kind: 'openFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(selected()).toBe('node:review/acme/app');
+  expect(threadKeys(session)).toContain('thread:1');
+
+  session.send({ kind: 'openFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(threadKeys(session)).toContain('thread:1');
+});
+
+test('openFold on a thread row keeps the node open and selects the node', async () => {
   const { session, load, selected, selectThread } = makeHarness();
 
   await load(reviewThread, mentionThread);
   selectThread(mentionThread);
-  session.send({ kind: 'toggleAllFolds' });
+  session.send({ kind: 'openFold' });
+
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(selected()).toBe('node:mention/acme/lib');
+  expect(threadKeys(session)).toContain('thread:2');
+});
+
+test('closeAllFolds folds every top-level node and moves the cursor to its holder', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(mentionThread);
+  session.send({ kind: 'closeAllFolds' });
 
   expect(threadKeys(session)).toEqual(['node:review', 'node:mention']);
   expect(selected()).toBe('node:mention');
 
-  session.send({ kind: 'toggleAllFolds' });
+  session.send({ kind: 'closeAllFolds' });
+
+  expect(threadKeys(session)).toEqual(['node:review', 'node:mention']);
+  expect(selected()).toBe('node:mention');
+});
+
+test('closeAllFolds keeps a selected top-level node row', async () => {
+  const { session, load, selected } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectPrevious' });
+  session.send({ kind: 'closeAllFolds' });
+
+  expect(selected()).toBe('node:review');
+  expect(threadKeys(session)).toEqual(['node:review', 'node:mention']);
+});
+
+test('openAllFolds unfolds every top-level node and keeps the selection', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(mentionThread);
+  session.send({ kind: 'closeAllFolds' });
+  session.send({ kind: 'openAllFolds' });
 
   expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
   expect(selected()).toBe('node:mention');
   expect(threadKeys(session)).toHaveLength(6);
 });
 
-test('toggleAllFolds unfolds all top-level nodes when only one is folded', async () => {
-  const { session, load } = makeHarness();
+test('openAllFolds unfolds a single folded top-level node and keeps a thread selection', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
 
   await load(reviewThread, mentionThread);
-  session.send({ kind: 'toggleFold' });
-  session.send({ kind: 'toggleAllFolds' });
+  session.send({ kind: 'closeFold' });
+  selectThread(mentionThread);
+  session.send({ kind: 'openAllFolds' });
 
   expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(selected()).toBe('thread:2');
+});
+
+test('openAllFolds opens a nested fold made by closeFold', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(reviewThread);
+  session.send({ kind: 'closeFold' });
+
+  expect(selected()).toBe('node:review/acme/app');
+  expect(threadKeys(session)).not.toContain('thread:1');
+
+  session.send({ kind: 'openAllFolds' });
+
+  expect(session.getSnapshot().foldedNodes.reason.size).toBe(0);
+  expect(selected()).toBe('node:review/acme/app');
+  expect(threadKeys(session)).toContain('thread:1');
+});
+
+test('closeAllFolds also folds nested nodes, so opening a top-level node shows them folded', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  selectThread(mentionThread);
+  session.send({ kind: 'closeAllFolds' });
+  session.send({ kind: 'openFold' });
+
+  expect(selected()).toBe('node:mention');
+  expect(threadKeys(session)).toEqual(['node:review', 'node:mention', 'node:mention/acme/lib']);
 });
 
 test('cycleGrouping goes reason, type, none, reason and keeps the cursor on the same thread', async () => {
@@ -176,7 +293,15 @@ test('group jumps and folds change nothing in none and do not throw', async () =
 
   const before = session.getSnapshot();
 
-  for (const kind of ['selectNextGroup', 'selectPreviousGroup', 'toggleAllFolds', 'toggleFold']) {
+  for (const kind of [
+    'selectNextGroup',
+    'selectPreviousGroup',
+    'toggleFold',
+    'openFold',
+    'closeFold',
+    'openAllFolds',
+    'closeAllFolds',
+  ]) {
     session.send({ kind } as Parameters<typeof session.send>[0]);
 
     expect(selected()).toBe('thread:2');

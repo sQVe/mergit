@@ -1,13 +1,14 @@
 import type { KeyEvent, Renderable } from '@opentui/core';
-import type { CommandContext } from '@opentui/keymap';
+import type { CommandContext, KeySequencePart } from '@opentui/keymap';
+import { registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
 import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/react';
+import { KeymapProvider, useBindings, useKeymap, usePendingSequence } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import type { Command, TerminalIntent } from '../commands.ts';
-import { keyHintOf, scopePriority } from '../commands.ts';
+import { keyHintOf, readableStrokeOf, scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import { CommandLine, commandLineRows } from './CommandLine.tsx';
@@ -201,7 +202,10 @@ const CountPatterns = (): null => {
       finalize: (values) => values.join(''),
     });
 
+    const removeEscape = registerEscapeClearsPendingSequence(keymap);
+
     return () => {
+      removeEscape();
       removeMore();
       removeLead();
     };
@@ -228,8 +232,34 @@ const keymapKeyOf = (keymap: AppProps['keymap']): number => {
   return keymapsSeen;
 };
 
+const pendingKeysOf = (parts: readonly KeySequencePart[]): string =>
+  parts.map((part) => readableStrokeOf(part.stroke)).join('');
+
+const PendingStatusLine = (props: {
+  snapshot: Snapshot;
+  palette: Palette;
+  catalog: readonly Command[];
+}): ReactNode => {
+  const pending = pendingKeysOf(usePendingSequence());
+
+  return <StatusLine {...props} pending={pending} />;
+};
+
 const Keys = (props: KeysProps): ReactNode => {
   const { session, onTerminalIntent, runUiAction, modal } = props;
+  const keymap = useKeymap();
+
+  // A key that misses a pending sequence is dropped here, so it never runs or reaches the
+  // fallback below.
+  useEffect(
+    () =>
+      keymap.intercept('key:after', (context) => {
+        if (context.reason === 'sequence-miss') {
+          context.consume();
+        }
+      }),
+    [keymap],
+  );
 
   const typeIntoPendingInput = (text: string): void => {
     const snapshot = session.getSnapshot();
@@ -255,7 +285,7 @@ const Keys = (props: KeysProps): ReactNode => {
       return;
     }
 
-    const named = props.catalog.find((command) => command.name === name);
+    const named = props.catalog.find((command) => command.names?.includes(name) === true);
 
     if (named === undefined) {
       session.send({ kind: 'reportUnknownCommand', name });
@@ -535,7 +565,7 @@ export const App = (props: AppProps): ReactNode => {
           room={searchRoom}
         />
         <CommandLine session={props.session} snapshot={snapshot} palette={palette} />
-        <StatusLine snapshot={snapshot} palette={palette} catalog={props.catalog} />
+        <PendingStatusLine snapshot={snapshot} palette={palette} catalog={props.catalog} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />
       {overlay.kind === 'confirm' ? (
