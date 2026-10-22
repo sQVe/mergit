@@ -60,6 +60,12 @@ export const useUiState = (
   helpWindow: ScrollWindow,
   messageWindow: ScrollWindow,
 ): UiState => {
+  // Callers pass fresh window objects every render. Reading them here keeps runUiAction stable,
+  // because a changed runUiAction re-registers the key layers and clears a pending count.
+  const windows = useRef({ helpWindow, messageWindow });
+
+  windows.current = { helpWindow, messageWindow };
+
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
   const [messagesTop, setMessagesTop] = useState(0);
@@ -124,9 +130,9 @@ export const useUiState = (
         const { kind } = modal.current.overlay;
 
         if (kind === 'help') {
-          setHelpTop((top) => topAfter(top, move, helpWindow));
+          setHelpTop((top) => topAfter(top, move, windows.current.helpWindow));
         } else if (kind === 'messages') {
-          setMessagesTop((top) => topAfter(top, move, messageWindow));
+          setMessagesTop((top) => topAfter(top, move, windows.current.messageWindow));
         }
       };
 
@@ -152,7 +158,7 @@ export const useUiState = (
         toggleHelp(action === 'toggleHelp');
       }
     },
-    [session, sideLayout, helpWindow, messageWindow, setOverlay, setDetailOpen],
+    [session, sideLayout, setOverlay, setDetailOpen],
   );
 
   return { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction };

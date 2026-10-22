@@ -191,3 +191,27 @@ for (const overlay of overlays) {
     expect(mounted.terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
   });
 }
+
+test('a list count survives an unrelated render between the count and the key', async () => {
+  const mounted = await mount({ themeMode: 'dark', width, height: 24 });
+
+  await mounted.press('5');
+  await mounted.changeTheme('light');
+  await mounted.press('j');
+
+  expect(mounted.sent).toEqual([{ kind: 'selectNext', count: 5 }]);
+});
+
+test('help gg survives an unrelated render between the two g strokes', async () => {
+  const mounted = await mount({ themeMode: 'dark', width, height: 24 });
+
+  await mounted.press('?');
+  await mounted.press('G');
+  await mounted.press('g');
+  await mounted.changeTheme('light');
+  await mounted.press('g');
+
+  const window = helpWindowOf(catalog, 24, width);
+
+  expect(positionOf(mounted)).toBe(`1-${window.viewportRows} of ${window.lines.length}`);
+});
