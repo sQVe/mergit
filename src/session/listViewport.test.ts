@@ -167,3 +167,31 @@ test('scrollPage clamps at both ends of the list', async () => {
   expect(await scrolled('down', 'half', 21)).toEqual({ listTop: 17, selectedIndex: 21 });
   expect(await scrolled('down', 'full', 15, 9)).toEqual({ listTop: 17, selectedIndex: 21 });
 });
+
+test('scrollPage on an empty list changes nothing and does not throw', () => {
+  const { session } = makeHarness();
+  const before = session.getSnapshot();
+
+  session.send({ kind: 'scrollPage', direction: 'down', size: 'full', count: undefined });
+  session.send({ kind: 'scrollPage', direction: 'up', size: 'half', count: 2 });
+
+  const after = session.getSnapshot();
+
+  expect(after.listTop).toBe(before.listTop);
+  expect(after.selectedRowKey).toBe(before.selectedRowKey);
+});
+
+test('placing a middle row at the bottom puts it on the last window row', async () => {
+  const { session, load } = makeHarness();
+
+  await load(...twentyThreads());
+  session.send({ kind: 'setListRows', rows: 5 });
+  selectRowIndex(session, 10);
+  session.send({ kind: 'placeSelectedRow', position: 'bottom', count: undefined });
+
+  const snapshot = session.getSnapshot();
+  const index = visibleRows(snapshot).findIndex((row) => row.key === snapshot.selectedRowKey);
+
+  expect(index).toBeGreaterThan(5);
+  expect(snapshot.listTop).toBe(index - 4);
+});

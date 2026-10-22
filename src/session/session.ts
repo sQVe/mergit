@@ -44,7 +44,7 @@ import {
   openSearch,
   restoreSearch,
 } from './searchTransitions.ts';
-import { jumpTopLevel, moveSelection, selectEdge, selectRowNumber } from './selectionMoves.ts';
+import { jumpTopLevel, moveSelection, selectRowNumber } from './selectionMoves.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import { initialSnapshot, noticeMessageOf, visibleRows } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
@@ -221,18 +221,12 @@ const unsavedLabels: Record<UnsavedChange, string> = {
   seen: 'Seen thread',
 };
 
-const selectEdgeOrRow = (
-  snapshot: Snapshot,
-  edge: 'first' | 'last',
-  count: number | undefined,
-): Snapshot =>
-  count === undefined ? selectEdge(snapshot, edge) : selectRowNumber(snapshot, count);
-
 const transitions: Transitions = {
   selectNext: (snapshot, intent) => moveSelection(snapshot, intent.count ?? 1),
   selectPrevious: (snapshot, intent) => moveSelection(snapshot, -(intent.count ?? 1)),
-  selectFirst: (snapshot, intent) => selectEdgeOrRow(snapshot, 'first', intent.count),
-  selectLast: (snapshot, intent) => selectEdgeOrRow(snapshot, 'last', intent.count),
+  selectFirst: (snapshot, intent) => selectRowNumber(snapshot, intent.count ?? 1),
+  selectLast: (snapshot, intent) =>
+    selectRowNumber(snapshot, intent.count ?? Number.POSITIVE_INFINITY),
   selectNextGroup: (snapshot) => jumpTopLevel(snapshot, 1),
   selectPreviousGroup: (snapshot) => jumpTopLevel(snapshot, -1),
   toggleFold,

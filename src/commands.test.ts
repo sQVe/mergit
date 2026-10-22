@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Intent } from './commands.ts';
-import { catalog, keyHintOf, keyNamesOf, readableKeyOf } from './commands.ts';
+import { catalog, keyHintOf, keyNamesOf, readableKeyOf, readableStrokeOf } from './commands.ts';
 import type { ApplicationIntent, Filter } from './session/session.ts';
 import { createSession, visibleRows } from './session/session.ts';
 import type { BrowserPage } from './work/work.ts';
@@ -91,6 +91,31 @@ test('tree commands list their keys and return their intents', () => {
   for (const [id, keys, kind] of expected) {
     expect(byId[id]?.keys).toEqual(keys);
     expect(byId[id]?.intent(snapshot)).toEqual({ kind: 'application', intent: { kind } });
+  }
+});
+
+test('paging commands return scrollPage intents with and without a count', () => {
+  const snapshot = createSnapshot();
+
+  const byId = Object.fromEntries(catalog.map((command) => [command.id, command]));
+
+  const expected = [
+    ['halfPageDown', 'down', 'half'],
+    ['halfPageUp', 'up', 'half'],
+    ['pageDown', 'down', 'full'],
+    ['pageUp', 'up', 'full'],
+  ] as const;
+
+  for (const [id, direction, size] of expected) {
+    expect(byId[id]?.intent(snapshot)).toEqual({
+      kind: 'application',
+      intent: { kind: 'scrollPage', direction, size, count: undefined },
+    });
+
+    expect(byId[id]?.intent(snapshot, 3)).toEqual({
+      kind: 'application',
+      intent: { kind: 'scrollPage', direction, size, count: 3 },
+    });
   }
 });
 
@@ -414,4 +439,9 @@ test('keyHintOf gives nothing for a command without keys or an unknown command',
 
   expect(keyHintOf(bare, 'bare')).toBeUndefined();
   expect(keyHintOf(bare, 'missing')).toBeUndefined();
+});
+
+test('readableStrokeOf names a shifted stroke that is not a letter by its modifier and name', () => {
+  expect(readableStrokeOf({ name: 'up', shift: true })).toBe('shift+up');
+  expect(readableStrokeOf({ name: 'a', shift: true })).toBe('A');
 });

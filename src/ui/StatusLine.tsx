@@ -27,7 +27,7 @@ export const StatusLine = (props: {
   snapshot: Snapshot;
   palette: Palette;
   catalog: readonly Command[];
-  pending?: string;
+  pending: string;
 }): ReactNode => {
   const { snapshot, palette, catalog, pending } = props;
   const marker = readMarker(snapshot, keyHintOf(catalog, 'refresh'));
@@ -62,7 +62,7 @@ export const StatusLine = (props: {
       {snapshot.errorMessage === null ? null : (
         <text fg={palette.error}>{snapshot.errorMessage}</text>
       )}
-      {pending === undefined || pending === '' ? null : (
+      {pending === '' ? null : (
         <>
           <box flexGrow={1} />
           <text fg={palette.dim} flexShrink={0}>

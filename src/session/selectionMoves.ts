@@ -22,13 +22,6 @@ export const moveSelection = (snapshot: Snapshot, step: number): Snapshot => {
   return select(snapshot, rows[next]?.key ?? null);
 };
 
-export const selectEdge = (snapshot: Snapshot, edge: 'first' | 'last'): Snapshot => {
-  const rows = visibleRows(snapshot);
-  const row = edge === 'first' ? rows[0] : rows.at(-1);
-
-  return select(snapshot, row?.key ?? null);
-};
-
 export const selectRowNumber = (snapshot: Snapshot, rowNumber: number): Snapshot => {
   const rows = visibleRows(snapshot);
   const index = Math.min(Math.max(rowNumber, 1), rows.length) - 1;

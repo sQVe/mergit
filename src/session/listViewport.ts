@@ -60,7 +60,7 @@ export const scrollPage = (
 
   const step = direction === 'down' ? distance : -distance;
 
-  const listTop = clampBetween(snapshot.listTop + step, 0, Math.max(0, rows.length - height));
+  const listTop = Math.max(0, snapshot.listTop + step);
   const index = clampBetween(indexOfSelected(snapshot, rows) + step, 0, rows.length - 1);
 
   return { ...select(snapshot, rows[index]?.key ?? null), listTop };
@@ -82,7 +82,7 @@ export const placeSelectedRow = (
     bottom: index - height + 1,
   };
 
-  const listTop = clampBetween(tops[position], 0, Math.max(0, rows.length - height));
+  const listTop = Math.max(0, tops[position]);
 
   return { ...selected, listTop };
 };

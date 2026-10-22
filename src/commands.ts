@@ -778,7 +778,8 @@ const strokeOf = (key: string): string => {
 const strokePattern =
   /shift\+tab|return|escape|space|tab|backspace|up|down|left|right|(?:shift|ctrl)\+[a-z]|./gu;
 
-const strokesOf = (key: string): string[] => key.match(strokePattern) ?? [];
+const strokesOf = (key: string): string[] =>
+  Array.from(key.matchAll(strokePattern), (match) => match[0]);
 
 export const readableKeyOf = (key: string): string => {
   if (key in readableKeyNames) {

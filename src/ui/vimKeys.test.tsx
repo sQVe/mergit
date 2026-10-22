@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 
 import { act } from 'react';
 
+import { catalog } from '../commands.ts';
 import { visibleRows } from '../session/session.ts';
 import {
   burst,
@@ -408,6 +409,18 @@ test('a key that misses a pending sequence is dropped without a toast and does n
   await press('j');
 
   expect(session.getSnapshot().selectedRowKey).not.toBe(before);
+});
+
+test('a key that misses a sequence in the search line is not typed into it', async () => {
+  const sequenceInSearch = catalog.map((command) =>
+    command.id === 'nextSearchCompletion' ? Object.assign({}, command, { keys: ['zz'] }) : command,
+  );
+
+  const { press, session } = await mount({ catalog: sequenceInSearch });
+
+  await pressAll(press, ['/', 'z', 'x']);
+
+  expect(session.getSnapshot().searchText).toBe('');
 });
 
 test('a finished zz shows no toast and clears the pending display', async () => {
