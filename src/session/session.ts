@@ -96,7 +96,6 @@ export type ApplicationIntent =
   | { kind: 'editCommandLine'; text: string }
   | { kind: 'closeCommandLine' }
   | { kind: 'reportUnknownCommand'; name: string }
-  | { kind: 'reportCancelledKeys'; keys: string }
   | { kind: 'openSearch' }
   | { kind: 'editSearch'; text: string }
   | { kind: 'keepSearch' }
@@ -180,7 +179,6 @@ type EditIntent = Extract<
       | 'editSearch'
       | 'editCommandLine'
       | 'reportUnknownCommand'
-      | 'reportCancelledKeys'
       | 'editFilterDraft'
       | 'moveFilterCursor';
   }
@@ -210,7 +208,6 @@ const editKinds = new Set<string>([
   'editSearch',
   'editCommandLine',
   'reportUnknownCommand',
-  'reportCancelledKeys',
   'editFilterDraft',
   'moveFilterCursor',
 ]);
@@ -459,10 +456,6 @@ export const createSession = (effects: SessionEffects): Session => {
     toaster.show({ title: `Unknown command: ${name}`, lines: [], tone: 'error' });
   };
 
-  const reportCancelledKeys = (keys: string) => {
-    toaster.show({ title: `Cancelled ${keys}`, lines: [], tone: 'info' });
-  };
-
   const reportStateWrite = (outcome: StateWriteOutcome) => {
     if (stopped) {
       return;
@@ -543,10 +536,6 @@ export const createSession = (effects: SessionEffects): Session => {
         break;
       case 'reportUnknownCommand':
         reportUnknownCommand(intent.name);
-
-        break;
-      case 'reportCancelledKeys':
-        reportCancelledKeys(intent.keys);
 
         break;
       case 'editFilterDraft':

@@ -37,9 +37,9 @@ remaps read the same records, and tests assert intents without running effects.
   when none was typed. Only the commands marked `counted` use it: `selectNext`, `selectPrevious`,
   `selectLast`, `selectFirst`, `centerSelectedRow`, `topSelectedRow`, `bottomSelectedRow`,
   `halfPageDown`, `halfPageUp`, `pageDown`, and `pageUp`, on the list layer. Esc cancels a pending
-  count or key sequence. A key that does not finish it cancels it, does not run, and shows a notice,
-  except the keys a command lists in `keysDuringCount`, such as Ctrl+C on `quit`. Only
-  `terminal.tsx` handles terminal intents, so the session never owns the process lifetime.
+  count or key sequence. A key that does not finish it cancels it and does not run, except the keys
+  a command lists in `keysDuringCount`, such as Ctrl+C on `quit`. Only `terminal.tsx` handles
+  terminal intents, so the session never owns the process lifetime.
 - Keymap layers, help, and availability come from the catalog. Key handlers read the latest
   snapshot, not one captured at render.
 - The session checks preconditions again before it acts. A disabled key is not a safety check.

@@ -249,22 +249,16 @@ const Keys = (props: KeysProps): ReactNode => {
   const { session, onTerminalIntent, runUiAction, modal } = props;
   const keymap = useKeymap();
 
-  // A key that misses a pending sequence is cancelled here, so it never runs or reaches the
+  // A key that misses a pending sequence is dropped here, so it never runs or reaches the
   // fallback below.
   useEffect(
     () =>
       keymap.intercept('key:after', (context) => {
-        if (context.reason !== 'sequence-miss') {
-          return;
+        if (context.reason === 'sequence-miss') {
+          context.consume();
         }
-
-        const pending = pendingKeysOf(context.sequence);
-        const missed = readableStrokeOf(context.event);
-
-        context.consume();
-        session.send({ kind: 'reportCancelledKeys', keys: `${pending}${missed}` });
       }),
-    [keymap, session],
+    [keymap],
   );
 
   const typeIntoPendingInput = (text: string): void => {

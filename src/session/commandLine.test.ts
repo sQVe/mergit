@@ -37,18 +37,3 @@ test('reportUnknownCommand closes the line and shows an error toast naming the c
   expect(snapshot.toast?.tone).toBe('error');
   expect(snapshot.toast?.title).toContain('foo');
 });
-
-test('reportCancelledKeys shows an info toast naming the keys and changes nothing else', () => {
-  const { session } = makeHarness();
-  const before = session.getSnapshot();
-
-  session.send({ kind: 'reportCancelledKeys', keys: 'z/' });
-
-  const snapshot = session.getSnapshot();
-
-  expect(snapshot.toast?.tone).toBe('info');
-  expect(snapshot.toast?.title).toBe('Cancelled z/');
-  expect(snapshot.toast?.lines).toEqual([]);
-  expect(snapshot.searchOpen).toBe(before.searchOpen);
-  expect(snapshot.selectedRowKey).toBe(before.selectedRowKey);
-});

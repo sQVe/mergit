@@ -313,15 +313,18 @@ test.each([['g'], ['z'], ['Z']])('a single %s selects, folds, and moves nothing'
   expect(rowCountOf(session)).toBe(rows);
 });
 
-test.each([['q'], ['qa']])(':%s then Enter sends a quit intent', async (name) => {
-  const { press, setup, settle, terminalIntents } = await mountTwenty();
+test.each([['quit'], ['q'], ['quitall'], ['qa']])(
+  ':%s then Enter sends a quit intent',
+  async (name) => {
+    const { press, setup, settle, terminalIntents } = await mountTwenty();
 
-  await press(':');
-  await typeText(setup, settle, name);
-  await press('return');
+    await press(':');
+    await typeText(setup, settle, name);
+    await press('return');
 
-  expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
-});
+    expect(terminalIntents).toEqual([{ kind: 'terminal', action: 'quit' }]);
+  },
+);
 
 const inputOf = {
   '/': (session: Awaited<ReturnType<typeof mountTwenty>>['session']) =>
@@ -383,7 +386,7 @@ test('a pending count and key show at the right of the status line, and Esc canc
   expect(after.searchText).toBe('Fi');
 });
 
-test('a key that misses a pending sequence is cancelled with a toast and does not run', async () => {
+test('a key that misses a pending sequence is dropped without a toast and does not run', async () => {
   const { press, setup, session } = await mount({
     themeMode: 'dark',
     effects: threadsEffects(threeThreads),
@@ -398,7 +401,7 @@ test('a key that misses a pending sequence is cancelled with a toast and does no
   const snapshot = session.getSnapshot();
 
   expect(snapshot.searchOpen).toBe(false);
-  expect(snapshot.toast?.title).toBe('Cancelled z/');
+  expect(snapshot.toast).toBeNull();
   expect(snapshot.selectedRowKey).toBe(before);
   expect(statusLineOf(setup).endsWith('z')).toBe(false);
 

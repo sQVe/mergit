@@ -99,7 +99,7 @@ export const catalog: readonly Command[] = [
     label: 'Quit',
     scope: 'global',
     section: 'app',
-    names: ['q', 'qa'],
+    names: ['quit', 'q', 'quitall', 'qa'],
     keys: ['q', 'ctrl+c'],
     keysDuringCount: ['ctrl+c'],
     disabledReason: () => undefined,
