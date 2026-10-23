@@ -68,33 +68,19 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Remaps
 
-- `src/config/config.ts` loads remaps once. Its private notation and remap files parse Vim notation
-  and resolve conflicts against the catalog. Config maps public config ids to lists of keys. A list
-  replaces the defaults; `[]` removes keys except the fixed Ctrl+C quit binding.
-- The shared ids `clearLine` and `closeEmptyLine` remap all three input lines together. Their
-  internal command ids and the fixed input-line quit commands are not public config ids.
-- Ctrl+C is a key event in raw mode, not a SIGINT signal. It always quits, including in input lines
-  and during a pending count or key sequence. Config cannot remove it, assign it to another command,
-  or use it in a longer sequence. `quit` may list `<C-c>` by itself.
-- Escape cancels pending sequences, so a config key may use it only alone or as the first stroke.
-- Unknown ids and invalid notation stop startup. List and global keys starting with `1` through `9`
-  also stop startup because those digits start a list count.
-- Two user keys that are equal after parsing, or one that is a prefix of another, stop startup
-  within a layer, even within one id. Conflicts include the movement copies in help and messages.
-- A user key beats a conflicting default in that layer. Mergit removes the default there and shows a
-  notice naming the keys, ids, and layers. Other layers keep their defaults.
-- `cancelInput`, `closeCommandLine`, `closeDetail`, `closeHelp`, `closeMessages`, `cancelOpen`, and
-  `closeFilters` must each keep a portable binding after conflict resolution. A binding with Ctrl+I,
-  Ctrl+M, Ctrl+H, or Ctrl+J at any stroke does not count: those controls require Kitty keyboard
-  reporting. Removing the last portable binding stops startup even if a protocol-dependent binding
-  remains, so close and cancel actions stay reachable on legacy terminals.
-- Control-letter meanings remain distinct from their legacy equivalents. Required commands may keep
-  protocol-dependent controls alongside a portable alternative. Non-required commands need no
-  portable alternative. This rule does not depend on the current terminal's reporting protocol.
-- Aliases add command-line names to configurable list and global commands without removing built-in
-  names. Names are case-sensitive, nonempty, and contain no whitespace. A name owned by another
-  command stops startup; repeating a name for the same command is allowed. An id does not become a
-  command-line name automatically. Other scopes cannot take aliases.
+- Config ids are public API, separate from internal command ids, so catalog changes do not break
+  user configuration.
+- Ctrl+C remains a fixed quit key in every context, including pending counts and key sequences. Raw
+  mode delivers it as a key event rather than SIGINT, so remaps must preserve that exit path.
+- A user key beats a conflicting default only in that layer. Other layers keep their defaults so a
+  local remap does not remove unrelated bindings.
+- Commands marked `mustKeepKey` in the catalog must retain a portable close or cancel binding after
+  conflict resolution, so users can leave every context on legacy terminals.
+- Control-letter meanings remain distinct from their legacy equivalents. Portability checks do not
+  depend on the current terminal's reporting protocol, so a config stays usable across terminals.
+
+The [README configuration reference](../../README.md#configuration) owns the notation, command ids,
+alias rules, and startup errors.
 
 ## Consequences
 
