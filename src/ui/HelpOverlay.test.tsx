@@ -407,9 +407,15 @@ test('a command without keys renders its label at the right border', async () =>
 
 test('the footer names the scroll and close keys that the catalog gives', async () => {
   const custom = [
-    commandOf('selectNext', ['n', 'down']),
-    commandOf('selectPrevious', ['p', 'up']),
-    commandOf('closeHelp', ['x']),
+    Object.assign(commandOf('selectNext', ['n', 'down']), {
+      scope: 'list' as const,
+      overlayMove: { kind: 'lines' as const, lines: 1 },
+    }),
+    Object.assign(commandOf('selectPrevious', ['p', 'up']), {
+      scope: 'list' as const,
+      overlayMove: { kind: 'lines' as const, lines: -1 },
+    }),
+    Object.assign(commandOf('closeHelp', ['x']), { scope: 'help' as const }),
     commandOf('other', ['o']),
     commandOf('another', ['a']),
   ];

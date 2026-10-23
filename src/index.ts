@@ -1,5 +1,6 @@
 import { openInBrowser } from './actions.ts';
-import { catalog, keyHintOf } from './commands.ts';
+import { keyHintOf } from './commands.ts';
+import { loadConfig } from './config/config.ts';
 import {
   createGhRunner,
   lookUpSubjects,
@@ -22,12 +23,10 @@ import {
 } from './localState/localState.ts';
 import type { StateWriter } from './localState/localState.ts';
 import { createSession } from './session/session.ts';
-import type { SavedSnapshot, SavedState, Session } from './session/session.ts';
+import type { SavedSnapshot, Session } from './session/session.ts';
 import { refuseStart, startTerminal } from './terminal.tsx';
 
 const now = () => new Date();
-const runGh = createGhRunner();
-const githubEffects = { runGh, now };
 
 const setTimer = (delayMilliseconds: number, callback: () => void) => {
   const handle = setTimeout(callback, delayMilliseconds);
@@ -37,9 +36,6 @@ const setTimer = (delayMilliseconds: number, callback: () => void) => {
   };
 };
 
-const host = Bun.env['GH_HOST'] ?? 'github.com';
-const directory = cacheDirectory(Bun.env);
-
 const toSavedPage = (page: NotificationPage): SavedNotificationPage => ({
   path: page.endpoint,
   etag: page.etag,
@@ -47,7 +43,17 @@ const toSavedPage = (page: NotificationPage): SavedNotificationPage => ({
   body: page.body,
 });
 
-const readSavedSnapshot = (): SavedSnapshot | null => {
+const shortenHome = (path: string): string => {
+  const home = Bun.env['HOME'];
+
+  if (home === undefined || home === '' || !path.startsWith(`${home}/`)) {
+    return path;
+  }
+
+  return `~${path.slice(home.length)}`;
+};
+
+const readSavedSnapshot = (directory: string | null, host: string): SavedSnapshot | null => {
   if (directory === null) {
     return null;
   }
@@ -69,59 +75,62 @@ const readSavedSnapshot = (): SavedSnapshot | null => {
   return { viewer: { login, etag: viewerEtag }, savedAt, ...restored.value };
 };
 
-const shortenHome = (path: string): string => {
-  const home = Bun.env['HOME'];
+const start = async (): Promise<void> => {
+  const config = loadConfig(Bun.env);
 
-  if (home === undefined || home === '' || !path.startsWith(`${home}/`)) {
-    return path;
+  if (!config.ok) {
+    refuseStart(config.message);
+
+    return;
   }
 
-  return `~${path.slice(home.length)}`;
-};
+  const { catalog, notices } = config;
+  const runGh = createGhRunner();
+  const githubEffects = { runGh, now };
+  const host = Bun.env['GH_HOST'] ?? 'github.com';
+  const directory = cacheDirectory(Bun.env);
+  const stateHome = stateDirectory(Bun.env);
+  const loadedState = stateHome === null ? { kind: 'missing' as const } : loadState(stateHome);
 
-const stateHome = stateDirectory(Bun.env);
-const loadedState = stateHome === null ? null : loadState(stateHome);
-let writer: StateWriter | undefined;
-let session: Session | undefined;
-let savedState: SavedState | null = null;
-let stateWarning: { reason: string; path: string } | null = null;
-let newerVersion: string | null = null;
+  if (loadedState.kind === 'newer') {
+    refuseStart(
+      `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Mergit reads version ${stateVersion}.`,
+    );
 
-if (stateHome !== null && loadedState?.kind !== 'invalid' && loadedState?.kind !== 'newer') {
-  writer = createStateWriter(stateHome, {
-    onFailure: (failure) =>
-      session?.reportStateWrite({
-        ok: false,
-        reason: failure.reason,
-        path: shortenHome(failure.path),
-      }),
-    onSaved: () => session?.reportStateWrite({ ok: true }),
-  });
-}
+    return;
+  }
 
-if (loadedState?.kind === 'loaded') {
-  savedState = loadedState.state;
-}
+  let writer: StateWriter | undefined;
+  let session: Session | undefined = undefined;
 
-if (loadedState?.kind === 'invalid') {
-  stateWarning = { reason: loadedState.reason, path: shortenHome(loadedState.path) };
-}
+  if (stateHome !== null && loadedState.kind !== 'invalid') {
+    writer = createStateWriter(stateHome, {
+      onFailure: (failure) =>
+        session?.reportStateWrite({
+          ok: false,
+          reason: failure.reason,
+          path: shortenHome(failure.path),
+        }),
+      onSaved: () => session?.reportStateWrite({ ok: true }),
+    });
+  }
 
-if (loadedState?.kind === 'newer') {
-  newerVersion = `Cannot start: ${loadedState.path} has version ${loadedState.version}, and this Mergit reads version ${stateVersion}.`;
-}
+  const savedState = loadedState.kind === 'loaded' ? loadedState.state : null;
 
-if (newerVersion !== null) {
-  refuseStart(newerVersion);
-} else {
+  const stateWarning =
+    loadedState.kind === 'invalid'
+      ? { reason: loadedState.reason, path: shortenHome(loadedState.path) }
+      : null;
+
   session = createSession({
-    savedSnapshot: readSavedSnapshot(),
+    savedSnapshot: readSavedSnapshot(directory, host),
     host,
     refreshKey: keyHintOf(catalog, 'refresh'),
     savedState,
     saveState: (state) => writer?.save(state),
     markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),
     openInBrowser: (page, signal) => openInBrowser({ runGh }, page, signal),
+    configNotices: notices,
     stateWarning,
     readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
     saveSnapshot: (viewer, feed, savedAt) => {
@@ -148,4 +157,6 @@ if (newerVersion !== null) {
     catalog,
     flushState: () => writer?.flush() ?? Promise.resolve(),
   });
-}
+};
+
+await start();

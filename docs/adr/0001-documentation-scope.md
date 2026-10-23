@@ -23,8 +23,9 @@ decisions, and code states behavior.
 - Code and tests state behavior.
 - `docs/` holds only what no feature owns: the documentation index, the development guide, and the
   ADRs.
-- The root README introduces the project and links to the rest. Topic details go in `docs/` and are
-  linked from the [documentation index](../README.md).
+- The root README introduces the project, links to the rest, and holds the reference for files users
+  write, such as `config.json`. Other topic details go in `docs/` and are linked from the
+  [documentation index](../README.md).
 
 ### Adding and changing documents
 

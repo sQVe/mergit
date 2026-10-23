@@ -43,6 +43,12 @@ export const InputLine = (props: {
         focused={props.focused}
         textColor={props.palette.text}
         onInput={props.onInput}
+        onKeyDown={(event) => {
+          // Catalog bindings run first; the input must not restore native Ctrl+U clearing.
+          if (event.ctrl && event.name === 'u') {
+            event.preventDefault();
+          }
+        }}
       />
       {props.suffix === null ? null : <text fg={props.palette.dim}>{props.suffix}</text>}
     </box>

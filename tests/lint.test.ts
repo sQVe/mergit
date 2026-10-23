@@ -65,7 +65,7 @@ it.each(['lint', 'style:check'])(
     // The `src` segment above the project root must not count as the application source.
     const project = join(directory, 'src', 'project');
 
-    const configUrl = pathToFileURL(join(project, 'src', 'config.ts')).href;
+    const configUrl = pathToFileURL(join(project, 'src', 'config', 'config.ts')).href;
 
     const privateSessionUrl = pathToFileURL(
       join(project, 'src', 'session', 'valueImports.ts'),
@@ -97,8 +97,8 @@ it.each(['lint', 'style:check'])(
         0,
       ],
       [
-        'src/config.ts',
-        ["import { invariant } from './invariant.ts';", 'export const config = invariant;'],
+        'src/config/config.ts',
+        ["import { invariant } from '../invariant.ts';", 'export const config = invariant;'],
         0,
       ],
       [
@@ -127,7 +127,7 @@ it.each(['lint', 'style:check'])(
         3,
       ],
       [
-        'src/config.test.ts',
+        'src/config/config.test.ts',
         [
           "import { expect, it } from 'bun:test';",
           "import { config } from './config.ts';",
@@ -159,7 +159,7 @@ it.each(['lint', 'style:check'])(
         'src/actions.ts',
         [
           "import { readFile } from 'node:fs/promises';",
-          "import { config } from './config.ts';",
+          "import { config } from './config/config.ts';",
           "import { invariant } from './invariant.ts';",
           "import { work } from './work/work.ts';",
           'export const actions = [readFile, config, invariant, work];',
@@ -218,7 +218,7 @@ it.each(['lint', 'style:check'])(
         [
           "import process from 'node:process';",
           "import { commands } from './commands.ts';",
-          "import { config } from './config.ts';",
+          "import { config } from './config/config.ts';",
           "import { invariant } from './invariant.ts';",
           "import { session } from './session/session.ts';",
           "import { ui } from './ui/ui.tsx';",
@@ -231,7 +231,7 @@ it.each(['lint', 'style:check'])(
         [
           "import { actions } from './actions.ts';",
           "import { commands } from './commands.ts';",
-          "import { config } from './config.ts';",
+          "import { config } from './config/config.ts';",
           "import { github } from './github/github.ts';",
           "import { invariant } from './invariant.ts';",
           "import { localState } from './localState/localState.ts';",
@@ -255,11 +255,11 @@ it.each(['lint', 'style:check'])(
       ['src/utils.ts', ['export const utils = 1;'], 1],
       ['src/helpers/format.ts', ['export const format = 1;'], 1],
       ['src/session.ts', ['export const misplaced = 1;'], 1],
-      ['src/config/values.ts', ['export const values = 1;'], 1],
+      ['src/query/values.ts', ['export const values = 1;'], 1],
       [
         'src/work/refusedModules.ts',
         [
-          "import { config } from '../config.ts';",
+          "import { config } from '../config/config.ts';",
           "import type { Github } from '../github/github.ts';",
           "export * from '../session/session.ts';",
           'export const refused: [number, Github?] = [config];',
@@ -345,7 +345,7 @@ it.each(['lint', 'style:check'])(
           'export const computed = await import(name);',
           // eslint-disable-next-line eslint/no-template-curly-in-string -- Fixture source with an interpolated import.
           'export const interpolated = await import(`./${name}.ts`);',
-          "export const refused = await import('../config.ts');",
+          "export const refused = await import('../config/config.ts');",
           "export const allowed = await import('./helper.ts');",
         ],
         3,

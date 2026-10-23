@@ -95,6 +95,39 @@ test('the message history keeps at most 100 entries and drops the oldest', () =>
   expect(messages.at(-1)?.title).toBe('Unknown command: command5');
 });
 
+test('config notices appear together in one startup toast and message', () => {
+  const notices = ['refresh took x from a default', 'help took z from a default'];
+  const { session } = makeHarness({ configNotices: notices });
+  const { toast, messages } = session.getSnapshot();
+
+  expect(toast?.tone).toBe('info');
+  expect(toast?.lines).toEqual(notices);
+  expect(messages).toHaveLength(1);
+  expect(messages[0]?.lines).toEqual(notices);
+});
+
+test('an empty config notice list shows no startup toast or message', () => {
+  const { session } = makeHarness({ configNotices: [] });
+
+  expect(session.getSnapshot().toast).toBeNull();
+  expect(session.getSnapshot().messages).toEqual([]);
+});
+
+test('the state warning stays on screen after config notices and both stay in messages', () => {
+  const notices = ['refresh took x from a default'];
+  const warning = { reason: 'bad state', path: '/state.json' };
+  const { session } = makeHarness({ configNotices: notices, stateWarning: warning });
+  const { toast, messages } = session.getSnapshot();
+
+  expect(toast?.tone).toBe('error');
+  expect(toast?.lines).toEqual([warning.reason, warning.path]);
+
+  expect(messages.map((message) => message.lines)).toEqual([
+    [warning.reason, warning.path],
+    notices,
+  ]);
+});
+
 test('stop leaves no active toast timer', async () => {
   const { session, activeTimers } = makeHarness();
 

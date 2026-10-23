@@ -1,5 +1,11 @@
 import type { Command, HelpSection } from '../commands.ts';
-import { helpSections, keyHintOf, keyNamesOf, readableKeyOf } from '../commands.ts';
+import {
+  commandsOfLayer,
+  helpSections,
+  keyHintOf,
+  keyNamesOf,
+  readableKeyOf,
+} from '../commands.ts';
 
 export type HelpLine =
   | { kind: 'heading'; text: string }
@@ -59,6 +65,10 @@ const fitted = (text: string, width: number): string => {
   return `${text.slice(0, Math.max(0, width - 1))}${ellipsis}`;
 };
 
+const sameKeys = (first: Command, second: Command): boolean =>
+  first.keys.length === second.keys.length &&
+  first.keys.every((key, index) => key === second.keys[index]);
+
 const listedCommandsOf = (catalog: readonly Command[]): Command[] => {
   const seenConfigIds = new Set<string>();
   const listed: Command[] = [];
@@ -71,11 +81,24 @@ const listedCommandsOf = (catalog: readonly Command[]): Command[] => {
       continue;
     }
 
-    if (command.configId !== undefined) {
-      seenConfigIds.add(command.configId);
-    }
+    const copies = catalog.filter(
+      (candidate) => candidate.configId === command.configId && candidate.hiddenFromHelp !== true,
+    );
 
-    listed.push(command);
+    const diverges =
+      command.configId !== undefined && copies.some((copy) => !sameKeys(command, copy));
+
+    if (diverges) {
+      const scope = command.scope === 'input' ? 'search' : command.scope;
+
+      listed.push({ ...command, label: `${command.label} (${scope})` });
+    } else {
+      if (command.configId !== undefined) {
+        seenConfigIds.add(command.configId);
+      }
+
+      listed.push(command);
+    }
   }
 
   return listed;
@@ -128,12 +151,14 @@ export const footerOf = (
   position: string,
   innerWidth: number,
 ): string => {
+  const helpCommands = commandsOfLayer(catalog, 'help');
+
   const scrollKeys = [
-    ...keyNamesOf(catalog, 'selectNext').slice(0, 1),
-    ...keyNamesOf(catalog, 'selectPrevious').slice(0, 1),
+    ...keyNamesOf(helpCommands, 'selectNext').slice(0, 1),
+    ...keyNamesOf(helpCommands, 'selectPrevious').slice(0, 1),
   ];
 
-  const closeKey = keyNamesOf(catalog, 'closeHelp')[0];
+  const closeKey = keyNamesOf(helpCommands, 'closeHelp')[0];
   const parts = [position];
 
   if (scrollKeys.length > 0) {
