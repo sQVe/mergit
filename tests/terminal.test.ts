@@ -110,16 +110,30 @@ const installFakeGh = (directory: string, script: string): void => {
   chmodSync(path, 0o755);
 };
 
-const startMergit = (binDirectory: string, stateHome: string = makeBinDirectory()): Child => {
+const startMergit = (
+  binDirectory: string,
+  stateHome: string = makeBinDirectory(),
+  configHome: string = makeBinDirectory(),
+  preload?: string,
+): Child => {
   let output = '';
   const decoder = new TextDecoder();
 
-  const processHandle = Bun.spawn([process.execPath, 'run', 'start'], {
+  const command = [process.execPath];
+
+  if (preload !== undefined) {
+    command.push('--preload', preload);
+  }
+
+  command.push('src/index.ts');
+
+  const processHandle = Bun.spawn(command, {
     cwd: new URL('../', import.meta.url).pathname,
     env: {
       ...process.env,
       PATH: binDirectory,
       TERM: 'xterm-256color',
+      XDG_CONFIG_HOME: configHome,
       XDG_CACHE_HOME: makeBinDirectory(),
       XDG_STATE_HOME: stateHome,
     },
@@ -208,6 +222,118 @@ const pressAndQuit = async (child: Child, ready: string, keys: string): Promise<
 
   expect(await waitForExit(child)).toBe(0);
 };
+
+const writeConfigFile = (configHome: string, content: string): string => {
+  const path = join(configHome, 'mergit', 'config.json');
+
+  mkdirSync(join(configHome, 'mergit'), { recursive: true });
+  writeFileSync(path, content);
+
+  return path;
+};
+
+const startupGuard = (
+  directory: string,
+  logPath: string,
+  returningRefusal?: 'config' | 'state',
+): string => {
+  const path = join(directory, 'guard.ts');
+
+  const modules = {
+    '../src/localState/localState.ts': ['loadState', 'loadSnapshot', 'createStateWriter'],
+    '../src/session/session.ts': ['createSession'],
+    '../src/github/github.ts': ['createGhRunner'],
+    '../src/terminal.tsx': ['startTerminal'],
+  };
+
+  if (returningRefusal === 'state') {
+    modules['../src/localState/localState.ts'] = ['loadSnapshot', 'createStateWriter'];
+    modules['../src/github/github.ts'] = [];
+  }
+
+  const guardedModules = Object.entries(modules).map(([module, functions]) => [
+    new URL(module, import.meta.url).pathname,
+    functions,
+  ]);
+
+  writeFileSync(
+    path,
+    `import { mock } from 'bun:test';
+import { appendFileSync } from 'node:fs';
+for (const [path, names] of ${JSON.stringify(guardedModules)}) {
+  const actual = await import(path);
+  const replacements = Object.fromEntries(names.map(name => [name, () => {
+    appendFileSync(${JSON.stringify(logPath)}, name + '\\n');
+    throw new Error('Config failure must stop before ' + name);
+  }]));
+  if (${returningRefusal !== undefined} && path.endsWith('/terminal.tsx')) {
+    replacements.refuseStart = (reason) => console.error(reason);
+  }
+  mock.module(path, () => ({ ...actual, ...replacements }));
+}
+`,
+  );
+
+  return path;
+};
+
+test('bad config JSON exits before state reads, writers, sessions, or network setup', async () => {
+  const directory = makeBinDirectory();
+  const stateHome = makeBinDirectory();
+  const configHome = makeBinDirectory();
+  const configPath = writeConfigFile(configHome, '{ not json');
+  const stateContent = '{"version":4}';
+  const statePath = writeStateFile(stateHome, stateContent);
+  const logPath = join(directory, 'startup.log');
+  const preload = startupGuard(directory, logPath);
+  const child = startMergit(directory, stateHome, configHome, preload);
+
+  expect(await waitForExit(child)).toBe(1);
+  expect(child.getOutput()).toContain(configPath);
+  expect(existsSync(logPath)).toBe(false);
+  expect(readFileSync(statePath, 'utf8')).toBe(stateContent);
+  expect(child.getOutput()).not.toContain(enterAlternateScreen);
+}, 30_000);
+
+test.each(['config', 'state'] as const)(
+  'a returning %s refusal stops startup without later setup',
+  async (phase) => {
+    const directory = makeBinDirectory();
+    const stateHome = makeBinDirectory();
+    const configHome = makeBinDirectory();
+    const configContent = phase === 'config' ? '{ not json' : '{"version":1}';
+    const configPath = writeConfigFile(configHome, configContent);
+    const stateContent = '{"version":4}';
+    const statePath = writeStateFile(stateHome, stateContent);
+    const refusedPath = phase === 'config' ? configPath : statePath;
+    const logPath = join(directory, 'startup.log');
+    const preload = startupGuard(directory, logPath, phase);
+    const child = startMergit(directory, stateHome, configHome, preload);
+
+    expect(await waitForExit(child)).toBe(0);
+    expect(child.getOutput()).toContain(refusedPath);
+    expect(existsSync(logPath)).toBe(false);
+    expect(readFileSync(statePath, 'utf8')).toBe(stateContent);
+    expect(child.getOutput()).not.toContain(enterAlternateScreen);
+  },
+  30_000,
+);
+
+test('configured Shift+Q quits and restores the terminal', async () => {
+  const directory = makeBinDirectory();
+  const configHome = makeBinDirectory();
+
+  installFakeGh(directory, twoPagesScript);
+  writeConfigFile(configHome, '{"version":1,"keys":{"quit":["Q"]}}');
+
+  const child = startMergit(directory, makeBinDirectory(), configHome);
+
+  await waitForOutput(child, 'First page thread');
+  child.processHandle.terminal?.write('Q');
+
+  expect(await waitForExit(child)).toBe(0);
+  expectRestored(child.getOutput());
+}, 30_000);
 
 test('Mergit shows every thread from both pages', async () => {
   const child = startWithGh(twoPagesScript);

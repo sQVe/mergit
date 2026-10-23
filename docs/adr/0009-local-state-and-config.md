@@ -9,8 +9,8 @@
 ## Context
 
 Mergit saves local state between runs: the "new" markers, the chosen grouping, and the record of
-threads it marked done. A user config with key remaps and repository locations is planned but not
-built yet.
+threads it marked done. User config holds key remaps and command aliases. Repository locations
+remain planned.
 
 A crash during a write, a corrupt file, or an older Mergit reading a newer file must not destroy
 saved data.
@@ -23,15 +23,18 @@ state file.
 
 ## Decision
 
-Config and local state are versioned JSON files, parsed once at startup by their owning module, with
-atomic writes. Each file has one owner, a version, and a write that cannot leave half a file. Two
-Mergit processes may write the same state file, and the last write wins.
+Config and local state are versioned JSON files, parsed once at startup by their owning module. Each
+file has one owner and a version. Mergit only reads config; its state writes are atomic and cannot
+leave half a file. Two Mergit processes may write the same state file, and the last write wins.
 
 ### Files
 
 - Config lives at `$XDG_CONFIG_HOME/mergit/config.json` and falls back to
-  `~/.config/mergit/config.json`. `config.ts` will parse it. Mergit never writes it. Until
-  `config.ts` exists, Mergit reads no config file, and the config rules below apply once it does.
+  `$HOME/.config/mergit/config.json` when `XDG_CONFIG_HOME` is unset or empty.
+  `src/config/config.ts` parses it, with private notation and remap files in `src/config/`. Mergit
+  never writes it. If both environment variables are unset or empty, Mergit uses defaults.
+- Config holds `version`, `keys`, and `aliases`. Version 1 accepts only these fields; `keys` and
+  `aliases` are optional maps from public config ids to lists of strings.
 - State lives at `$XDG_STATE_HOME/mergit/state.json` and falls back to
   `~/.local/state/mergit/state.json`. `localState/savedState.ts` parses and writes it.
 - Each file has a `version` field. Code past the parser receives typed values only.
@@ -40,11 +43,15 @@ Mergit processes may write the same state file, and the last write wins.
 
 - A missing file means defaults.
 - Invalid config stops startup with the path and the reason.
+- Config validation does not depend on the current terminal. Required close/cancel commands must
+  retain a portable binding after conflict removal. Any Ctrl+I/M/H/J stroke requires Kitty keyboard
+  reporting and cannot be the only way out. Other commands may keep protocol-dependent controls;
+  their meanings stay distinct, as defined in [ADR 0006](./0006-command-catalog.md).
 - Invalid state shows a warning. Mergit runs without saved local state and does not write that file
   until the user resets it.
-- An older version migrates forward in memory. State is saved in the current version on the next
-  write.
-- A version newer than Mergit knows stops startup.
+- Older state versions migrate forward in memory. State is saved in the current version on the next
+  write. Config currently accepts only version 1; missing or other versions stop startup.
+- A state version newer than Mergit knows stops startup.
 
 ### Writing
 
@@ -59,6 +66,8 @@ Mergit processes may write the same state file, and the last write wins.
 ### Compatibility
 
 - Each format change bumps the version and adds a migration with fixture tests.
+- Config ids are public API. Renaming one requires a migration in `src/config/config.ts`, not a
+  silent replacement of the catalog id.
 - Ask the user before any change that breaks an existing config or state file.
 
 ## Consequences

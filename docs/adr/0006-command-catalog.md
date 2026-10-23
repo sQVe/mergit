@@ -30,16 +30,17 @@ remaps read the same records, and tests assert intents without running effects.
 - Each command has an id, a label, a scope (one of the nine below), a help section, and default
   keys.
 - Help reads its sections from the catalog, in a fixed order. Input-line copies of one action, such
-  as clearing the line, share a `configId`, so they show as one help row.
+  as clearing the line, share a `configId`. They show as one help row when their effective keys
+  agree; otherwise help shows each scope's keys.
 - `disabledReason(snapshot)` returns why the command cannot run, or nothing when it can.
 - `intent(snapshot, count)` returns an application intent for the session, a UI intent for React, or
   a terminal intent. It performs no I/O. `count` is the number typed before the key, or `undefined`
   when none was typed. Only the commands marked `counted` use it: `selectNext`, `selectPrevious`,
   `selectLast`, `selectFirst`, `centerSelectedRow`, `topSelectedRow`, `bottomSelectedRow`,
   `halfPageDown`, `halfPageUp`, `pageDown`, and `pageUp`, on the list layer. Esc cancels a pending
-  count or key sequence. A key that does not finish it cancels it and does not run, except the keys
-  a command lists in `keysDuringCount`, such as Ctrl+C on `quit`. Only `terminal.tsx` handles
-  terminal intents, so the session never owns the process lifetime.
+  count or key sequence. A key that does not finish it cancels it and does not run. Fixed Ctrl+C
+  quit bindings run before sequence dispatch. Keys in `keysDuringCount` also work during a count.
+  Only `terminal.tsx` handles terminal intents, so the session never owns the process lifetime.
 - Keymap layers, help, and availability come from the catalog. Key handlers read the latest
   snapshot, not one captured at render.
 - The session checks preconditions again before it acts. A disabled key is not a safety check.
@@ -67,10 +68,19 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Remaps
 
-- Config maps a command id to a list of keys. The list replaces the defaults, and `[]` disables the
-  command's keys.
-- Unknown ids, invalid keys, and one key bound to two commands in one scope stop startup.
-- Quit signals such as SIGINT still stop Mergit when the quit command has no keys.
+- Config ids are public API, separate from internal command ids, so catalog changes do not break
+  user configuration.
+- Ctrl+C remains a fixed quit key in every context, including pending counts and key sequences. Raw
+  mode delivers it as a key event rather than SIGINT, so remaps must preserve that exit path.
+- A user key beats a conflicting default only in that layer. Other layers keep their defaults so a
+  local remap does not remove unrelated bindings.
+- Commands marked `mustKeepKey` in the catalog must retain a portable close or cancel binding after
+  conflict resolution, so users can leave every context on legacy terminals.
+- Control-letter meanings remain distinct from their legacy equivalents. Portability checks do not
+  depend on the current terminal's reporting protocol, so a config stays usable across terminals.
+
+The [README configuration reference](../../README.md#configuration) owns the notation, command ids,
+alias rules, and startup errors.
 
 ## Consequences
 

@@ -139,6 +139,7 @@ export interface SessionEffects {
   saveState: (state: SavedState) => void;
   markThreadDone: (threadId: ThreadId, signal: AbortSignal) => Promise<GitHubResult<null>>;
   openInBrowser: BrowserOpenInputs['openInBrowser'];
+  configNotices: readonly string[];
   stateWarning: { reason: string; path: string } | null;
   readViewer: (previous: Viewer | null, signal: AbortSignal) => Promise<GitHubResult<Viewer>>;
   saveSnapshot: (viewer: Viewer, feed: NotificationFeed, savedAt: Date) => void;
@@ -436,6 +437,14 @@ export const createSession = (effects: SessionEffects): Session => {
     getSnapshot: () => snapshot,
     update,
   });
+
+  if (effects.configNotices.length > 0) {
+    toaster.show({
+      title: 'Your config took keys from the defaults',
+      lines: [...effects.configNotices],
+      tone: 'info',
+    });
+  }
 
   if (effects.stateWarning !== null) {
     toaster.show({

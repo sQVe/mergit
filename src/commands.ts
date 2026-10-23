@@ -26,6 +26,8 @@ export type OverlayMove =
   | { kind: 'page'; direction: 'down' | 'up'; size: 'half' | 'full' }
   | { kind: 'edge'; edge: 'top' | 'bottom' };
 
+export type OverlayScope = 'help' | 'messages';
+
 export type TerminalIntent = Extract<Intent, { kind: 'terminal' }>;
 
 interface ParsedStroke {
@@ -54,6 +56,9 @@ export interface Command {
   // The words typed after `:` that run this command.
   names?: readonly string[];
   keys: readonly string[];
+  overlayKeys?: Partial<Record<OverlayScope, readonly string[]>>;
+  configurable?: false;
+  mustKeepKey?: true;
   disabledReason: (snapshot: Snapshot) => string | undefined;
   // The help and messages layers also bind this command's keys, and run this move on the open
   // overlay.
@@ -91,6 +96,34 @@ export const scopePriority: Record<Command['scope'], number> = {
   preview: 30,
   list: 20,
   global: 10,
+};
+
+export const isOverlayScope = (scope: Command['scope']): scope is OverlayScope =>
+  scope === 'help' || scope === 'messages';
+
+const scrollCopyOf = (command: Command, scope: OverlayScope, move: OverlayMove): Command => ({
+  ...command,
+  scope,
+  keys: command.overlayKeys?.[scope] ?? command.keys,
+  intent: () => ({ kind: 'ui', action: 'scrollOverlay', move }),
+});
+
+export const commandsOfLayer = (
+  commands: readonly Command[],
+  scope: Command['scope'],
+): Command[] => {
+  const own = commands.filter((command) => command.scope === scope);
+  const copies: Command[] = [];
+
+  if (isOverlayScope(scope)) {
+    for (const command of commands) {
+      if (command.overlayMove !== undefined) {
+        copies.push(scrollCopyOf(command, scope, command.overlayMove));
+      }
+    }
+  }
+
+  return [...own, ...copies];
 };
 
 const confirmAfterRepositories = 3;
@@ -481,6 +514,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'quitFromInput',
+    configurable: false,
     hiddenFromHelp: true,
     label: 'Quit',
     scope: 'input',
@@ -491,6 +525,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'cancelInput',
+    mustKeepKey: true,
     label: 'Restore the previous search',
     scope: 'input',
     section: 'search',
@@ -531,6 +566,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'closeCommandLine',
+    mustKeepKey: true,
     label: 'Close the command line',
     scope: 'command',
     section: 'commandLine',
@@ -550,6 +586,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'quitFromCommandLine',
+    configurable: false,
     hiddenFromHelp: true,
     label: 'Quit',
     scope: 'command',
@@ -572,6 +609,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'closeDetail',
+    mustKeepKey: true,
     label: 'Close thread detail',
     scope: 'preview',
     section: 'threads',
@@ -581,6 +619,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'closeHelp',
+    mustKeepKey: true,
     label: 'Close help',
     scope: 'help',
     section: 'overlays',
@@ -600,6 +639,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'closeMessages',
+    mustKeepKey: true,
     label: 'Close messages',
     scope: 'messages',
     section: 'overlays',
@@ -619,6 +659,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'cancelOpen',
+    mustKeepKey: true,
     hiddenFromHelp: true,
     label: 'Cancel opening the repos',
     scope: 'confirm',
@@ -668,6 +709,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'closeFilters',
+    mustKeepKey: true,
     label: 'Close the composer or cancel the edit',
     scope: 'filter',
     section: 'filters',
@@ -699,6 +741,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'quitFromFilters',
+    configurable: false,
     hiddenFromHelp: true,
     label: 'Quit',
     scope: 'filter',
@@ -709,18 +752,20 @@ export const catalog: readonly Command[] = [
   },
 ];
 
-const readableKeyNames: Record<string, string> = {
-  return: 'Enter',
-  escape: 'Esc',
-  space: 'Space',
-  tab: 'Tab',
-  'shift+tab': 'Shift+Tab',
-  backspace: 'Backspace',
-  up: '↑',
-  down: '↓',
-  left: '←',
-  right: '→',
-};
+const readableKeyNames = new Map(
+  Object.entries({
+    return: 'Enter',
+    escape: 'Esc',
+    space: 'Space',
+    tab: 'Tab',
+    'shift+tab': 'Shift+Tab',
+    backspace: 'Backspace',
+    up: '↑',
+    down: '↓',
+    left: '←',
+    right: '→',
+  }),
+);
 
 export const readableStrokeOf = (stroke: ParsedStroke): string => {
   if (stroke.ctrl === true) {
@@ -728,10 +773,10 @@ export const readableStrokeOf = (stroke: ParsedStroke): string => {
   }
 
   if (stroke.shift !== true) {
-    return readableKeyNames[stroke.name] ?? stroke.name;
+    return readableKeyNames.get(stroke.name) ?? stroke.name;
   }
 
-  const shiftedName = readableKeyNames[`shift+${stroke.name}`];
+  const shiftedName = readableKeyNames.get(`shift+${stroke.name}`);
 
   if (shiftedName !== undefined) {
     return shiftedName;
@@ -762,7 +807,7 @@ const strokesOf = (key: string): string[] =>
   Array.from(key.matchAll(strokePattern), (match) => match[0]);
 
 export const readableKeyOf = (key: string): string => {
-  if (key in readableKeyNames) {
+  if (readableKeyNames.has(key)) {
     return strokeOf(key);
   }
 

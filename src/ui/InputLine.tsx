@@ -43,6 +43,11 @@ export const InputLine = (props: {
         focused={props.focused}
         textColor={props.palette.text}
         onInput={props.onInput}
+        onKeyDown={(event) => {
+          if (event.ctrl && event.name === 'u') {
+            event.preventDefault();
+          }
+        }}
       />
       {props.suffix === null ? null : <text fg={props.palette.dim}>{props.suffix}</text>}
     </box>

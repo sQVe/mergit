@@ -27,17 +27,17 @@ import which. Modules name their owner, and lint refuses imports that cross the 
 
 ### Modules
 
-- Folder modules: `github/`, `work/`, `session/`, `ui/`, `localState/`. Each has one public entry
-  file named after the folder, such as `session/session.ts`. Other files in the folder are private
-  to the module.
-- Flat modules: `config.ts`, `actions.ts`, `commands.ts`, `invariant.ts`, `index.ts`,
-  `terminal.tsx`.
+- Folder modules: `github/`, `work/`, `session/`, `ui/`, `localState/`, `config/`. Each has one
+  public entry file named after the folder, such as `session/session.ts`. Other files in the folder
+  are private to the module.
+- Flat modules: `actions.ts`, `commands.ts`, `invariant.ts`, `index.ts`, `terminal.tsx`.
 - A file outside these modules is an error. A new module starts as a flat file. It becomes a folder
   when it needs a second source file.
 
 ### Import direction
 
-- `work`, `config`, and `invariant` import no other module. Every module may import `invariant`.
+- `work` and `invariant` import no other module. Every module may import `invariant`.
+- `config` imports `commands`, which defines the commands that a config file remaps.
 - `github`, `localState`, and `actions` import `work`. `actions` also imports `config`.
 - `session` imports `work`. It may import types from `github`, `actions`, and `localState`, but not
   their functions. Their functions reach the session as injected dependencies.

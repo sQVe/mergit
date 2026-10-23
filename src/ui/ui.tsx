@@ -7,8 +7,8 @@ import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useSyncExternalStore } from 'react';
 
-import type { Command, OverlayMove, TerminalIntent } from '../commands.ts';
-import { keyHintOf, readableStrokeOf, scopePriority } from '../commands.ts';
+import type { Command, TerminalIntent } from '../commands.ts';
+import { commandsOfLayer, keyHintOf, readableStrokeOf, scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import { CommandLine, commandLineRows } from './CommandLine.tsx';
@@ -154,30 +154,6 @@ const isComposerBlind = (snapshot: Snapshot, width: number, height: number): boo
 
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- scopePriority is a Record over Command['scope']
 const scopeOrder = Object.keys(scopePriority) as Command['scope'][];
-
-const isOverlayScope = (scope: Command['scope']): boolean =>
-  scope === 'help' || scope === 'messages';
-
-const scrollCopyOf = (command: Command, scope: Command['scope'], move: OverlayMove): Command => ({
-  ...command,
-  scope,
-  intent: () => ({ kind: 'ui', action: 'scrollOverlay', move }),
-});
-
-const commandsOfLayer = (catalog: readonly Command[], scope: Command['scope']): Command[] => {
-  const own = catalog.filter((command) => command.scope === scope);
-  const copies: Command[] = [];
-
-  if (isOverlayScope(scope)) {
-    for (const command of catalog) {
-      if (command.overlayMove !== undefined) {
-        copies.push(scrollCopyOf(command, scope, command.overlayMove));
-      }
-    }
-  }
-
-  return [...own, ...copies];
-};
 
 const isFilterRowIntent = (intent: ReturnType<Command['intent']>): boolean => {
   if (intent.kind !== 'application') {
@@ -378,6 +354,36 @@ const Keys = (props: KeysProps): ReactNode => {
     onTerminalIntent,
     runUiAction,
   ];
+
+  useEffect(() => {
+    const isFixedQuit = keymap.createKeyMatcher('ctrl+c');
+
+    return keymap.intercept('key', (context) => {
+      if (!isFixedQuit(context.event)) {
+        return;
+      }
+
+      const command = props.catalog.find(
+        (candidate) => scopeActive(candidate.scope) && candidate.keys.includes('ctrl+c'),
+      );
+
+      const snapshot = session.getSnapshot();
+
+      if (command === undefined || command.disabledReason(snapshot) !== undefined) {
+        return;
+      }
+
+      const intent = command.intent(snapshot);
+
+      if (intent.kind !== 'terminal') {
+        return;
+      }
+
+      keymap.clearPendingSequence();
+      context.consume();
+      onTerminalIntent(intent);
+    });
+  }, [keymap, ...bindingDeps]);
 
   const bindingFor = (scoped: Command[], key: string, prefix: string | undefined) => ({
     key: `${prefix ?? ''}${key}`,

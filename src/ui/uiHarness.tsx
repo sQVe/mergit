@@ -54,6 +54,7 @@ export const idleEffects: SessionEffects = {
   saveState: () => undefined,
   markThreadDone: () => Promise.resolve({ ok: true, value: null }),
   openInBrowser: () => Promise.resolve({ ok: true as const }),
+  configNotices: [],
   stateWarning: null,
   readViewer: () =>
     Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),

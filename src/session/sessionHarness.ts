@@ -210,6 +210,7 @@ export const makeHarness = (
 
       return Promise.resolve({ ok: true });
     },
+    configNotices: [],
     stateWarning: null,
     readViewer: (previous, signal) =>
       new Promise((resolve) => {
