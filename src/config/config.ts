@@ -64,7 +64,6 @@ const keyLists = z
       return;
     }
 
-    // Record parsing drops this JSON property before the config-id checks can see it.
     if (Object.hasOwn(value, '__proto__')) {
       context.addIssue({
         code: 'custom',

@@ -56,11 +56,8 @@ export interface Command {
   // The words typed after `:` that run this command.
   names?: readonly string[];
   keys: readonly string[];
-  // The keys of this command's overlay copies, where they differ from `keys`.
   overlayKeys?: Partial<Record<OverlayScope, readonly string[]>>;
-  // A config file may not remap this command.
   configurable?: false;
-  // A config file may not leave this command without a key.
   mustKeepKey?: true;
   disabledReason: (snapshot: Snapshot) => string | undefined;
   // The help and messages layers also bind this command's keys, and run this move on the open

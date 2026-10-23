@@ -79,7 +79,6 @@ const userKeysOf = (
       return failure(`${where} starts with a digit. Digits 1-9 start a count in the list.`);
     }
 
-    // Duplicate encodings keep both entries, but diagnostics use their last notation.
     for (const previous of userKeys) {
       if (previous.key === key) {
         previous.notation = notation;
