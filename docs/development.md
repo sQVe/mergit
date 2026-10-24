@@ -51,7 +51,7 @@ Bump the pinned package version to get a fix.
 
 ## Versioning
 
-Add a changeset for user-facing changes:
+For a PR targeting `main` that touches `src/**`, add a changeset:
 
 ```sh
 bun run changeset
@@ -60,8 +60,10 @@ bun run changeset
 Describe the behavior change for users. Commit the generated file under `.changeset/` with the
 change it describes.
 
-The [changeset check](../.github/workflows/changeset.yml) requires a changeset when a PR touches
-`src/`, but not for changes only to docs, tooling, or dependencies.
+The [changeset check](../.github/workflows/changeset.yml) uses the `src/**` path gate, not a
+user-facing-change test. It does not require a changeset for changes only outside `src/`, such as
+docs, tooling, or dependencies. It also skips a PR if its title is exactly
+`chore: release version packages` or its head branch is `changeset-release/main`.
 
 The [release workflow](../.github/workflows/release.yml) opens version PRs and creates Git tags and
 GitHub releases. Mergit is private and is not published to npm.
