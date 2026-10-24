@@ -35,6 +35,9 @@ Expected failures are part of each signature, and bugs fail where they happen.
   call, a rate limit, a missing tool, and a corrupt file are expected failures.
 - Throw only for bugs. The session catches per refresh and per action, so one failure shows an error
   and never stops the session.
+- Catch each subscriber failure independently so one failing subscriber cannot block other
+  subscribers or future refreshes. Publishing state must not let a subscriber prevent refresh
+  cleanup or scheduling. Guard error reporting against recursive subscriber failures.
 - `invariant(condition, message)` checks states that must be impossible. It runs in every build.
   Never use it to check input.
 - `invariant.ts` is a flat module that imports no other module. Every module may import it.
@@ -71,7 +74,8 @@ use PascalCase, such as `StatusBar.tsx`.
 ### Positive
 
 - A caller sees each expected failure in the type and must handle it.
-- A bug fails where it happens, in every build, and stops only its refresh or action.
+- A bug fails where it happens, in every build, and stays within its refresh, action, or subscriber
+  boundary.
 - Code inside the boundary trusts its types and needs no defensive checks.
 
 ### Negative
