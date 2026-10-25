@@ -262,6 +262,13 @@ const Keys = (props: KeysProps): ReactNode => {
   );
 
   const typeIntoPendingInput = (text: string): void => {
+    const current = modal.current.overlay;
+    const helpRendered = props.overlay.kind === 'help' && props.overlay.editing;
+
+    if (current.kind === 'help' && current.editing && !helpRendered) {
+      runUiAction({ kind: 'ui', action: 'editHelpSearch', text: current.text + text });
+    }
+
     const snapshot = session.getSnapshot();
     const filterPending = snapshot.filtersOpen && !props.filtersOpen;
     const searchPending = snapshot.searchOpen && !props.searchOpen;
@@ -323,6 +330,14 @@ const Keys = (props: KeysProps): ReactNode => {
   const scopeActive = (scope: Command['scope']): boolean => {
     const { searchOpen, filtersOpen, commandLineOpen } = session.getSnapshot();
     const { overlay, detailOpen } = modal.current;
+
+    if (overlay.kind === 'help' && overlay.editing) {
+      return scope === 'helpSearch';
+    }
+
+    if (scope === 'helpSearch') {
+      return false;
+    }
 
     return isActive(scope, {
       overlay: overlay.kind,
@@ -521,17 +536,23 @@ export const App = (props: AppProps): ReactNode => {
   const palette = pickPalette(themeMode);
   const { width, height } = useTerminalDimensions();
 
-  const helpWindow = helpWindowOf(props.catalog, height, width);
+  const helpWindowFor = (current: Overlay) => {
+    const text = current.kind === 'help' ? current.text : '';
+
+    return helpWindowOf(props.catalog, height, width, text);
+  };
+
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
   const sideLayout = width >= sidePaneMinimumWidth;
 
-  const { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction } = useUiState(
+  const { overlay, helpTop, helpInput, messagesTop, detailOpen, modal, runUiAction } = useUiState(
     props.session,
     sideLayout,
-    helpWindow,
+    helpWindowFor,
     messageWindow,
   );
 
+  const helpWindow = helpWindowFor(overlay);
   const fullDetail = detailOpen && !sideLayout;
 
   const composerRows = composerRowsOf(snapshot);
@@ -620,6 +641,9 @@ export const App = (props: AppProps): ReactNode => {
           height={height}
           helpWindow={helpWindow}
           top={helpTop}
+          search={overlay}
+          input={helpInput}
+          runUiAction={runUiAction}
         />
       ) : null}
     </KeymapProvider>

@@ -3,6 +3,43 @@ import { expect, test } from 'bun:test';
 import { catalog } from '../commands.ts';
 import { boxChromeColumns, footerOf, helpWindowOf } from './helpWindow.ts';
 
+test('help search matches labels, readable keys, and colon aliases without reordering sections', () => {
+  const custom = catalog.filter((command) =>
+    ['quit', 'openFilters', 'closeHelp'].includes(command.id),
+  );
+
+  const labels = helpWindowOf(custom, 100, 80, 'FLTR').lines;
+
+  expect(labels).toEqual([
+    { kind: 'heading', text: 'Filters (opens with f)' },
+    { kind: 'row', keys: 'f', label: 'Open filters' },
+  ]);
+
+  expect(helpWindowOf(custom, 100, 80, 'ctrl+c').lines).toContainEqual({
+    kind: 'row',
+    keys: 'q/Ctrl+C/:quit/:q/:quitall/:qa',
+    label: 'Quit',
+  });
+
+  expect(helpWindowOf(custom, 100, 80, ':qa').lines).toContainEqual({
+    kind: 'row',
+    keys: 'q/Ctrl+C/:quit/:q/:quitall/:qa',
+    label: 'Quit',
+  });
+
+  const headings = helpWindowOf(custom, 100, 80, 'q').lines.filter(
+    (line) => line.kind === 'heading',
+  );
+
+  expect(headings).toEqual([
+    { kind: 'heading', text: 'App' },
+    { kind: 'heading', text: 'Overlays' },
+  ]);
+
+  expect(helpWindowOf(custom, 100, 80, 'zzzz').lines).toEqual([]);
+  expect(helpWindowOf(custom, 100, 80, '   ').lines).toEqual(helpWindowOf(custom, 100, 80).lines);
+});
+
 const withKeys = (keys: Record<string, readonly string[]>) =>
   catalog.map((command) => Object.assign({}, command, { keys: keys[command.id] ?? command.keys }));
 
@@ -35,7 +72,7 @@ test('the help box leaves the status line free and grows by line count', () => {
   const short = helpWindowOf(catalog, 24, 80);
 
   expect(tall.overflows).toBe(false);
-  expect(tall.boxHeight).toBe(tall.lines.length + 2);
+  expect(tall.boxHeight).toBe(tall.lines.length + 3);
   expect(short.overflows).toBe(true);
   expect(short.boxHeight).toBe(23);
   expect(short.maximumTop).toBe(tall.lines.length - short.viewportRows);

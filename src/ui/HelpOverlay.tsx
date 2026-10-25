@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
 
 import type { Command } from '../commands.ts';
+import { keyHintOf } from '../commands.ts';
 import { boxChromeColumns, footerOf } from './helpWindow.ts';
 import type { HelpLine, HelpWindow } from './helpWindow.ts';
+import { InputLine } from './InputLine.tsx';
 import type { Palette } from './palette.ts';
+import type { HelpSearchInput, Overlay, UiIntent } from './uiState.ts';
 
 const lineOf = (line: HelpLine, index: number, palette: Palette): ReactNode => {
   if (line.kind === 'heading') {
@@ -28,6 +31,9 @@ export const HelpOverlay = (props: {
   height: number;
   helpWindow: HelpWindow;
   top: number;
+  search: Extract<Overlay, { kind: 'help' }>;
+  input: HelpSearchInput;
+  runUiAction: (intent: UiIntent) => void;
 }): ReactNode => {
   const { palette, catalog } = props;
 
@@ -57,6 +63,24 @@ export const HelpOverlay = (props: {
     >
       {visible.map((line, index) => lineOf(line, index, palette))}
       {overflows ? <text fg={palette.dim}>{hint}</text> : null}
+      {props.search.editing ? (
+        <InputLine
+          prompt="Search: "
+          value={props.search.text}
+          focused
+          palette={palette}
+          suffix={null}
+          watch={props.input.watch}
+          current={props.input.current}
+          onInput={(text) => {
+            props.runUiAction({ kind: 'ui', action: 'editHelpSearch', text });
+          }}
+        />
+      ) : (
+        <text fg={palette.dim}>
+          {keyHintOf(catalog, 'openHelpSearch')} search {props.search.text}
+        </text>
+      )}
     </box>
   );
 };
