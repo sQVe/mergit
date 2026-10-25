@@ -18,26 +18,45 @@ type ImportSource =
 
 const folderModules = new Set(['github', 'work', 'session', 'ui', 'localState', 'config']);
 
-const flatModules = new Set(['actions', 'commands', 'invariant', 'query', 'index', 'terminal']);
+const flatModules = new Set([
+  'actions',
+  'commands',
+  'fuzzy',
+  'invariant',
+  'query',
+  'index',
+  'terminal',
+]);
 
 const allowedImports = new Map<string, Set<string>>([
   ['work', new Set(['invariant'])],
   ['config', new Set(['commands', 'invariant'])],
   ['invariant', new Set()],
+  ['fuzzy', new Set()],
   ['query', new Set(['work', 'invariant'])],
   ['github', new Set(['work', 'invariant'])],
   ['localState', new Set(['work', 'invariant'])],
   ['actions', new Set(['work', 'config', 'invariant'])],
-  ['session', new Set(['work', 'query', 'invariant'])],
+  ['session', new Set(['work', 'query', 'fuzzy', 'invariant'])],
   ['commands', new Set(['work', 'session', 'invariant'])],
-  ['ui', new Set(['work', 'session', 'commands', 'invariant'])],
+  ['ui', new Set(['work', 'session', 'commands', 'fuzzy', 'invariant'])],
   ['terminal', new Set(['ui', 'session', 'commands', 'config', 'invariant'])],
   ['index', new Set([...folderModules, ...flatModules])],
 ]);
 
 const typeOnlyImports = new Map([['session', new Set(['github', 'actions', 'localState'])]]);
-const runtimeModules = new Set(['work', 'invariant', 'query', 'session', 'commands', 'ui']);
-const rendererFreeModules = new Set(['work', 'invariant', 'query', 'session', 'commands']);
+
+const runtimeModules = new Set([
+  'work',
+  'fuzzy',
+  'invariant',
+  'query',
+  'session',
+  'commands',
+  'ui',
+]);
+
+const rendererFreeModules = new Set(['work', 'fuzzy', 'invariant', 'query', 'session', 'commands']);
 const packageRoots = new Map<string, string | undefined>();
 
 // The nearest package.json marks the root, so a `src` segment above it never counts.

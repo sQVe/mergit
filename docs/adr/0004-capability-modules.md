@@ -30,12 +30,15 @@ import which. Modules name their owner, and lint refuses imports that cross the 
 - Folder modules: `github/`, `work/`, `session/`, `ui/`, `localState/`, `config/`. Each has one
   public entry file named after the folder, such as `session/session.ts`. Other files in the folder
   are private to the module.
-- Flat modules: `actions.ts`, `commands.ts`, `invariant.ts`, `query.ts`, `index.ts`, `terminal.tsx`.
+- Flat modules: `actions.ts`, `commands.ts`, `fuzzy.ts`, `invariant.ts`, `query.ts`, `index.ts`,
+  `terminal.tsx`.
 - A file outside these modules is an error. A new module starts as a flat file. It becomes a folder
   when it needs a second source file.
 
 ### Import direction
 
+- `fuzzy` owns fuzzy text scoring shared by filter completion and help search. It imports no other
+  module. `session` and `ui` import it so neither owns the other's matching behavior.
 - `work` and `invariant` import no other module. Every module may import `invariant`.
 - `config` imports `commands`, which defines the commands that a config file remaps.
 - `github`, `localState`, and `actions` import `work`. `actions` also imports `config`.
@@ -47,8 +50,8 @@ import which. Modules name their owner, and lint refuses imports that cross the 
   imports an integration module.
 - `terminal` imports `ui`, `session`, `commands`, and `config`. `index` imports any module. No
   module imports `index` or `terminal`, except `index` importing `terminal`.
-- `work`, `query`, `session`, `commands`, and `ui` import no Node or Bun built-ins. `work`, `query`,
-  `session`, and `commands` also import no React or OpenTUI packages.
+- `fuzzy`, `work`, `query`, `session`, `commands`, and `ui` import no Node or Bun built-ins.
+  `fuzzy`, `work`, `query`, `session`, and `commands` also import no React or OpenTUI packages.
 - Type imports count as dependencies. Dynamic imports must use a literal path.
 
 The rule holds the exact table. A change that keeps these directions updates the rule. A new module
