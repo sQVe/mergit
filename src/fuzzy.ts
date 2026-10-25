@@ -3,8 +3,6 @@ interface ScoreRow {
   runBonuses: Float64Array;
 }
 
-// Scores follow fzf: a run of consecutive letters keeps the bonus of its first letter, and
-// opening a gap costs more than extending one, so an exact run beats scattered word starts.
 const wordBoundaries = new Set([':', '/', '-', '_', ' ']);
 const matchScore = 16;
 const boundaryBonus = 8;
