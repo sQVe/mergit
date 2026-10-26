@@ -258,6 +258,136 @@ test('help search clears a remapped input line before the next burst key', async
   expect(setup.captureCharFrame()).not.toContain('Quit');
 });
 
+for (const entry of [
+  { name: 'retained query', query: 'fltr', opener: '/', keys: ['backspace'], expected: 'flt' },
+  { name: 'emoji', query: 'fltr🚀', opener: '/', keys: ['backspace'], expected: 'fltr' },
+  { name: 'precomposed text', query: 'fltré', opener: '/', keys: ['backspace'], expected: 'fltr' },
+  { name: 'remapped opener', query: 'fltr', opener: 's', keys: ['backspace'], expected: 'flt' },
+  {
+    name: 'deletion through empty',
+    query: 'ab',
+    opener: '/',
+    keys: ['backspace', 'backspace', 'backspace'],
+    expected: '',
+  },
+  {
+    name: 'mixed typing and deletion',
+    query: 'fl',
+    opener: '/',
+    keys: ['x', 'backspace', 't', 'r', 'backspace'],
+    expected: 'flt',
+  },
+]) {
+  for (const inBurst of [false, true]) {
+    test(`help search Backspace ${entry.name}, burst=${inBurst}`, async () => {
+      const custom = catalog.map((command) =>
+        command.id === 'openHelpSearch'
+          ? Object.assign({}, command, { keys: [entry.opener] })
+          : command,
+      );
+
+      const { setup, press, settle } = await mount({ catalog: custom, width: 80, height: 100 });
+
+      await press('?');
+      await press(entry.opener);
+      await press(entry.query);
+      await press('return');
+
+      if (inBurst) {
+        act(() => {
+          setup.mockInput.pressKey(entry.opener);
+
+          for (const key of entry.keys) {
+            if (key === 'backspace') {
+              setup.mockInput.pressBackspace();
+            } else {
+              setup.mockInput.pressKey(key);
+            }
+          }
+        });
+
+        await settle();
+        await settle();
+      } else {
+        await press(entry.opener);
+
+        for (const key of entry.keys) {
+          await press(key);
+        }
+      }
+
+      const frame = setup.captureCharFrame();
+      const query = frame.match(/Search: ([^\n│]*)/)?.[1]?.trim();
+
+      expect(query).toBe(entry.expected);
+      expect(frame).toContain('╭─ Help');
+    });
+  }
+}
+
+test('help search pending Backspace deletes a decomposed grapheme', async () => {
+  const { setup, press, settle } = await mount({ width: 80, height: 100 });
+
+  await press('?');
+  await press('/');
+  await press('fltre\u0301');
+  await press('return');
+
+  act(() => {
+    setup.mockInput.pressKey('/');
+    setup.mockInput.pressBackspace();
+  });
+
+  await settle();
+  await settle();
+
+  const query = setup
+    .captureCharFrame()
+    .match(/Search: ([^\n│]*)/)?.[1]
+    ?.trim();
+
+  expect(query).toBe('fltr');
+});
+
+for (const inBurst of [false, true]) {
+  test(`help search catalog Backspace clears before typing, burst=${inBurst}`, async () => {
+    const custom = catalog.map((command) =>
+      command.id === 'clearHelpSearch'
+        ? Object.assign({}, command, { keys: ['backspace'] })
+        : command,
+    );
+
+    const { setup, press, settle } = await mount({ catalog: custom, width: 80, height: 100 });
+
+    await press('?');
+    await press('/');
+    await press('fltr');
+    await press('return');
+
+    if (!inBurst) {
+      await press('/');
+    }
+
+    act(() => {
+      if (inBurst) {
+        setup.mockInput.pressKey('/');
+      }
+
+      setup.mockInput.pressBackspace();
+      setup.mockInput.pressKey('q');
+    });
+
+    await settle();
+    await settle();
+
+    const frame = setup.captureCharFrame();
+    const query = frame.match(/Search: ([^\n│]*)/)?.[1]?.trim();
+
+    expect(query).toBe('q');
+    expect(frame).toContain('Quit');
+  });
+}
+
 test('help search opener and hint follow a custom catalog', async () => {
   const custom = catalog.map((command) =>
     command.id === 'openHelpSearch' ? Object.assign({}, command, { keys: ['s'] }) : command,
