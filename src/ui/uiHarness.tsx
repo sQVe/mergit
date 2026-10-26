@@ -258,7 +258,6 @@ export const mount = async (options: MountOptions = {}): Promise<MountedApp> => 
           resolve();
         };
 
-        // Observe input before a command can stop propagation, including delayed Escape parsing.
         setup.renderer.keyInput.prependListener('keypress', onKeypress);
       });
 
