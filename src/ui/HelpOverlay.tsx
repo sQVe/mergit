@@ -50,7 +50,9 @@ export const HelpOverlay = (props: {
     : footerOf(catalog, position, innerWidth);
 
   const searchKey = keyHintOf(catalog, 'openHelpSearch');
-  const retainedSearch = fitText(`${searchKey} search ${props.search.text}`, innerWidth);
+
+  const retainedSearch =
+    searchKey === undefined ? '' : fitText(`${searchKey} search ${props.search.text}`, innerWidth);
 
   return (
     <box

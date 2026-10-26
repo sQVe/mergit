@@ -16,6 +16,36 @@ afterEach(() => {
 
 const mount = track(cleanups, untrackedMount);
 
+test('unbinding help search removes its shortcut hint', async () => {
+  const config = loadConfig(
+    { XDG_CONFIG_HOME: '/test-config' },
+    {
+      readFile: () => ({
+        kind: 'text',
+        text: JSON.stringify({ version: 1, keys: { openHelpSearch: [] } }),
+      }),
+    },
+  );
+
+  if (!config.ok) {
+    throw new Error(config.message);
+  }
+
+  const { setup, press } = await mount({ catalog: config.catalog, width: 80, height: 24 });
+
+  await press('?');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('╭─ Help');
+  expect(frame).not.toContain('undefined');
+  expect(frame).not.toContain(' search');
+
+  await press('/');
+
+  expect(setup.captureCharFrame()).toBe(frame);
+});
+
 test('help search editing hides navigation hints until Enter', async () => {
   const { setup, press } = await mount({ width: 80, height: 24 });
 
