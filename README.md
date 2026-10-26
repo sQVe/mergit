@@ -102,7 +102,7 @@ rows marked "Yes" accept `aliases`.
 | `openSearch`               | `/`               | Search the list                       | Yes     |
 | `clearSearch`              | `<Esc>`           | Clear the search                      | Yes     |
 | `openCommandLine`          | `:`               | Open the command line                 | Yes     |
-| `openFilters`              | `f`               | Filter the list                       | Yes     |
+| `openFilters`              | `f`               | Open filters                          | Yes     |
 | `clearFilters`             | `F`               | Clear all filters                     | Yes     |
 | `submitInput`              | `<CR>`            | Keep the search                       | No      |
 | `nextSearchCompletion`     | `<Tab>`           | Complete the last word                | No      |
