@@ -65,6 +65,7 @@ const sidePaneMaximumWidth = 44;
 const sidePaneShare = 0.36;
 
 const inputScopes = new Set<Command['scope']>(['input', 'filter', 'command']);
+const inputSegmenter = new Intl.Segmenter();
 
 const isActive = (
   scope: Command['scope'],
@@ -261,7 +262,26 @@ const Keys = (props: KeysProps): ReactNode => {
     [keymap],
   );
 
+  const editPendingHelpInput = (text: string, backspace: boolean): void => {
+    const current = modal.current.overlay;
+    const helpRendered = props.overlay.kind === 'help' && props.overlay.editing;
+
+    if (current.kind === 'help' && current.editing && !helpRendered) {
+      let nextText = current.text + text;
+
+      if (backspace) {
+        const last = [...inputSegmenter.segment(current.text)].at(-1);
+
+        nextText = current.text.slice(0, last?.index ?? 0);
+      }
+
+      runUiAction({ kind: 'ui', action: 'editHelpSearch', text: nextText });
+    }
+  };
+
   const typeIntoPendingInput = (text: string): void => {
+    editPendingHelpInput(text, false);
+
     const snapshot = session.getSnapshot();
     const filterPending = snapshot.filtersOpen && !props.filtersOpen;
     const searchPending = snapshot.searchOpen && !props.searchOpen;
@@ -324,6 +344,14 @@ const Keys = (props: KeysProps): ReactNode => {
     const { searchOpen, filtersOpen, commandLineOpen } = session.getSnapshot();
     const { overlay, detailOpen } = modal.current;
 
+    if (overlay.kind === 'help' && overlay.editing) {
+      return scope === 'helpSearch';
+    }
+
+    if (scope === 'helpSearch') {
+      return false;
+    }
+
     return isActive(scope, {
       overlay: overlay.kind,
       detailOpen: detailOpen && !props.sideLayout,
@@ -335,11 +363,16 @@ const Keys = (props: KeysProps): ReactNode => {
 
   // A key no command takes reaches here. Before the input takes focus, it is typed here.
   useKeyboard((event) => {
-    const isOneVisibleCodePoint = /^[^\p{Cc}]$/u.test(event.sequence);
-    const printable = isOneVisibleCodePoint && !event.ctrl && !event.meta;
+    if (event.ctrl || event.meta) {
+      return;
+    }
+
+    const printable = /^[^\p{Cc}]$/u.test(event.sequence);
 
     if (printable) {
       typeIntoPendingInput(event.sequence);
+    } else if (event.name === 'backspace') {
+      editPendingHelpInput('', true);
     }
   });
 
@@ -521,17 +554,23 @@ export const App = (props: AppProps): ReactNode => {
   const palette = pickPalette(themeMode);
   const { width, height } = useTerminalDimensions();
 
-  const helpWindow = helpWindowOf(props.catalog, height, width);
+  const helpWindowFor = (current: Overlay) => {
+    const text = current.kind === 'help' ? current.text : '';
+
+    return helpWindowOf(props.catalog, height, width, text);
+  };
+
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
   const sideLayout = width >= sidePaneMinimumWidth;
 
-  const { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction } = useUiState(
+  const { overlay, helpTop, helpInput, messagesTop, detailOpen, modal, runUiAction } = useUiState(
     props.session,
     sideLayout,
-    helpWindow,
+    helpWindowFor,
     messageWindow,
   );
 
+  const helpWindow = helpWindowFor(overlay);
   const fullDetail = detailOpen && !sideLayout;
 
   const composerRows = composerRowsOf(snapshot);
@@ -620,6 +659,9 @@ export const App = (props: AppProps): ReactNode => {
           height={height}
           helpWindow={helpWindow}
           top={helpTop}
+          search={overlay}
+          input={helpInput}
+          runUiAction={runUiAction}
         />
       ) : null}
     </KeymapProvider>

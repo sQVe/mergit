@@ -10,12 +10,18 @@ export type Intent =
       action:
         | 'toggleHelp'
         | 'closeHelp'
+        | 'openHelpSearch'
+        | 'keepHelpSearch'
+        | 'cancelHelpSearch'
+        | 'clearHelpSearch'
+        | 'closeEmptyHelpSearch'
         | 'openDetail'
         | 'closeDetail'
         | 'runCommandLine'
         | 'openMessages'
         | 'closeMessages';
     }
+  | { kind: 'ui'; action: 'editHelpSearch'; text: string }
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
   | { kind: 'ui'; action: 'scrollOverlay'; move: OverlayMove }
@@ -46,6 +52,7 @@ export interface Command {
     | 'list'
     | 'preview'
     | 'help'
+    | 'helpSearch'
     | 'confirm'
     | 'input'
     | 'filter'
@@ -88,6 +95,7 @@ export type HelpSection = (typeof helpSections)[number];
 // A higher number wins a key shared by active scopes, as the keymap sorts layers.
 export const scopePriority: Record<Command['scope'], number> = {
   help: 50,
+  helpSearch: 60,
   messages: 50,
   confirm: 50,
   input: 40,
@@ -468,7 +476,7 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'openFilters',
-    label: 'Filter the list',
+    label: 'Open filters',
     scope: 'list',
     section: 'filters',
     keys: ['f'],
@@ -616,6 +624,64 @@ export const catalog: readonly Command[] = [
     keys: ['escape'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'closeDetail' }),
+  },
+  {
+    id: 'openHelpSearch',
+    label: 'Search help',
+    scope: 'help',
+    section: 'overlays',
+    keys: ['/'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'openHelpSearch' }),
+  },
+  {
+    id: 'keepHelpSearch',
+    label: 'Keep help search',
+    scope: 'helpSearch',
+    section: 'overlays',
+    keys: ['return'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'keepHelpSearch' }),
+  },
+  {
+    id: 'cancelHelpSearch',
+    mustKeepKey: true,
+    label: 'Clear and close help search',
+    scope: 'helpSearch',
+    section: 'overlays',
+    keys: ['escape'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'cancelHelpSearch' }),
+  },
+  {
+    id: 'clearHelpSearch',
+    label: 'Clear help search',
+    scope: 'helpSearch',
+    section: 'overlays',
+    keys: ['ctrl+u'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'clearHelpSearch' }),
+  },
+  {
+    id: 'closeEmptyHelpSearch',
+    label: 'Close empty help search',
+    scope: 'helpSearch',
+    section: 'overlays',
+    keys: ['backspace'],
+    preventDefault: false,
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'closeEmptyHelpSearch' }),
+  },
+  {
+    id: 'quitFromHelpSearch',
+    configurable: false,
+    hiddenFromHelp: true,
+    label: 'Quit',
+    scope: 'helpSearch',
+    section: 'app',
+    keys: ['ctrl+c'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'terminal', action: 'quit' }),
   },
   {
     id: 'closeHelp',

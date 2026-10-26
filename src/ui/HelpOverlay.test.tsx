@@ -34,7 +34,7 @@ const sectionTitles = [
 ];
 
 const totalLines = helpWindowOf(catalog, 1000, 80).lines.length;
-const fitsHeight = totalLines + 3;
+const fitsHeight = totalLines + 4;
 
 // The text between the left and right padding of each row inside the help box.
 const boxRowsOf = (frame: string, width = boxWidth): string[] => {
@@ -51,7 +51,7 @@ const borderRowOf = (frame: string): number =>
 const isHeading = (text: string): boolean =>
   sectionTitles.some((title) => text.startsWith(title) && !text.includes('  '));
 
-const isFooter = (text: string): boolean => /\d+-\d+ of \d+/u.test(text);
+const isFooter = (text: string): boolean => /\d+-\d+ of \d+/u.test(text) || text === '/ search';
 
 const renderOverlay = async (
   custom: readonly Command[],
@@ -66,6 +66,9 @@ const renderOverlay = async (
         height={size.height}
         helpWindow={helpWindowOf(custom, size.height, size.width)}
         top={top}
+        search={{ kind: 'help', text: '', editing: false }}
+        input={{ watch: () => () => undefined, current: () => '' }}
+        runUiAction={() => undefined}
       />,
       size,
     ),
@@ -251,7 +254,7 @@ test('at 30 columns every help row stays on one line inside the box', async () =
     }
   }
 
-  expect(rows).toHaveLength(lines.length);
+  expect(rows).toHaveLength(lines.length + 1);
   expect(rows.some((row) => row.includes('Selectr'))).toBe(false);
   expect(rows.some((row) => row.startsWith('gg'))).toBe(true);
 });
@@ -423,7 +426,7 @@ test('the footer names the scroll and close keys that the catalog gives', async 
   const setup = await renderOverlay(custom, { width: 80, height: 7 });
   const frame = setup.captureCharFrame();
 
-  expect(frame).toContain('1-3 of 6  n/p scroll  x close');
+  expect(frame).toContain('1-2 of 6  n/p scroll  x close');
   expect(frame).toContain('╰');
 });
 

@@ -9,7 +9,7 @@ export type UiIntent = Extract<Intent, { kind: 'ui' }>;
 
 export type Overlay =
   | { kind: 'none' }
-  | { kind: 'help' }
+  | { kind: 'help'; text: string; editing: boolean }
   | { kind: 'messages' }
   | { kind: 'confirm'; pages: readonly BrowserPage[] };
 
@@ -18,9 +18,15 @@ export interface ModalState {
   detailOpen: boolean;
 }
 
+export interface HelpSearchInput {
+  watch: (listener: () => void) => () => void;
+  current: () => string;
+}
+
 export interface UiState {
   overlay: Overlay;
   helpTop: number;
+  helpInput: HelpSearchInput;
   messagesTop: number;
   detailOpen: boolean;
   modal: RefObject<ModalState>;
@@ -54,10 +60,42 @@ const topAfter = (top: number, move: OverlayMove, window: ScrollWindow): number 
   return Math.min(maximumTop, Math.max(0, target));
 };
 
+const helpSearchAfter = (overlay: Overlay, intent: UiIntent): Overlay | undefined => {
+  if (overlay.kind !== 'help') {
+    return undefined;
+  }
+
+  if (intent.action === 'openHelpSearch') {
+    return { ...overlay, editing: true };
+  }
+
+  if (intent.action === 'keepHelpSearch') {
+    return { ...overlay, editing: false };
+  }
+
+  if (intent.action === 'closeEmptyHelpSearch') {
+    return overlay.text === '' ? { ...overlay, editing: false } : overlay;
+  }
+
+  if (intent.action === 'cancelHelpSearch') {
+    return { ...overlay, text: '', editing: false };
+  }
+
+  if (intent.action === 'clearHelpSearch') {
+    return { ...overlay, text: '' };
+  }
+
+  if (intent.action === 'editHelpSearch') {
+    return overlay.editing ? { ...overlay, text: intent.text } : overlay;
+  }
+
+  return undefined;
+};
+
 export const useUiState = (
   session: Session,
   sideLayout: boolean,
-  helpWindow: ScrollWindow,
+  helpWindow: (overlay: Overlay) => ScrollWindow,
   messageWindow: ScrollWindow,
 ): UiState => {
   // Callers pass fresh window objects every render. Reading them here keeps runUiAction stable,
@@ -80,9 +118,29 @@ export const useUiState = (
     detailOpen: false,
   });
 
+  const helpListeners = useRef(new Set<() => void>());
+
+  const watchHelpSearch = useCallback((listener: () => void) => {
+    helpListeners.current.add(listener);
+
+    return () => {
+      helpListeners.current.delete(listener);
+    };
+  }, []);
+
+  const currentHelpSearch = useCallback(() => {
+    const current = modal.current.overlay;
+
+    return current.kind === 'help' ? current.text : '';
+  }, []);
+
   const setOverlay = useCallback((next: Overlay) => {
     modal.current.overlay = next;
     setOverlayState(next);
+
+    for (const listener of helpListeners.current) {
+      listener();
+    }
   }, []);
 
   const setDetailOpen = useCallback((open: boolean) => {
@@ -125,14 +183,21 @@ export const useUiState = (
         }
 
         setHelpTop(0);
-        setOverlay(toggling && kind !== 'help' ? { kind: 'help' } : { kind: 'none' });
+
+        setOverlay(
+          toggling && kind !== 'help'
+            ? { kind: 'help', text: '', editing: false }
+            : { kind: 'none' },
+        );
       };
 
       const scrollOverlay = (move: OverlayMove) => {
         const { kind } = modal.current.overlay;
 
         if (kind === 'help') {
-          setHelpTop((top) => topAfter(top, move, windows.current.helpWindow));
+          setHelpTop((top) =>
+            topAfter(top, move, windows.current.helpWindow(modal.current.overlay)),
+          );
         } else if (kind === 'messages') {
           setMessagesTop((top) => topAfter(top, move, windows.current.messageWindow));
         }
@@ -140,7 +205,12 @@ export const useUiState = (
 
       const { action } = intent;
 
-      if (intent.action === 'askOpen') {
+      const helpSearch = helpSearchAfter(modal.current.overlay, intent);
+
+      if (helpSearch !== undefined) {
+        setHelpTop(0);
+        setOverlay(helpSearch);
+      } else if (intent.action === 'askOpen') {
         setOverlay({ kind: 'confirm', pages: intent.pages });
       } else if (action === 'confirmOpen') {
         confirmOpen();
@@ -163,5 +233,7 @@ export const useUiState = (
     [session, sideLayout, setOverlay, setDetailOpen],
   );
 
-  return { overlay, helpTop, messagesTop, detailOpen, modal, runUiAction };
+  const helpInput = { watch: watchHelpSearch, current: currentHelpSearch };
+
+  return { overlay, helpTop, helpInput, messagesTop, detailOpen, modal, runUiAction };
 };

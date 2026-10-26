@@ -39,6 +39,33 @@ const configured = (config: unknown) => {
   return loaded;
 };
 
+test('version 1 accepts help search remaps alongside existing public IDs', async () => {
+  const { catalog } = configured({
+    version: 1,
+    keys: {
+      openHelpSearch: ['s'],
+      openSearch: ['/'],
+      closeHelp: ['q', '<Esc>'],
+      clearLine: ['<C-u>'],
+      clearHelpSearch: ['<C-x>'],
+    },
+  });
+
+  const { setup, press } = await mount({ catalog, width: 80, height: 100 });
+
+  await press('?');
+
+  expect(setup.captureCharFrame()).toContain('s search');
+
+  await press('s');
+  await press('fltr');
+
+  expect(setup.captureCharFrame()).toContain('Open filters');
+  expect(setup.captureCharFrame()).not.toContain('Quit');
+  expect(keyHintOf(catalog, 'openSearch')).toBe('/');
+  expect(keyHintOf(catalog, 'closeHelp')).toBe('q/Esc');
+});
+
 test('the help footer advertises Down for scrolling when closeHelp takes j', () => {
   const { catalog } = configured({ version: 1, keys: { closeHelp: ['j', '<Esc>'] } });
   const helpCommands = commandsOfLayer(catalog, 'help');

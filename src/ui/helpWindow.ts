@@ -6,6 +6,7 @@ import {
   keyNamesOf,
   readableKeyOf,
 } from '../commands.ts';
+import { fuzzyScore } from '../fuzzy.ts';
 
 export type HelpLine =
   | { kind: 'heading'; text: string }
@@ -121,8 +122,19 @@ const rowOf = (command: Command, innerWidth: number): HelpLine => {
   return { kind: 'row', keys: fittedKeys, label };
 };
 
-const linesOf = (catalog: readonly Command[], innerWidth: number): HelpLine[] => {
-  const listed = listedCommandsOf(catalog);
+const linesOf = (catalog: readonly Command[], innerWidth: number, query: string): HelpLine[] => {
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => Array.from(word));
+
+  const listed = listedCommandsOf(catalog).filter((command) => {
+    const text = `${command.label} ${keysTextOf(command)}`;
+
+    return fuzzyScore(terms, text) !== null;
+  });
+
   const lines: HelpLine[] = [];
 
   for (const section of helpSections) {
@@ -180,22 +192,23 @@ export const helpWindowOf = (
   catalog: readonly Command[],
   height: number,
   width: number,
+  query = '',
 ): HelpWindow => {
   const boxWidth = Math.max(minimumBoxWidth, Math.min(width - terminalMargin, maximumBoxWidth));
-  const lines = linesOf(catalog, boxWidth - boxChromeColumns);
-  const availableRows = Math.max(1, height - statusRows);
+  const lines = linesOf(catalog, boxWidth - boxChromeColumns, query);
+  const availableRows = Math.max(1, height - statusRows - 1);
   const overflows = lines.length + borderRows > availableRows;
 
   const viewportRows = overflows
     ? Math.max(1, availableRows - borderRows - footerRows)
     : lines.length;
 
-  const boxHeight = viewportRows + borderRows + (overflows ? footerRows : 0);
+  const boxHeight = viewportRows + borderRows + (overflows ? footerRows : 0) + 1;
 
   return {
     lines,
     viewportRows,
-    maximumTop: lines.length - viewportRows,
+    maximumTop: Math.max(0, lines.length - viewportRows),
     overflows,
     boxWidth,
     boxHeight,

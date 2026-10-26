@@ -27,8 +27,7 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Commands
 
-- Each command has an id, a label, a scope (one of the nine below), a help section, and default
-  keys.
+- Each command has an id, a label, a scope (one of the ten below), a help section, and default keys.
 - Help reads its sections from the catalog, in a fixed order. Input-line copies of one action, such
   as clearing the line, share a `configId`. They show as one help row when their effective keys
   agree; otherwise help shows each scope's keys.
@@ -47,8 +46,10 @@ remaps read the same records, and tests assert intents without running effects.
 
 ### Scopes
 
-- The nine scopes are `global`, `list`, `preview`, `help`, `messages`, `confirm`, `input`,
-  `command`, and `filter`.
+- The ten scopes are `global`, `list`, `preview`, `help`, `helpSearch`, `messages`, `confirm`,
+  `input`, `command`, and `filter`.
+- `helpSearch` is active alone while editing help search. It takes precedence over help scrolling
+  and global commands, including during input bursts. Its fixed Ctrl+C binding still quits.
 - Each scope has one keymap layer. The layer carries a priority, and a higher priority wins a key
   that a lower one also binds. From highest to lowest: overlay or dialog (`help`, `messages`,
   `confirm`), input line (`input`, `command`, `filter`), detail pane (`preview`), list (`list`), and

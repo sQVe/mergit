@@ -102,7 +102,7 @@ rows marked "Yes" accept `aliases`.
 | `openSearch`               | `/`               | Search the list                       | Yes     |
 | `clearSearch`              | `<Esc>`           | Clear the search                      | Yes     |
 | `openCommandLine`          | `:`               | Open the command line                 | Yes     |
-| `openFilters`              | `f`               | Filter the list                       | Yes     |
+| `openFilters`              | `f`               | Open filters                          | Yes     |
 | `clearFilters`             | `F`               | Clear all filters                     | Yes     |
 | `submitInput`              | `<CR>`            | Keep the search                       | No      |
 | `nextSearchCompletion`     | `<Tab>`           | Complete the last word                | No      |
@@ -113,6 +113,11 @@ rows marked "Yes" accept `aliases`.
 | `runCommandLine`           | `<CR>`            | Run the command                       | No      |
 | `closeCommandLine`         | `<Esc>`           | Close the command line                | No      |
 | `closeDetail`              | `<Esc>`           | Close thread detail                   | No      |
+| `openHelpSearch`           | `/`               | Search help                           | No      |
+| `keepHelpSearch`           | `<Enter>`         | Keep help search                      | No      |
+| `cancelHelpSearch`         | `<Esc>`           | Clear and close help search           | No      |
+| `clearHelpSearch`          | `<C-u>`           | Clear help search                     | No      |
+| `closeEmptyHelpSearch`     | `<BS>`            | Close empty help search               | No      |
 | `closeHelp`                | `q`, `<Esc>`      | Close help                            | No      |
 | `showMessages`             | `[]`              | Show recent messages                  | Yes     |
 | `closeMessages`            | `q`, `<Esc>`      | Close messages                        | No      |
@@ -124,9 +129,10 @@ rows marked "Yes" accept `aliases`.
 | `moveFilterDown`           | `<Down>`, `<C-n>` | Move down a filter row                | No      |
 | `closeFilters`             | `<Esc>`           | Close the composer or cancel the edit | No      |
 
-`clearLine` and `closeEmptyLine` each remap the search, command, and filter input lines together.
-Their internal command ids are not config ids. The fixed input-line quit commands are not config ids
-either.
+`clearLine` and `closeEmptyLine` remap the search, command, and filter input lines together. Their
+internal command ids are not config ids. `clearHelpSearch` and `closeEmptyHelpSearch` remap help
+search clearing and empty-query closing separately. Closing an empty help query leaves Help open.
+The fixed input-line quit commands are not config ids either.
 
 ### Command names and aliases
 
@@ -159,12 +165,12 @@ a name for the same command is allowed. `[]` adds no names and removes none.
 - Keys in different layers can overlap. The active higher-priority layer wins. Overlay and dialog
   layers rank above input lines, then detail, list, and global layers. Global keys are inactive
   while an input line is open; fixed Ctrl+C bindings still quit.
-- `cancelInput`, `closeCommandLine`, `closeDetail`, `closeHelp`, `closeMessages`, `cancelOpen`, and
-  `closeFilters` must each keep at least one portable binding after remaps and conflict resolution.
-  A portable binding contains no `<C-i>`, `<C-m>`, `<C-h>`, or `<C-j>` at any stroke. Those controls
-  may remain alongside a portable alternative, such as `<Esc>`. Giving a required command `[]`, or
-  removing its last portable binding, stops startup. Non-required commands may use those controls
-  without a portable alternative.
+- `cancelHelpSearch`, `cancelInput`, `closeCommandLine`, `closeDetail`, `closeHelp`,
+  `closeMessages`, `cancelOpen`, and `closeFilters` must each keep at least one portable binding
+  after remaps and conflict resolution. A portable binding contains no `<C-i>`, `<C-m>`, `<C-h>`, or
+  `<C-j>` at any stroke. Those controls may remain alongside a portable alternative, such as
+  `<Esc>`. Giving a required command `[]`, or removing its last portable binding, stops startup.
+  Non-required commands may use those controls without a portable alternative.
 
 An unreadable file or any invalid config stops startup with the file path and reason. Invalid
 configs include malformed JSON, a non-object root, a missing version, any version other than `1`,
