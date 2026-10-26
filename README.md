@@ -116,6 +116,7 @@ rows marked "Yes" accept `aliases`.
 | `openHelpSearch`           | `/`               | Search help                           | No      |
 | `keepHelpSearch`           | `<Enter>`         | Keep help search                      | No      |
 | `cancelHelpSearch`         | `<Esc>`           | Clear and close help search           | No      |
+| `clearHelpSearch`          | `<C-u>`           | Clear help search                     | No      |
 | `closeHelp`                | `q`, `<Esc>`      | Close help                            | No      |
 | `showMessages`             | `[]`              | Show recent messages                  | Yes     |
 | `closeMessages`            | `q`, `<Esc>`      | Close messages                        | No      |
@@ -127,9 +128,9 @@ rows marked "Yes" accept `aliases`.
 | `moveFilterDown`           | `<Down>`, `<C-n>` | Move down a filter row                | No      |
 | `closeFilters`             | `<Esc>`           | Close the composer or cancel the edit | No      |
 
-`clearLine` remaps the search, command, filter, and help search input lines together.
-`closeEmptyLine` remaps the search, command, and filter input lines together. Their internal command
-ids are not config ids. The fixed input-line quit commands are not config ids either.
+`clearLine` and `closeEmptyLine` remap the search, command, and filter input lines together. Their
+internal command ids are not config ids. `clearHelpSearch` remaps help search clearing separately.
+The fixed input-line quit commands are not config ids either.
 
 ### Command names and aliases
 

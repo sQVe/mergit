@@ -47,6 +47,7 @@ test('version 1 accepts help search remaps alongside existing public IDs', async
       openSearch: ['/'],
       closeHelp: ['q', '<Esc>'],
       clearLine: ['<C-u>'],
+      clearHelpSearch: ['<C-x>'],
     },
   });
 

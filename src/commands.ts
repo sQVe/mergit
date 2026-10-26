@@ -654,10 +654,9 @@ export const catalog: readonly Command[] = [
   },
   {
     id: 'clearHelpSearch',
-    configId: 'clearLine',
-    label: 'Clear an input line',
+    label: 'Clear help search',
     scope: 'helpSearch',
-    section: 'app',
+    section: 'overlays',
     keys: ['ctrl+u'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'clearHelpSearch' }),

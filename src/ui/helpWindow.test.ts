@@ -40,6 +40,14 @@ test('help search matches labels, readable keys, and colon aliases without reord
   expect(helpWindowOf(custom, 100, 80, '   ').lines).toEqual(helpWindowOf(custom, 100, 80).lines);
 });
 
+test('empty help matches at tiny height cannot scroll', () => {
+  const window = helpWindowOf(catalog, 3, 30, 'zzzz');
+
+  expect(window.lines).toEqual([]);
+  expect(window.viewportRows).toBe(1);
+  expect(window.maximumTop).toBe(0);
+});
+
 const withKeys = (keys: Record<string, readonly string[]>) =>
   catalog.map((command) => Object.assign({}, command, { keys: keys[command.id] ?? command.keys }));
 

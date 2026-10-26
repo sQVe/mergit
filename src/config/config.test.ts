@@ -86,6 +86,7 @@ const configIds = [
   'openHelpSearch',
   'keepHelpSearch',
   'cancelHelpSearch',
+  'clearHelpSearch',
   'closeHelp',
   'showMessages',
   'closeMessages',
@@ -142,6 +143,7 @@ const defaultKeysInVim: Record<string, string[]> = {
   openHelpSearch: ['/'],
   keepHelpSearch: ['<CR>'],
   cancelHelpSearch: ['<Esc>'],
+  clearHelpSearch: ['<C-u>'],
   closeHelp: ['q', '<Esc>'],
   showMessages: [],
   closeMessages: ['q', '<Esc>'],
@@ -153,6 +155,43 @@ const defaultKeysInVim: Record<string, string[]> = {
   moveFilterDown: ['<Down>', '<C-n>'],
   closeFilters: ['<Esc>'],
 };
+
+test('version 1 clearLine on Escape keeps its original input scopes and help cancel binding', () => {
+  const config = {
+    version: 1,
+    keys: {
+      clearLine: ['<Esc>'],
+      cancelInput: ['<C-x>'],
+      closeCommandLine: ['<C-x>'],
+      closeFilters: ['<C-x>'],
+    },
+  };
+
+  const result = loaded(config);
+  const clearing = result.catalog.filter((command) => command.configId === 'clearLine');
+
+  expect(result.notices).toEqual([]);
+  expect(clearing.map((command) => command.scope)).toEqual(['input', 'command', 'filter']);
+
+  for (const command of clearing) {
+    expect(command.keys).toEqual(['escape']);
+  }
+
+  expect(commandOf(result.catalog, 'cancelHelpSearch').keys).toEqual(['escape']);
+  expect(commandOf(result.catalog, 'clearHelpSearch').keys).toEqual(['ctrl+u']);
+});
+
+test('help clearing has an independent version 1 public remap', () => {
+  const result = loaded({ version: 1, keys: { clearHelpSearch: ['<C-x>'] } });
+
+  expect(commandOf(result.catalog, 'clearHelpSearch').keys).toEqual(['ctrl+x']);
+
+  const clearing = result.catalog.filter((command) => command.configId === 'clearLine');
+
+  for (const command of clearing) {
+    expect(command.keys).toEqual(['ctrl+u']);
+  }
+});
 
 test('a key in Vim notation replaces the default keys of a command', () => {
   const result = loaded({ version: 1, keys: { selectLast: ['G'] } });
