@@ -90,6 +90,27 @@ test('help retains a visible long query on one row at 30 columns', async () => {
   expect(setup.captureCharFrame()).toContain(query.slice(-12));
 });
 
+test('help search after scrolling shows the first matching rows', async () => {
+  const custom = catalog.map((command) =>
+    Object.assign({}, command, { label: `qjk ${command.label}` }),
+  );
+
+  const { setup, press } = await mount({ catalog: custom, width: 80, height: 24 });
+
+  await press('?');
+  await press('G');
+
+  expect(setup.captureCharFrame()).not.toContain('qjk Quit');
+
+  await press('/');
+  await press('qjk');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('qjk Quit');
+  expect(frame).toMatch(/1-19 of \d+/);
+});
+
 test('help search narrows fuzzy labels', async () => {
   const { setup, press } = await mount({ width: 80, height: 24 });
 

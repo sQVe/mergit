@@ -144,6 +144,39 @@ test('a contiguous field match outranks initials spread over short words', async
   expect(summaries).not.toContain('candidate org:red-env-prod-ops');
 });
 
+test('completion ranks a word-boundary match before a more common embedded match', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1', { repository: 'acme/atool' }),
+    makeThread('2', { repository: 'acme/atool' }),
+    makeThread('3', { repository: 'acme/zz-tool' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'tool' });
+
+  const rows = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(rows).toEqual(['candidate repo:acme/zz-tool', 'candidate repo:acme/atool']);
+});
+
+test('completion ranks consecutive letters before scattered word initials', async () => {
+  const { session, load } = makeHarness();
+
+  await load(
+    makeThread('1', { repository: 'acme/t-o-o-l-s' }),
+    makeThread('2', { repository: 'acme/tools' }),
+  );
+
+  session.send({ kind: 'openFilters' });
+  session.send({ kind: 'editFilterDraft', text: 'tools' });
+
+  const rows = filterRowsOf(session.getSnapshot()).map(rowSummaryOf);
+
+  expect(rows).toEqual(['candidate repo:acme/tools', 'candidate repo:acme/t-o-o-l-s']);
+});
+
 test('an emoji in the draft finds an active title chip that holds it', async () => {
   const { session, load } = makeHarness();
 
