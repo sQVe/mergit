@@ -12,7 +12,12 @@ import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../wor
 import { createAccountSwitch } from './accountSwitch.ts';
 import { createBrowserOpen } from './browserOpen.ts';
 import type { BrowserOpenInputs } from './browserOpen.ts';
-import { closeCommandLine, editCommandLine, openCommandLine } from './commandLine.ts';
+import {
+  closeCommandLine,
+  editCommandLine,
+  openCommandLine,
+  moveCommandLineCompletion,
+} from './commandLine.ts';
 import { copyAccountRecords, createDoneActions } from './doneActions.ts';
 import { createFeedRefresh } from './feedRefresh.ts';
 import type { SettledRefresh } from './feedRefresh.ts';
@@ -64,6 +69,7 @@ export type { FilterRow } from './filterRows.ts';
 export { describeFilterRow } from './filterDescriptions.ts';
 export { filterCombinationOf, formatFilter } from '../query.ts';
 export type { Filter } from '../query.ts';
+export { commandLineCandidatesOf } from './commandLine.ts';
 export { chosenCandidateIndexOf, searchCandidatesOf } from './searchCompletion.ts';
 export { matchCountOf, noticeMessageOf, openThreads, visibleRows } from './sessionState.ts';
 
@@ -92,6 +98,7 @@ export type ApplicationIntent =
       count?: number | undefined;
     }
   | { kind: 'cycleGrouping' }
+  | { kind: 'moveCommandLineCompletion'; names: readonly string[]; direction: 1 | -1 }
   | { kind: 'openCommandLine' }
   | { kind: 'editCommandLine'; text: string }
   | { kind: 'closeCommandLine' }
@@ -241,6 +248,8 @@ const transitions: Transitions = {
   cycleGrouping,
   openCommandLine,
   closeCommandLine,
+  moveCommandLineCompletion: (snapshot, intent) =>
+    moveCommandLineCompletion(snapshot, intent.names, intent.direction),
   openSearch,
   keepSearch,
   restoreSearch,

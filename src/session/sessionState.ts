@@ -9,6 +9,7 @@ import type {
   ViewerLogin,
 } from '../work/work.ts';
 import { treeRows } from '../work/work.ts';
+import type { CommandLineCompletion } from './commandLine.ts';
 import type { SearchCompletion } from './searchCompletion.ts';
 import { selectAfterRefresh } from './selectionRepair.ts';
 
@@ -58,6 +59,7 @@ export interface Snapshot {
   searchTextBefore: string;
   commandLineOpen: boolean;
   commandLineText: string;
+  commandLineCompletion: CommandLineCompletion | null;
   searchCompletion: SearchCompletion | null;
   filters: Filter[];
   filtersOpen: boolean;
@@ -114,6 +116,7 @@ export const initialSnapshot: Snapshot = {
   searchTextBefore: '',
   commandLineOpen: false,
   commandLineText: '',
+  commandLineCompletion: null,
   searchCompletion: null,
   filters: [],
   filtersOpen: false,
