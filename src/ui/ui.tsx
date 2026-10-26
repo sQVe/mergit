@@ -11,7 +11,7 @@ import type { Command, TerminalIntent } from '../commands.ts';
 import { commandsOfLayer, keyHintOf, readableStrokeOf, scopePriority } from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
-import { CommandLine, commandLineRows } from './CommandLine.tsx';
+import { CommandLine, commandLineRows, commandLineNamesOf } from './CommandLine.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
 import { FilterBar, filterBarRows } from './FilterBar.tsx';
@@ -124,7 +124,11 @@ const composerRowsOf = (snapshot: Snapshot) => (snapshot.filtersOpen ? filterRow
 const searchRoomOf = (snapshot: Snapshot, height: number): number =>
   Math.max(
     0,
-    height - statusRows - boxChromeRows - commandLineRows(snapshot) - filterBarRows(snapshot),
+    height -
+      statusRows -
+      boxChromeRows -
+      commandLineRows(snapshot, [], 1) -
+      filterBarRows(snapshot),
   );
 
 const composerLayoutFor = (
@@ -139,7 +143,7 @@ const composerLayoutFor = (
     statusRows +
     boxChromeRows +
     searchLineRows(snapshot, searchRoom) +
-    commandLineRows(snapshot) +
+    commandLineRows(snapshot, [], 1) +
     filterBarRows(snapshot);
 
   return composerLayoutOf(snapshot, rows, { width, height, otherRows });
@@ -331,6 +335,18 @@ const Keys = (props: KeysProps): ReactNode => {
       session.send(intent.intent);
     } else if (intent.kind === 'ui' && intent.action === 'runCommandLine') {
       runCommandLine(run);
+    } else if (intent.kind === 'ui' && intent.action === 'nextCommandLineCompletion') {
+      session.send({
+        kind: 'moveCommandLineCompletion',
+        names: commandLineNamesOf(props.catalog),
+        direction: 1,
+      });
+    } else if (intent.kind === 'ui' && intent.action === 'previousCommandLineCompletion') {
+      session.send({
+        kind: 'moveCommandLineCompletion',
+        names: commandLineNamesOf(props.catalog),
+        direction: -1,
+      });
     } else if (intent.kind === 'ui') {
       runUiAction(intent);
     } else {
@@ -577,8 +593,13 @@ export const App = (props: AppProps): ReactNode => {
   const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
   const searchRoom = searchRoomOf(snapshot, height);
 
+  const commandNames = commandLineNamesOf(props.catalog);
+  const commandRoom = Math.max(1, height - statusRows - boxChromeRows - filterBarRows(snapshot));
+
   const reservedRows =
-    searchLineRows(snapshot, searchRoom) + commandLineRows(snapshot) + filterBarRows(snapshot);
+    searchLineRows(snapshot, searchRoom) +
+    commandLineRows(snapshot, commandNames, commandRoom) +
+    filterBarRows(snapshot);
 
   const listHeight = Math.max(1, height - statusRows - reservedRows);
 
@@ -633,7 +654,14 @@ export const App = (props: AppProps): ReactNode => {
           palette={palette}
           room={searchRoom}
         />
-        <CommandLine session={props.session} snapshot={snapshot} palette={palette} />
+        <CommandLine
+          session={props.session}
+          snapshot={snapshot}
+          palette={palette}
+          names={commandNames}
+          room={commandRoom}
+          width={width}
+        />
         <PendingStatusLine snapshot={snapshot} palette={palette} catalog={props.catalog} />
       </box>
       <Toast snapshot={snapshot} palette={palette} />

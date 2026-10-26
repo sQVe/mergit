@@ -71,63 +71,65 @@ These are all v1 ids accepted in `keys`. Defaults use the notation above. `[]` m
 The labels come from the command catalog; `confirmOpen` and `cancelOpen` are hidden from help. Only
 rows marked "Yes" accept `aliases`.
 
-| Id                         | Default keys      | Help label                            | Aliases |
-| -------------------------- | ----------------- | ------------------------------------- | ------- |
-| `quit`                     | `q`, `<C-c>`      | Quit                                  | Yes     |
-| `help`                     | `?`               | Toggle help                           | Yes     |
-| `selectNext`               | `j`, `<Down>`     | Select next row                       | Yes     |
-| `selectPrevious`           | `k`, `<Up>`       | Select previous row                   | Yes     |
-| `selectFirst`              | `gg`              | Select first row                      | Yes     |
-| `selectLast`               | `G`               | Select last row                       | Yes     |
-| `selectNextGroup`          | `J`               | Select next group                     | Yes     |
-| `selectPreviousGroup`      | `K`               | Select previous group                 | Yes     |
-| `toggleFold`               | `za`, `<Space>`   | Fold or unfold node                   | Yes     |
-| `openFold`                 | `zo`              | Open fold                             | Yes     |
-| `closeFold`                | `zc`              | Close fold                            | Yes     |
-| `openAllFolds`             | `zR`              | Open all folds                        | Yes     |
-| `closeAllFolds`            | `zM`              | Close all folds                       | Yes     |
-| `centerSelectedRow`        | `zz`              | Center the selected row               | Yes     |
-| `topSelectedRow`           | `zt`              | Put the selected row at the top       | Yes     |
-| `bottomSelectedRow`        | `zb`              | Put the selected row at the bottom    | Yes     |
-| `halfPageDown`             | `<C-d>`           | Half page down                        | Yes     |
-| `halfPageUp`               | `<C-u>`           | Half page up                          | Yes     |
-| `pageDown`                 | `<C-f>`           | Page down                             | Yes     |
-| `pageUp`                   | `<C-b>`           | Page up                               | Yes     |
-| `activateRow`              | `<CR>`            | Fold group or open thread detail      | Yes     |
-| `cycleGrouping`            | `s`               | Cycle grouping                        | Yes     |
-| `refresh`                  | `r`               | Refresh                               | Yes     |
-| `markDone`                 | `d`               | Mark done                             | Yes     |
-| `openInBrowser`            | `o`, `gx`         | Open in browser                       | Yes     |
-| `undoDone`                 | `u`               | Undo the last done                    | Yes     |
-| `openSearch`               | `/`               | Search the list                       | Yes     |
-| `clearSearch`              | `<Esc>`           | Clear the search                      | Yes     |
-| `openCommandLine`          | `:`               | Open the command line                 | Yes     |
-| `openFilters`              | `f`               | Open filters                          | Yes     |
-| `clearFilters`             | `F`               | Clear all filters                     | Yes     |
-| `submitInput`              | `<CR>`            | Keep the search                       | No      |
-| `nextSearchCompletion`     | `<Tab>`           | Complete the last word                | No      |
-| `previousSearchCompletion` | `<S-Tab>`         | Complete the last word backwards      | No      |
-| `cancelInput`              | `<Esc>`           | Restore the previous search           | No      |
-| `clearLine`                | `<C-u>`           | Clear an input line                   | No      |
-| `closeEmptyLine`           | `<BS>`            | Close an empty input line             | No      |
-| `runCommandLine`           | `<CR>`            | Run the command                       | No      |
-| `closeCommandLine`         | `<Esc>`           | Close the command line                | No      |
-| `closeDetail`              | `<Esc>`           | Close thread detail                   | No      |
-| `openHelpSearch`           | `/`               | Search help                           | No      |
-| `keepHelpSearch`           | `<Enter>`         | Keep help search                      | No      |
-| `cancelHelpSearch`         | `<Esc>`           | Clear and close help search           | No      |
-| `clearHelpSearch`          | `<C-u>`           | Clear help search                     | No      |
-| `closeEmptyHelpSearch`     | `<BS>`            | Close empty help search               | No      |
-| `closeHelp`                | `q`, `<Esc>`      | Close help                            | No      |
-| `showMessages`             | `[]`              | Show recent messages                  | Yes     |
-| `closeMessages`            | `q`, `<Esc>`      | Close messages                        | No      |
-| `confirmOpen`              | `y`, `<CR>`       | Confirm opening the repos             | No      |
-| `cancelOpen`               | `n`, `<Esc>`      | Cancel opening the repos              | No      |
-| `applyFilterRow`           | `<CR>`            | Apply the filter row                  | No      |
-| `takeFilterRow`            | `<Tab>`           | Copy the filter row to the line       | No      |
-| `moveFilterUp`             | `<Up>`, `<C-p>`   | Move up a filter row                  | No      |
-| `moveFilterDown`           | `<Down>`, `<C-n>` | Move down a filter row                | No      |
-| `closeFilters`             | `<Esc>`           | Close the composer or cancel the edit | No      |
+| Id                              | Default keys      | Help label                            | Aliases |
+| ------------------------------- | ----------------- | ------------------------------------- | ------- |
+| `quit`                          | `q`, `<C-c>`      | Quit                                  | Yes     |
+| `help`                          | `?`               | Toggle help                           | Yes     |
+| `selectNext`                    | `j`, `<Down>`     | Select next row                       | Yes     |
+| `selectPrevious`                | `k`, `<Up>`       | Select previous row                   | Yes     |
+| `selectFirst`                   | `gg`              | Select first row                      | Yes     |
+| `selectLast`                    | `G`               | Select last row                       | Yes     |
+| `selectNextGroup`               | `J`               | Select next group                     | Yes     |
+| `selectPreviousGroup`           | `K`               | Select previous group                 | Yes     |
+| `toggleFold`                    | `za`, `<Space>`   | Fold or unfold node                   | Yes     |
+| `openFold`                      | `zo`              | Open fold                             | Yes     |
+| `closeFold`                     | `zc`              | Close fold                            | Yes     |
+| `openAllFolds`                  | `zR`              | Open all folds                        | Yes     |
+| `closeAllFolds`                 | `zM`              | Close all folds                       | Yes     |
+| `centerSelectedRow`             | `zz`              | Center the selected row               | Yes     |
+| `topSelectedRow`                | `zt`              | Put the selected row at the top       | Yes     |
+| `bottomSelectedRow`             | `zb`              | Put the selected row at the bottom    | Yes     |
+| `halfPageDown`                  | `<C-d>`           | Half page down                        | Yes     |
+| `halfPageUp`                    | `<C-u>`           | Half page up                          | Yes     |
+| `pageDown`                      | `<C-f>`           | Page down                             | Yes     |
+| `pageUp`                        | `<C-b>`           | Page up                               | Yes     |
+| `activateRow`                   | `<CR>`            | Fold group or open thread detail      | Yes     |
+| `cycleGrouping`                 | `s`               | Cycle grouping                        | Yes     |
+| `refresh`                       | `r`               | Refresh                               | Yes     |
+| `markDone`                      | `d`               | Mark done                             | Yes     |
+| `openInBrowser`                 | `o`, `gx`         | Open in browser                       | Yes     |
+| `undoDone`                      | `u`               | Undo the last done                    | Yes     |
+| `openSearch`                    | `/`               | Search the list                       | Yes     |
+| `clearSearch`                   | `<Esc>`           | Clear the search                      | Yes     |
+| `openCommandLine`               | `:`               | Open the command line                 | Yes     |
+| `openFilters`                   | `f`               | Open filters                          | Yes     |
+| `clearFilters`                  | `F`               | Clear all filters                     | Yes     |
+| `submitInput`                   | `<CR>`            | Keep the search                       | No      |
+| `nextSearchCompletion`          | `<Tab>`           | Complete the last word                | No      |
+| `previousSearchCompletion`      | `<S-Tab>`         | Complete the last word backwards      | No      |
+| `cancelInput`                   | `<Esc>`           | Restore the previous search           | No      |
+| `clearLine`                     | `<C-u>`           | Clear an input line                   | No      |
+| `closeEmptyLine`                | `<BS>`            | Close an empty input line             | No      |
+| `nextCommandLineCompletion`     | `<Tab>`           | Complete the command name             | No      |
+| `previousCommandLineCompletion` | `<S-Tab>`         | Complete the command name backwards   | No      |
+| `runCommandLine`                | `<CR>`            | Run the command                       | No      |
+| `closeCommandLine`              | `<Esc>`           | Close the command line                | No      |
+| `closeDetail`                   | `<Esc>`           | Close thread detail                   | No      |
+| `openHelpSearch`                | `/`               | Search help                           | No      |
+| `keepHelpSearch`                | `<Enter>`         | Keep help search                      | No      |
+| `cancelHelpSearch`              | `<Esc>`           | Clear and close help search           | No      |
+| `clearHelpSearch`               | `<C-u>`           | Clear help search                     | No      |
+| `closeEmptyHelpSearch`          | `<BS>`            | Close empty help search               | No      |
+| `closeHelp`                     | `q`, `<Esc>`      | Close help                            | No      |
+| `showMessages`                  | `[]`              | Show recent messages                  | Yes     |
+| `closeMessages`                 | `q`, `<Esc>`      | Close messages                        | No      |
+| `confirmOpen`                   | `y`, `<CR>`       | Confirm opening the repos             | No      |
+| `cancelOpen`                    | `n`, `<Esc>`      | Cancel opening the repos              | No      |
+| `applyFilterRow`                | `<CR>`            | Apply the filter row                  | No      |
+| `takeFilterRow`                 | `<Tab>`           | Copy the filter row to the line       | No      |
+| `moveFilterUp`                  | `<Up>`, `<C-p>`   | Move up a filter row                  | No      |
+| `moveFilterDown`                | `<Down>`, `<C-n>` | Move down a filter row                | No      |
+| `closeFilters`                  | `<Esc>`           | Close the composer or cancel the edit | No      |
 
 `clearLine` and `closeEmptyLine` remap the search, command, and filter input lines together. Their
 internal command ids are not config ids. `clearHelpSearch` and `closeEmptyHelpSearch` remap help

@@ -18,6 +18,8 @@ export type Intent =
         | 'openDetail'
         | 'closeDetail'
         | 'runCommandLine'
+        | 'nextCommandLineCompletion'
+        | 'previousCommandLineCompletion'
         | 'openMessages'
         | 'closeMessages';
     }
@@ -562,6 +564,24 @@ export const catalog: readonly Command[] = [
     disabledReason: (snapshot) =>
       snapshot.searchText === '' ? undefined : 'The line has text to delete.',
     intent: () => ({ kind: 'application', intent: { kind: 'keepSearch' } }),
+  },
+  {
+    id: 'nextCommandLineCompletion',
+    label: 'Complete the command name',
+    scope: 'command',
+    section: 'commandLine',
+    keys: ['tab'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'nextCommandLineCompletion' }),
+  },
+  {
+    id: 'previousCommandLineCompletion',
+    label: 'Complete the command name backwards',
+    scope: 'command',
+    section: 'commandLine',
+    keys: ['shift+tab'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'previousCommandLineCompletion' }),
   },
   {
     id: 'runCommandLine',
