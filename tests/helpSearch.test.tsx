@@ -154,7 +154,7 @@ for (const inBurst of [false, true]) {
 
     expect(setup.captureCharFrame()).toMatch(/1-19 of \d+/);
     expect(setup.captureCharFrame()).toContain('qjk Quit');
-    expect(setup.captureCharFrame()).toContain('Search: qjk');
+    expect(setup.captureCharFrame()).toContain('/qjk');
     expect(setup.captureCharFrame()).toContain('Help');
     expect(terminalIntents).toEqual([]);
 
@@ -181,21 +181,21 @@ test('help search Enter retains matches, reopening edits them, and Escape clears
 
   expect(setup.captureCharFrame()).toContain('Open filters');
   expect(setup.captureCharFrame()).not.toContain('Quit');
-  expect(setup.captureCharFrame()).not.toContain('Search:');
+  expect(setup.captureCharFrame()).not.toContain('/fltr');
 
   await press('/');
 
-  expect(setup.captureCharFrame()).toContain('Search: fltr');
+  expect(setup.captureCharFrame()).toContain('/fltr');
 
   await press('backspace');
 
-  expect(setup.captureCharFrame()).toContain('Search: flt');
+  expect(setup.captureCharFrame()).toContain('/flt');
 
   await press('escape');
 
   expect(setup.captureCharFrame()).toBe(original);
   expect(setup.captureCharFrame()).toContain('Quit');
-  expect(setup.captureCharFrame()).not.toContain('Search:');
+  expect(setup.captureCharFrame()).not.toContain('/flt');
 
   await press('escape');
 
@@ -253,7 +253,7 @@ test('help search clears a remapped input line before the next burst key', async
 
   await settle();
 
-  expect(setup.captureCharFrame()).toContain('Search: fltr');
+  expect(setup.captureCharFrame()).toContain('/fltr');
   expect(setup.captureCharFrame()).toContain('Open filters');
   expect(setup.captureCharFrame()).not.toContain('Quit');
 });
@@ -264,10 +264,10 @@ for (const entry of [
   { name: 'precomposed text', query: 'fltré', opener: '/', keys: ['backspace'], expected: 'fltr' },
   { name: 'remapped opener', query: 'fltr', opener: 's', keys: ['backspace'], expected: 'flt' },
   {
-    name: 'deletion through empty',
+    name: 'deletion to empty stays editing',
     query: 'ab',
     opener: '/',
-    keys: ['backspace', 'backspace', 'backspace'],
+    keys: ['backspace', 'backspace'],
     expected: '',
   },
   {
@@ -317,7 +317,7 @@ for (const entry of [
       }
 
       const frame = setup.captureCharFrame();
-      const query = frame.match(/Search: ([^\n│]*)/)?.[1]?.trim();
+      const query = frame.match(/│ \/([^\n│]*)│ *\n *╰/)?.[1]?.trim();
 
       expect(query).toBe(entry.expected);
       expect(frame).toContain('╭─ Help');
@@ -343,7 +343,7 @@ test('help search pending Backspace deletes a decomposed grapheme', async () => 
 
   const query = setup
     .captureCharFrame()
-    .match(/Search: ([^\n│]*)/)?.[1]
+    .match(/│ \/([^\n│]*)│ *\n *╰/)?.[1]
     ?.trim();
 
   expect(query).toBe('fltr');
@@ -351,13 +351,25 @@ test('help search pending Backspace deletes a decomposed grapheme', async () => 
 
 for (const inBurst of [false, true]) {
   test(`help search catalog Backspace clears before typing, burst=${inBurst}`, async () => {
-    const custom = catalog.map((command) =>
-      command.id === 'clearHelpSearch'
-        ? Object.assign({}, command, { keys: ['backspace'] })
-        : command,
+    const config = loadConfig(
+      { XDG_CONFIG_HOME: '/test-config' },
+      {
+        readFile: () => ({
+          kind: 'text',
+          text: JSON.stringify({ version: 1, keys: { clearHelpSearch: ['<BS>'] } }),
+        }),
+      },
     );
 
-    const { setup, press, settle } = await mount({ catalog: custom, width: 80, height: 100 });
+    if (!config.ok) {
+      throw new Error(config.message);
+    }
+
+    const { setup, press, settle } = await mount({
+      catalog: config.catalog,
+      width: 80,
+      height: 100,
+    });
 
     await press('?');
     await press('/');
@@ -374,6 +386,7 @@ for (const inBurst of [false, true]) {
       }
 
       setup.mockInput.pressBackspace();
+      setup.mockInput.pressBackspace();
       setup.mockInput.pressKey('q');
     });
 
@@ -381,11 +394,202 @@ for (const inBurst of [false, true]) {
     await settle();
 
     const frame = setup.captureCharFrame();
-    const query = frame.match(/Search: ([^\n│]*)/)?.[1]?.trim();
+    const query = frame.match(/│ \/([^\n│]*)│ *\n *╰/)?.[1]?.trim();
 
     expect(query).toBe('q');
     expect(frame).toContain('Quit');
   });
+}
+
+for (const mode of [
+  'settled',
+  'mounted burst',
+  'pending opener',
+  'pending retained',
+  'clear burst',
+]) {
+  test(`help search Backspace on an empty query exits to help navigation: ${mode}`, async () => {
+    const { setup, press, settle } = await mount({ width: 80, height: 100 });
+
+    await press('?');
+
+    const original = setup.captureCharFrame();
+
+    if (mode !== 'pending opener') {
+      await press('/');
+      await press('a');
+    }
+
+    if (mode === 'pending retained') {
+      await press('return');
+    }
+
+    if (mode === 'settled') {
+      await press('backspace');
+
+      expect(setup.captureCharFrame()).toMatch(/│ \/\s*│ *\n *╰/);
+
+      await press('backspace');
+    } else {
+      act(() => {
+        if (mode === 'pending opener' || mode === 'pending retained') {
+          setup.mockInput.pressKey('/');
+        }
+
+        if (mode === 'clear burst') {
+          setup.mockInput.pressKey('u', { ctrl: true });
+        } else if (mode !== 'pending opener') {
+          setup.mockInput.pressBackspace();
+        }
+
+        setup.mockInput.pressBackspace();
+      });
+
+      await settle();
+      await settle();
+    }
+
+    expect(setup.captureCharFrame()).toBe(original);
+
+    await press('q');
+
+    expect(setup.captureCharFrame()).not.toContain('╭─ Help');
+  });
+}
+
+for (const pending of [false, true]) {
+  test(`help search Backspace on an empty query exits to help navigation in the same burst, pending=${pending}`, async () => {
+    const { setup, press, settle } = await mount({ width: 80, height: 100 });
+
+    await press('?');
+
+    if (!pending) {
+      await press('/');
+    }
+
+    act(() => {
+      if (pending) {
+        setup.mockInput.pressKey('/');
+      }
+
+      setup.mockInput.pressBackspace();
+      setup.mockInput.pressKey('q');
+    });
+
+    await settle();
+    await settle();
+
+    expect(setup.captureCharFrame()).not.toContain('╭─ Help');
+  });
+
+  test(`help search deleting the final grapheme keeps editing, pending=${pending}`, async () => {
+    const { setup, press, settle } = await mount({ width: 80, height: 100 });
+
+    await press('?');
+    await press('/');
+    await press('e\u0301');
+
+    if (pending) {
+      await press('return');
+    }
+
+    act(() => {
+      if (pending) {
+        setup.mockInput.pressKey('/');
+      }
+
+      setup.mockInput.pressBackspace();
+    });
+
+    await settle();
+    await settle();
+
+    expect(setup.captureCharFrame()).toMatch(/│ \/\s*│ *\n *╰/);
+
+    await press('q');
+
+    expect(setup.captureCharFrame()).toContain('/q');
+    expect(setup.captureCharFrame()).toContain('╭─ Help');
+  });
+}
+
+for (const keys of [[], ['<C-x>']]) {
+  for (const pending of [false, true]) {
+    test(`help search empty close follows config ${keys.join(',')}, pending=${pending}`, async () => {
+      const config = loadConfig(
+        { XDG_CONFIG_HOME: '/test-config' },
+        {
+          readFile: () => ({
+            kind: 'text',
+            text: JSON.stringify({ version: 1, keys: { closeEmptyHelpSearch: keys } }),
+          }),
+        },
+      );
+
+      if (!config.ok) {
+        throw new Error(config.message);
+      }
+
+      const { setup, press, settle } = await mount({
+        catalog: config.catalog,
+        width: 80,
+        height: 100,
+      });
+
+      await press('?');
+
+      const original = setup.captureCharFrame();
+
+      if (!pending) {
+        await press('/');
+      }
+
+      act(() => {
+        if (pending) {
+          setup.mockInput.pressKey('/');
+        }
+
+        setup.mockInput.pressBackspace();
+        setup.mockInput.pressKey('q');
+      });
+
+      await settle();
+      await settle();
+
+      expect(setup.captureCharFrame()).toContain('/q');
+      expect(setup.captureCharFrame()).toContain('╭─ Help');
+
+      act(() => {
+        setup.mockInput.pressKey('x', { ctrl: true });
+      });
+
+      await settle();
+
+      expect(setup.captureCharFrame()).toContain('/q');
+
+      await press('backspace');
+
+      if (pending) {
+        await press('return');
+      }
+
+      act(() => {
+        if (pending) {
+          setup.mockInput.pressKey('/');
+        }
+
+        setup.mockInput.pressKey('x', { ctrl: true });
+      });
+
+      await settle();
+
+      if (keys.length > 0) {
+        expect(setup.captureCharFrame()).toBe(original);
+      } else {
+        expect(setup.captureCharFrame()).toMatch(/│ \/\s*│ *\n *╰/);
+      }
+    });
+  }
 }
 
 test('help search opener and hint follow a custom catalog', async () => {

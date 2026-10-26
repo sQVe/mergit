@@ -14,6 +14,7 @@ export type Intent =
         | 'keepHelpSearch'
         | 'cancelHelpSearch'
         | 'clearHelpSearch'
+        | 'closeEmptyHelpSearch'
         | 'openDetail'
         | 'closeDetail'
         | 'runCommandLine'
@@ -660,6 +661,16 @@ export const catalog: readonly Command[] = [
     keys: ['ctrl+u'],
     disabledReason: () => undefined,
     intent: () => ({ kind: 'ui', action: 'clearHelpSearch' }),
+  },
+  {
+    id: 'closeEmptyHelpSearch',
+    label: 'Close empty help search',
+    scope: 'helpSearch',
+    section: 'overlays',
+    keys: ['backspace'],
+    preventDefault: false,
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'closeEmptyHelpSearch' }),
   },
   {
     id: 'quitFromHelpSearch',

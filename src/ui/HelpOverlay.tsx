@@ -75,7 +75,7 @@ export const HelpOverlay = (props: {
       {overflows ? <text fg={palette.dim}>{hint}</text> : null}
       {props.search.editing ? (
         <InputLine
-          prompt="Search: "
+          prompt="/"
           value={props.search.text}
           focused
           palette={palette}

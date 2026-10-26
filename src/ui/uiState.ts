@@ -73,6 +73,10 @@ const helpSearchAfter = (overlay: Overlay, intent: UiIntent): Overlay | undefine
     return { ...overlay, editing: false };
   }
 
+  if (intent.action === 'closeEmptyHelpSearch') {
+    return overlay.text === '' ? { ...overlay, editing: false } : overlay;
+  }
+
   if (intent.action === 'cancelHelpSearch') {
     return { ...overlay, text: '', editing: false };
   }
