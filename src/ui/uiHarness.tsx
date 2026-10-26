@@ -125,8 +125,6 @@ const defaultWidth = 60;
 
 const defaultHeight = 24;
 
-const settleMilliseconds = 50;
-
 const framesAfterTimeline = 2;
 
 export const mount = async (options: MountOptions = {}): Promise<MountedApp> => {
@@ -211,11 +209,31 @@ export const mount = async (options: MountOptions = {}): Promise<MountedApp> => 
     });
   };
 
-  const settle = () =>
+  const render = () =>
     act(async () => {
-      await Bun.sleep(settleMilliseconds);
+      // renderOnce returns early if a frame is already running.
+      await setup.waitFor(() => !setup.renderer.getSchedulerState().isRendering);
       await setup.renderOnce();
     });
+
+  const settle = async () => {
+    await render();
+
+    if (clock !== undefined) {
+      return;
+    }
+
+    await setup.waitFor(async () => {
+      await act(async () => {
+        await setup.flush();
+      });
+
+      // Timeline callbacks update React state; draw its commit before checking visual completion.
+      await render();
+
+      return setup.getNativeStats().cellsUpdated === 0;
+    });
+  };
 
   const advance = async (milliseconds: number) => {
     await act(async () => {
@@ -233,9 +251,20 @@ export const mount = async (options: MountOptions = {}): Promise<MountedApp> => 
   };
 
   const press = async (key: string) => {
-    // oxlint-disable-next-line typescript/require-await -- act flushes the callback's updates
     await act(async () => {
-      if (key === 'escape') {
+      const dispatched = new Promise<void>((resolve) => {
+        const onKeypress = () => {
+          setup.renderer.keyInput.off('keypress', onKeypress);
+          resolve();
+        };
+
+        setup.renderer.keyInput.prependListener('keypress', onKeypress);
+      });
+
+      if (key === 'escape' && manualTime && !kittyKeyboard) {
+        // Unmodified modifyOtherKeys Escape avoids the parser timeout without advancing the clock.
+        setup.mockInput.pressKey('\x1b[27;1;27~');
+      } else if (key === 'escape') {
         setup.mockInput.pressEscape();
       } else if (key === 'return') {
         setup.mockInput.pressEnter();
@@ -248,6 +277,8 @@ export const mount = async (options: MountOptions = {}): Promise<MountedApp> => 
       } else {
         setup.mockInput.pressKey(key);
       }
+
+      await dispatched;
     });
 
     await settle();
