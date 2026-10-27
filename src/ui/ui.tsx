@@ -8,7 +8,13 @@ import type { ReactNode, RefObject } from 'react';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import type { Command, ReaderContext, TerminalIntent } from '../commands.ts';
-import { commandsOfLayer, keyHintOf, readableStrokeOf, scopePriority } from '../commands.ts';
+import {
+  commandsOfLayer,
+  isReaderDetached,
+  keyHintOf,
+  readableStrokeOf,
+  scopePriority,
+} from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import { CommandLine, commandLineRows, commandLineNamesOf } from './CommandLine.tsx';
@@ -502,6 +508,24 @@ const Keys = (props: KeysProps): ReactNode => {
   return <CountPatterns />;
 };
 
+const readerHints: [string, string][] = [
+  ['readerMarkDone', 'done'],
+  ['readerOpenInBrowser', 'open'],
+  ['readerRefresh', 'refresh'],
+  ['readerUndoDone', 'undo'],
+  ['closeDetail', 'close'],
+];
+
+const readerHintOf = (catalog: readonly Command[]): string => {
+  const parts = readerHints.map(([id, label]) => {
+    const key = keyHintOf(catalog, id);
+
+    return key === undefined ? undefined : `${key} ${label}`;
+  });
+
+  return parts.filter((part): part is string => part !== undefined).join('  ');
+};
+
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -515,6 +539,7 @@ const Body = (props: {
   const { snapshot, palette, width, paneWidth, stripWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
   const detailRow = props.reader.kind === 'reader' ? props.reader.row : selectedRow;
+  const detached = isReaderDetached(snapshot, props.reader);
 
   const facts =
     detailRow?.kind === 'thread' ? snapshot.subjectFacts.get(detailRow.thread.id) : undefined;
@@ -538,14 +563,19 @@ const Body = (props: {
             height={listHeight}
           />
         )}
-        <DetailPane
-          row={detailRow}
-          facts={facts}
-          newThreadIds={snapshot.newThreadIds}
-          palette={palette}
-          now={now}
-          width={width - stripWidth}
-        />
+        <box flexDirection="column" flexGrow={1}>
+          <DetailPane
+            row={detailRow}
+            facts={facts}
+            newThreadIds={snapshot.newThreadIds}
+            palette={palette}
+            now={now}
+            width={width - stripWidth}
+            detached={detached}
+          />
+          <box flexGrow={1} />
+          <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
+        </box>
       </box>
     );
   }
@@ -566,6 +596,7 @@ const Body = (props: {
           palette={palette}
           now={now}
           width={paneWidth}
+          detached={detached}
         />
       ) : null}
     </box>

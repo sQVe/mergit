@@ -1,3 +1,4 @@
+import { invariant } from './invariant.ts';
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
 import { searchCandidatesOf, visibleRows } from './session/session.ts';
 import type { BrowserPage, ThreadRow } from './work/work.ts';
@@ -142,6 +143,35 @@ const confirmAfterRepositories = 3;
 
 const selectedRowOf = (snapshot: Snapshot) =>
   visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
+
+const openIntentOf = (pages: readonly BrowserPage[]): Intent =>
+  pages.length > confirmAfterRepositories
+    ? { kind: 'ui', action: 'askOpen', pages }
+    : { kind: 'application', intent: { kind: 'openInBrowser', pages } };
+
+const readerRowOf = (reader: ReaderContext): ThreadRow => {
+  invariant(reader.kind === 'reader', 'Reader commands run only while a thread detail is open.');
+
+  return reader.row;
+};
+
+const noReaderReason = (reader: ReaderContext): string | undefined =>
+  reader.kind === 'inbox' ? 'No thread detail is open.' : undefined;
+
+// The reader keeps its captured row; only the list decides whether the thread is still shown.
+export const isReaderDetached = (snapshot: Snapshot, reader: ReaderContext): boolean =>
+  reader.kind === 'reader' &&
+  !visibleRows(snapshot).some(
+    (candidate) => candidate.kind === 'thread' && candidate.thread.id === reader.row.thread.id,
+  );
+
+const readerDoneReason = (snapshot: Snapshot, reader: ReaderContext): string | undefined => {
+  if (reader.kind === 'inbox') {
+    return noReaderReason(reader);
+  }
+
+  return isReaderDetached(snapshot, reader) ? 'This thread is no longer in the list.' : undefined;
+};
 
 const noCompletion = (snapshot: Snapshot) =>
   searchCandidatesOf(snapshot).length === 0 ? 'No completion for the last word.' : undefined;
@@ -445,13 +475,8 @@ export const catalog: readonly Command[] = [
       selectedRowOf(snapshot) === undefined ? 'Select a row to open it' : undefined,
     intent: (snapshot) => {
       const row = selectedRowOf(snapshot);
-      const pages = row === undefined ? [] : pagesOfRow(row);
 
-      if (row !== undefined && pages.length > confirmAfterRepositories) {
-        return { kind: 'ui', action: 'askOpen', pages };
-      }
-
-      return { kind: 'application', intent: { kind: 'openInBrowser', pages } };
+      return openIntentOf(row === undefined ? [] : pagesOfRow(row));
     },
   },
   {
@@ -656,9 +681,51 @@ export const catalog: readonly Command[] = [
     scope: 'reader',
     section: 'threads',
     keys: ['escape'],
-    disabledReason: (_snapshot, reader) =>
-      reader.kind === 'inbox' ? 'No thread detail is open.' : undefined,
+    disabledReason: (_snapshot, reader) => noReaderReason(reader),
     intent: () => ({ kind: 'ui', action: 'closeDetail' }),
+  },
+  {
+    id: 'readerMarkDone',
+    configId: 'markDone',
+    label: 'Mark done',
+    scope: 'reader',
+    section: 'threads',
+    keys: ['d'],
+    disabledReason: readerDoneReason,
+    intent: (_snapshot, reader) => ({
+      kind: 'application',
+      intent: { kind: 'markThreadsDone', threadIds: [readerRowOf(reader).thread.id] },
+    }),
+  },
+  {
+    id: 'readerOpenInBrowser',
+    configId: 'openInBrowser',
+    label: 'Open in browser',
+    scope: 'reader',
+    section: 'threads',
+    keys: ['o', 'gx'],
+    disabledReason: (_snapshot, reader) => noReaderReason(reader),
+    intent: (_snapshot, reader) => openIntentOf(pagesOfRow(readerRowOf(reader))),
+  },
+  {
+    id: 'readerRefresh',
+    configId: 'refresh',
+    label: 'Refresh',
+    scope: 'reader',
+    section: 'app',
+    keys: ['r'],
+    disabledReason: (_snapshot, reader) => noReaderReason(reader),
+    intent: () => ({ kind: 'application', intent: { kind: 'refresh' } }),
+  },
+  {
+    id: 'readerUndoDone',
+    configId: 'undoDone',
+    label: 'Undo the last done',
+    scope: 'reader',
+    section: 'threads',
+    keys: ['u'],
+    disabledReason: (_snapshot, reader) => noReaderReason(reader),
+    intent: () => ({ kind: 'application', intent: { kind: 'undoDone' } }),
   },
   {
     id: 'openHelpSearch',

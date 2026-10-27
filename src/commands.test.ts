@@ -44,8 +44,12 @@ const inbox: ReaderContext = { kind: 'inbox' };
 test('quit returns a terminal intent and help returns a UI intent', () => {
   const snapshot = createSnapshot();
 
+  const enabled = catalog.filter(
+    (command) => command.disabledReason(snapshot, inbox) === undefined,
+  );
+
   const intents = Object.fromEntries(
-    catalog.map((command) => [command.id, command.intent(snapshot, inbox)]),
+    enabled.map((command) => [command.id, command.intent(snapshot, inbox)]),
   );
 
   expect(intents['quit']).toEqual({ kind: 'terminal', action: 'quit' });
@@ -473,4 +477,82 @@ test('keyHintOf gives nothing for a command without keys or an unknown command',
 test('readableStrokeOf names a shifted stroke that is not a letter by its modifier and name', () => {
   expect(readableStrokeOf({ name: 'up', shift: true })).toBe('shift+up');
   expect(readableStrokeOf({ name: 'a', shift: true })).toBe('A');
+});
+
+const readerRowOf = (snapshot: ReturnType<typeof createLoadedSnapshot>): ReaderContext => {
+  const threadRow = visibleRows(snapshot).find((row) => row.kind === 'thread');
+
+  return threadRow?.kind === 'thread' ? { kind: 'reader', row: threadRow } : inbox;
+};
+
+test('reader Done marks only the reader thread, even when the selected row is a group', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+  const reader = readerRowOf(loadedSnapshot);
+  const groupSelected = { ...loadedSnapshot, selectedRowKey: 'node:review' };
+
+  const command = catalog.find((candidate) => candidate.id === 'readerMarkDone');
+
+  expect(command?.configId).toBe('markDone');
+  expect(command?.scope).toBe('reader');
+  expect(command?.keys).toEqual(['d']);
+  expect(command?.disabledReason(loadedSnapshot, reader)).toBeUndefined();
+
+  expect(command?.intent(groupSelected, reader)).toEqual({
+    kind: 'application',
+    intent: { kind: 'markThreadsDone', threadIds: [toThreadId('1')] },
+  });
+});
+
+test('reader Done is disabled when the reader thread has left the list', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+  const reader = readerRowOf(loadedSnapshot);
+  const threadGone = { ...loadedSnapshot, threads: [] };
+
+  const command = catalog.find((candidate) => candidate.id === 'readerMarkDone');
+
+  expect(command?.disabledReason(threadGone, reader)).toBeDefined();
+  expect(command?.disabledReason(loadedSnapshot, inbox)).toBeDefined();
+});
+
+test('reader Open sends the captured thread pages and stays available after the thread leaves', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+  const reader = readerRowOf(loadedSnapshot);
+  const threadGone = { ...loadedSnapshot, threads: [] };
+
+  const command = catalog.find((candidate) => candidate.id === 'readerOpenInBrowser');
+
+  expect(command?.configId).toBe('openInBrowser');
+  expect(command?.disabledReason(threadGone, reader)).toBeUndefined();
+
+  expect(command?.intent(threadGone, reader)).toEqual({
+    kind: 'application',
+    intent: {
+      kind: 'openInBrowser',
+      pages: [{ kind: 'repo', repository: 'acme/app' }],
+    },
+  });
+});
+
+test('reader Refresh and Undo send their list intents and keep their list keys', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+  const reader = readerRowOf(loadedSnapshot);
+
+  const refresh = catalog.find((candidate) => candidate.id === 'readerRefresh');
+  const undo = catalog.find((candidate) => candidate.id === 'readerUndoDone');
+
+  expect(refresh?.configId).toBe('refresh');
+  expect(refresh?.keys).toEqual(['r']);
+
+  expect(refresh?.intent(loadedSnapshot, reader)).toEqual({
+    kind: 'application',
+    intent: { kind: 'refresh' },
+  });
+
+  expect(undo?.configId).toBe('undoDone');
+  expect(undo?.keys).toEqual(['u']);
+
+  expect(undo?.intent(loadedSnapshot, reader)).toEqual({
+    kind: 'application',
+    intent: { kind: 'undoDone' },
+  });
 });

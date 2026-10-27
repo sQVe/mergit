@@ -244,6 +244,7 @@ const renderThreadPane = async (isNew: boolean): Promise<string> => {
         palette={pickPalette('dark')}
         now={new Date(3 * 3_600_000)}
         width={40}
+        detached={false}
       />,
       { width: 40, height: 12 },
     ),

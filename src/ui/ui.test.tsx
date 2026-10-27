@@ -7,7 +7,8 @@ import { testRender } from '@opentui/react/test-utils';
 import { act, useMemo, useState } from 'react';
 
 import { catalog } from '../commands.ts';
-import type { SessionEffects } from '../session/session.ts';
+import { invariant } from '../invariant.ts';
+import type { Session, SessionEffects } from '../session/session.ts';
 import { createSession, visibleRows } from '../session/session.ts';
 import { App } from './ui.tsx';
 import type { Setup } from './uiHarness.tsx';
@@ -1311,4 +1312,84 @@ test('swapping the keymap A to B to A keeps counts working, drops old layers, an
   await expectStep(0);
 
   expect(diagnostics).toEqual([]);
+});
+
+const selectedThreadOf = (session: Session) => {
+  const snapshot = session.getSnapshot();
+  const row = visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
+
+  invariant(row?.kind === 'thread', 'The selected row is not a thread.');
+
+  return row.thread;
+};
+
+// The first thread sits below the review group and its first repository group.
+const openReaderOnFirstThread = async (press: (key: string) => Promise<void>) => {
+  await press('r');
+  await pressAll(press, ['j', 'j', 'return']);
+};
+
+test('d in the focused reader marks only the reader thread done', async () => {
+  const { press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  await press('d');
+
+  expect(sent.at(-1)).toEqual({ kind: 'markThreadsDone', threadIds: [readerThread.id] });
+});
+
+test('o, r, and u in the focused reader send the reader thread pages, refresh, and undo', async () => {
+  const { press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const { repository } = selectedThreadOf(session);
+
+  await press('o');
+
+  expect(sent.at(-1)).toEqual({ kind: 'openInBrowser', pages: [{ kind: 'repo', repository }] });
+
+  await press('r');
+
+  expect(sent.at(-1)).toEqual({ kind: 'refresh' });
+
+  await press('u');
+
+  expect(sent.at(-1)).toEqual({ kind: 'undoDone' });
+});
+
+test('a refresh that drops the reader thread keeps the reader on a detached notice and sends no done', async () => {
+  let current = fourRepoThreads;
+
+  const { setup, press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: feedEffects(() => current),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  current = fourRepoThreads.filter((thread) => thread.id !== readerThread.id);
+
+  await press('r');
+
+  expect(visibleRows(session.getSnapshot()).some((row) => row.key === 'node:review')).toBe(true);
+  expect(setup.captureCharFrame()).toContain('no longer in the list');
+
+  const before = sent.length;
+
+  await press('d');
+
+  expect(sent.slice(before)).toEqual([]);
+  expect(setup.captureCharFrame()).toContain(readerThread.title);
 });
