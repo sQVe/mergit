@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import type { ReaderContext } from '../src/commands.ts';
 import { catalog } from '../src/commands.ts';
 import { createSession, visibleRows } from '../src/session/session.ts';
-import { toThreadId, toViewerLogin } from '../src/work/work.ts';
+import { toThreadId, toViewerId, toViewerLogin } from '../src/work/work.ts';
 
 const idleEffects = {
   savedSnapshot: null,
@@ -16,7 +16,10 @@ const idleEffects = {
   configNotices: [],
   stateWarning: null,
   readViewer: () =>
-    Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
+    Promise.resolve({
+      ok: true as const,
+      value: { id: toViewerId('U_octocat'), login: toViewerLogin('octocat'), etag: null },
+    }),
   saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({
