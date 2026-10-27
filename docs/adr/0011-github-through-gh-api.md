@@ -40,9 +40,13 @@ authentication and the active account, and Mergit adds no dependency.
 - Every `gh api` call passes `--hostname HOST`, and every `gh browse` call passes
   `--repo HOST/OWNER/REPO`. The host selects a server, never an account. `gh` still picks the
   account and token for that host.
+- Mergit picks the host once at startup, by the rule `gh` follows without `--hostname`. It uses
+  `GH_HOST` when it is set and not empty. Otherwise it uses the only host that
+  `gh auth status --json hosts` lists. In every other case it uses `github.com`: no host, several
+  hosts, `gh` missing, a non-zero exit, output over the limit, or output that does not parse.
 - Mergit reads at most a fixed number of bytes from each of the stdout and stderr streams of `gh`.
   It counts bytes while it reads. When a stream passes the limit, Mergit stops reading, ends the
-  process, and returns a size failure instead of the output.
+  process with `SIGKILL`, and returns a size failure instead of the output.
 - Every call runs with `--include`. Mergit reads the HTTP status and headers, and the GraphQL
   `errors` field, instead of the exit code. GraphQL can report a rate limit with HTTP 200, and `gh`
   exits 1 on a 304 Not Modified.

@@ -5,11 +5,11 @@ import { toThreadId, toViewerId, toViewerLogin } from '../work/work.ts';
 import type { GhRun } from './ghApi.ts';
 import type { GitHubEffects } from './github.ts';
 import {
-  gitHubHostOf,
   markThreadDone,
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
+  resolveGitHubHost,
   restoreNotificationFeed,
   verifyNotificationFeed,
 } from './github.ts';
@@ -529,13 +529,66 @@ test('readViewer returns invalidResponse for an empty node_id', async () => {
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
 });
 
-test('gitHubHostOf uses GH_HOST when it is set', () => {
-  expect(gitHubHostOf({ GH_HOST: 'ghe.example.com' })).toBe('ghe.example.com');
+const statusRunner = (run: GhRun) => {
+  const calls: (readonly string[])[] = [];
+
+  const runGh = async (args: readonly string[]): Promise<GhRun> => {
+    calls.push(args);
+
+    return run;
+  };
+
+  return { effects: { runGh }, calls };
+};
+
+const hostsStatus = (hosts: Record<string, unknown>): GhRun => ({
+  kind: 'exited',
+  exitCode: 0,
+  stdout: JSON.stringify({ hosts }),
+  stderr: '',
 });
 
-test('gitHubHostOf uses github.com when GH_HOST is unset or empty', () => {
-  expect(gitHubHostOf({})).toBe('github.com');
-  expect(gitHubHostOf({ GH_HOST: '' })).toBe('github.com');
+const account = [{ state: 'success', active: true, login: 'octocat' }];
+
+test('resolveGitHubHost uses GH_HOST without running gh', async () => {
+  const { effects, calls } = statusRunner(hostsStatus({ 'other.example.com': account }));
+
+  const host = await resolveGitHubHost(effects, { GH_HOST: 'ghe.example.com' }, signal);
+
+  expect(host).toBe('ghe.example.com');
+  expect(calls).toEqual([]);
+});
+
+test('resolveGitHubHost uses the only host gh is signed in to when GH_HOST is empty', async () => {
+  const { effects, calls } = statusRunner(hostsStatus({ 'ghe.example.com': account }));
+
+  const host = await resolveGitHubHost(effects, { GH_HOST: '' }, signal);
+
+  expect(host).toBe('ghe.example.com');
+  expect(calls).toEqual([['auth', 'status', '--json', 'hosts']]);
+});
+
+test('resolveGitHubHost uses github.com when gh cannot name one host', async () => {
+  const runs: GhRun[] = [
+    hostsStatus({ 'ghe.example.com': account, 'github.com': account }),
+    hostsStatus({}),
+    { kind: 'missing' },
+    { kind: 'exited', exitCode: 0, stdout: '{"hosts":', stderr: '' },
+    { kind: 'exited', exitCode: 0, stdout: '{"hosts":[]}', stderr: '' },
+    {
+      kind: 'exited',
+      exitCode: 1,
+      stdout: JSON.stringify({ hosts: { 'ghe.example.com': account } }),
+      stderr: '',
+    },
+    { kind: 'tooLarge', limitBytes: 1024 },
+  ];
+
+  const hosts = await Promise.all(
+    runs.map((run) => resolveGitHubHost(statusRunner(run).effects, {}, signal)),
+  );
+
+  expect(hosts).toEqual(runs.map(() => 'github.com'));
 });
 
 test('readViewer returns invalidResponse for an empty login', async () => {

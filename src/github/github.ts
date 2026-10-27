@@ -65,11 +65,48 @@ const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
   failure: { kind: 'invalidResponse', message },
 });
 
-// gh treats an empty GH_HOST as unset, but rejects an empty --hostname.
-export const gitHubHostOf = (environment: Record<string, string | undefined>): string => {
+const defaultHost = 'github.com';
+
+const authStatusSchema = z.object({ hosts: z.record(z.string(), z.unknown()) });
+
+const hostsOf = (statusOutput: string): string[] => {
+  try {
+    const parsed = authStatusSchema.safeParse(JSON.parse(statusOutput));
+
+    return parsed.success ? Object.keys(parsed.data.hosts) : [];
+  } catch {
+    return [];
+  }
+};
+
+const readSignedInHosts = async (
+  effects: Pick<GitHubEffects, 'runGh'>,
+  signal: AbortSignal,
+): Promise<string[]> => {
+  const run = await effects.runGh(['auth', 'status', '--json', 'hosts'], signal);
+
+  if (run.kind !== 'exited' || run.exitCode !== 0) {
+    return [];
+  }
+
+  return hostsOf(run.stdout);
+};
+
+// gh treats an empty GH_HOST as unset, and without --hostname it uses its only signed-in host.
+export const resolveGitHubHost = async (
+  effects: Pick<GitHubEffects, 'runGh'>,
+  environment: Record<string, string | undefined>,
+  signal: AbortSignal,
+): Promise<string> => {
   const configured = environment['GH_HOST'];
 
-  return configured === undefined || configured === '' ? 'github.com' : configured;
+  if (configured !== undefined && configured !== '') {
+    return configured;
+  }
+
+  const [onlyHost, ...otherHosts] = await readSignedInHosts(effects, signal);
+
+  return onlyHost === undefined || otherHosts.length > 0 ? defaultHost : onlyHost;
 };
 
 export const readViewer = async (

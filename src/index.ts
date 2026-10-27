@@ -3,12 +3,12 @@ import { keyHintOf } from './commands.ts';
 import { loadConfig } from './config/config.ts';
 import {
   createGhRunner,
-  gitHubHostOf,
   lookUpSubjects,
   markThreadDone,
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
+  resolveGitHubHost,
   restoreNotificationFeed,
   verifyNotificationFeed,
 } from './github/github.ts';
@@ -87,7 +87,7 @@ const start = async (): Promise<void> => {
 
   const { catalog, notices } = config;
   const runGh = createGhRunner();
-  const host = gitHubHostOf(Bun.env);
+  const host = await resolveGitHubHost({ runGh }, Bun.env, new AbortController().signal);
   const githubEffects = { runGh, now, host };
   const directory = cacheDirectory(Bun.env);
   const stateHome = stateDirectory(Bun.env);
