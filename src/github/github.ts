@@ -65,6 +65,13 @@ const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
   failure: { kind: 'invalidResponse', message },
 });
 
+// gh treats an empty GH_HOST as unset, but rejects an empty --hostname.
+export const gitHubHostOf = (environment: Record<string, string | undefined>): string => {
+  const configured = environment['GH_HOST'];
+
+  return configured === undefined || configured === '' ? 'github.com' : configured;
+};
+
 export const readViewer = async (
   effects: GitHubEffects,
   previous: Viewer | null,

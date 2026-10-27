@@ -5,6 +5,7 @@ import { toThreadId, toViewerId, toViewerLogin } from '../work/work.ts';
 import type { GhRun } from './ghApi.ts';
 import type { GitHubEffects } from './github.ts';
 import {
+  gitHubHostOf,
   markThreadDone,
   pollNotificationFeed,
   readNotificationFeed,
@@ -510,6 +511,23 @@ test('readViewer returns invalidResponse for a body without node_id', async () =
   const result = await readViewer(effects, null, signal);
 
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+test('readViewer returns invalidResponse for an empty node_id', async () => {
+  const { effects } = makeEffects({ '/user': page({ login: 'octocat', node_id: '' }) });
+
+  const result = await readViewer(effects, null, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+test('gitHubHostOf uses GH_HOST when it is set', () => {
+  expect(gitHubHostOf({ GH_HOST: 'ghe.example.com' })).toBe('ghe.example.com');
+});
+
+test('gitHubHostOf uses github.com when GH_HOST is unset or empty', () => {
+  expect(gitHubHostOf({})).toBe('github.com');
+  expect(gitHubHostOf({ GH_HOST: '' })).toBe('github.com');
 });
 
 test('readViewer returns invalidResponse for an empty login', async () => {

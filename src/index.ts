@@ -3,6 +3,7 @@ import { keyHintOf } from './commands.ts';
 import { loadConfig } from './config/config.ts';
 import {
   createGhRunner,
+  gitHubHostOf,
   lookUpSubjects,
   markThreadDone,
   pollNotificationFeed,
@@ -86,7 +87,7 @@ const start = async (): Promise<void> => {
 
   const { catalog, notices } = config;
   const runGh = createGhRunner();
-  const host = Bun.env['GH_HOST'] ?? 'github.com';
+  const host = gitHubHostOf(Bun.env);
   const githubEffects = { runGh, now, host };
   const directory = cacheDirectory(Bun.env);
   const stateHome = stateDirectory(Bun.env);
