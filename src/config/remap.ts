@@ -1,5 +1,11 @@
 import type { Command, OverlayScope } from '../commands.ts';
-import { catalog, commandsOfLayer, isOverlayScope, readableKeyOf } from '../commands.ts';
+import {
+  catalog,
+  commandsOfLayer,
+  configIdOf,
+  isOverlayScope,
+  readableKeyOf,
+} from '../commands.ts';
 import { invariant } from '../invariant.ts';
 import type { ConfigKeymap, Failure, Outcome } from './notation.ts';
 import { failure, keyOfNotation, strokesOf } from './notation.ts';
@@ -34,8 +40,6 @@ interface Remap {
 }
 
 export type Remapped = { ok: true; catalog: readonly Command[]; notices: string[] } | Failure;
-
-const configIdOf = (command: Command): string => command.configId ?? command.id;
 
 const isConfigurable = (command: Command): boolean => command.configurable !== false;
 

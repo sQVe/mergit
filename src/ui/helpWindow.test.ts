@@ -40,6 +40,19 @@ test('help search matches labels, readable keys, and colon aliases without reord
   expect(helpWindowOf(custom, 100, 80, '   ').lines).toEqual(helpWindowOf(custom, 100, 80).lines);
 });
 
+test('help shows one row for a list command and its reader copy when their keys agree', () => {
+  const rows = helpWindowOf(catalog, 200, 80).lines.filter(
+    (line) => line.kind === 'row' && ['d', 'r', 'u', 'o/gx'].includes(line.keys),
+  );
+
+  expect(rows).toEqual([
+    { kind: 'row', keys: 'r', label: 'Refresh' },
+    { kind: 'row', keys: 'd', label: 'Mark done' },
+    { kind: 'row', keys: 'o/gx', label: 'Open in browser' },
+    { kind: 'row', keys: 'u', label: 'Undo the last done' },
+  ]);
+});
+
 test('empty help matches at tiny height cannot scroll', () => {
   const window = helpWindowOf(catalog, 3, 30, 'zzzz');
 

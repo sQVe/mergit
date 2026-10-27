@@ -114,6 +114,8 @@ export const scopePriority: Record<Command['scope'], number> = {
 export const isOverlayScope = (scope: Command['scope']): scope is OverlayScope =>
   scope === 'help' || scope === 'messages';
 
+export const configIdOf = (command: Command): string => command.configId ?? command.id;
+
 const scrollCopyOf = (command: Command, scope: OverlayScope, move: OverlayMove): Command => ({
   ...command,
   scope,
