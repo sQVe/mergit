@@ -16,6 +16,7 @@ const rateLimitedEffects: GitHubEffects = {
     stderr: '',
   }),
   now: () => new Date('2026-02-01T12:00:00Z'),
+  host: 'github.com',
 };
 
 test('a GraphQL rate limit from a subject lookup holds feed requests until the reset time', async () => {
