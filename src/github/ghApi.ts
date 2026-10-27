@@ -107,7 +107,7 @@ const runGh = async (
   const readers = [child.stdout.getReader(), child.stderr.getReader()];
 
   const stopReading = async (): Promise<void> => {
-    child.kill();
+    child.kill('SIGKILL');
     await Promise.all(readers.map((reader) => reader.cancel()));
   };
 

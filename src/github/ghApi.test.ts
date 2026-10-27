@@ -184,8 +184,26 @@ test('requestGh accepts bare newlines', async () => {
 
 const directories: string[] = [];
 
+// A runner that fails to end a fake gh would leave it running after the test times out.
+const killFakeGh = async (directory: string): Promise<void> => {
+  const pidFile = Bun.file(join(directory, 'pid'));
+
+  if (!(await pidFile.exists())) {
+    return;
+  }
+
+  try {
+    process.kill(Number((await pidFile.text()).trim()), 'SIGKILL');
+  } catch {
+    // The fake gh has already exited.
+  }
+};
+
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })));
+  const finished = directories.splice(0);
+
+  await Promise.all(finished.map(killFakeGh));
+  await Promise.all(finished.map((directory) => rm(directory, { recursive: true })));
 });
 
 const withPath = async <T>(directory: string, action: () => Promise<T>): Promise<T> => {
@@ -450,6 +468,13 @@ test('createGhRunner returns tooLarge and ends gh when stderr passes the limit',
 
 test('createGhRunner ends gh that waits after it passes the limit', async () => {
   const { run, pid } = await runOverLimitGh('head -c 5000 /dev/zero\nexec sleep 30');
+
+  expect(run).toEqual({ kind: 'tooLarge', limitBytes: 4096 });
+  expect(isRunning(pid)).toBe(false);
+});
+
+test('createGhRunner ends gh that ignores SIGTERM after it passes the limit', async () => {
+  const { run, pid } = await runOverLimitGh("trap '' TERM\nhead -c 5000 /dev/zero\nexec sleep 30");
 
   expect(run).toEqual({ kind: 'tooLarge', limitBytes: 4096 });
   expect(isRunning(pid)).toBe(false);
