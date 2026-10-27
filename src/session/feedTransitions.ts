@@ -5,6 +5,9 @@ import { selectAfterRefresh } from './selectionRepair.ts';
 import type { Snapshot } from './sessionState.ts';
 import { visibleRows } from './sessionState.ts';
 
+const isoTimeStart = 11;
+const isoTimeEnd = 19;
+
 const futurePauseOf = (snapshot: Snapshot, now: Date): Date | null => {
   const { pausedUntil } = snapshot;
 
@@ -13,7 +16,7 @@ const futurePauseOf = (snapshot: Snapshot, now: Date): Date | null => {
 
 export const failureMessage = (failure: GitHubFailure): string => {
   if (failure.kind === 'rateLimited') {
-    const resetTime = /T(\d{2}:\d{2}:\d{2})/.exec(failure.resetAt.toISOString())?.[1] ?? '';
+    const resetTime = failure.resetAt.toISOString().slice(isoTimeStart, isoTimeEnd);
 
     return `Rate limited, paused until ${resetTime} UTC`;
   }
@@ -26,7 +29,7 @@ export const failureMessage = (failure: GitHubFailure): string => {
 };
 
 export const laterPauseOf = (first: Date | null, second: Date): Date =>
-  first !== null && first.getTime() > second.getTime() ? first : second;
+  first === null ? second : new Date(Math.max(first.getTime(), second.getTime()));
 
 const pauseMessageOf = (pausedUntil: Date | null): string | null =>
   pausedUntil === null ? null : failureMessage({ kind: 'rateLimited', resetAt: pausedUntil });
