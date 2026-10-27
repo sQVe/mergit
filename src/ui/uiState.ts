@@ -1,7 +1,7 @@
 import type { RefObject } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
-import type { Intent, OverlayMove } from '../commands.ts';
+import type { Intent, OverlayMove, ReaderContext } from '../commands.ts';
 import type { Session } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
 
@@ -15,7 +15,7 @@ export type Overlay =
 
 export interface ModalState {
   overlay: Overlay;
-  detailOpen: boolean;
+  reader: ReaderContext;
 }
 
 export interface HelpSearchInput {
@@ -28,7 +28,7 @@ export interface UiState {
   helpTop: number;
   helpInput: HelpSearchInput;
   messagesTop: number;
-  detailOpen: boolean;
+  reader: ReaderContext;
   modal: RefObject<ModalState>;
   runUiAction: (intent: UiIntent) => void;
 }
@@ -94,7 +94,6 @@ const helpSearchAfter = (overlay: Overlay, intent: UiIntent): Overlay | undefine
 
 export const useUiState = (
   session: Session,
-  sideLayout: boolean,
   helpWindow: (overlay: Overlay) => ScrollWindow,
   messageWindow: ScrollWindow,
 ): UiState => {
@@ -109,13 +108,13 @@ export const useUiState = (
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
   const [messagesTop, setMessagesTop] = useState(0);
-  const [detailOpen, setDetailOpenState] = useState(false);
+  const [reader, setReaderState] = useState<ReaderContext>({ kind: 'inbox' });
 
   // Keys in one burst arrive before React renders, so key handling reads this copy, which each
   // setter updates at once.
   const modal = useRef<ModalState>({
     overlay: { kind: 'none' },
-    detailOpen: false,
+    reader: { kind: 'inbox' },
   });
 
   const helpListeners = useRef(new Set<() => void>());
@@ -143,16 +142,10 @@ export const useUiState = (
     }
   }, []);
 
-  const setDetailOpen = useCallback((open: boolean) => {
-    modal.current.detailOpen = open;
-    setDetailOpenState(open);
+  const setReader = useCallback((next: ReaderContext) => {
+    modal.current.reader = next;
+    setReaderState(next);
   }, []);
-
-  useEffect(() => {
-    if (sideLayout) {
-      setDetailOpen(false);
-    }
-  }, [sideLayout, setDetailOpen]);
 
   const runUiAction = useCallback(
     (intent: UiIntent) => {
@@ -216,10 +209,10 @@ export const useUiState = (
         confirmOpen();
       } else if (action === 'cancelOpen') {
         setOverlay({ kind: 'none' });
-      } else if (action === 'openDetail') {
-        setDetailOpen(!sideLayout);
+      } else if (intent.action === 'openDetail') {
+        setReader({ kind: 'reader', row: intent.row });
       } else if (action === 'closeDetail') {
-        setDetailOpen(false);
+        setReader({ kind: 'inbox' });
       } else if (action === 'openMessages') {
         openMessages();
       } else if (action === 'closeMessages') {
@@ -230,10 +223,10 @@ export const useUiState = (
         toggleHelp(action === 'toggleHelp');
       }
     },
-    [session, sideLayout, setOverlay, setDetailOpen],
+    [session, setOverlay, setReader],
   );
 
   const helpInput = { watch: watchHelpSearch, current: currentHelpSearch };
 
-  return { overlay, helpTop, helpInput, messagesTop, detailOpen, modal, runUiAction };
+  return { overlay, helpTop, helpInput, messagesTop, reader, modal, runUiAction };
 };

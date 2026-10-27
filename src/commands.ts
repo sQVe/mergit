@@ -1,7 +1,9 @@
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
 import { searchCandidatesOf, visibleRows } from './session/session.ts';
-import type { BrowserPage } from './work/work.ts';
+import type { BrowserPage, ThreadRow } from './work/work.ts';
 import { pagesOfRow } from './work/work.ts';
+
+export type ReaderContext = { kind: 'inbox' } | { kind: 'reader'; row: ThreadRow };
 
 export type Intent =
   | { kind: 'application'; intent: ApplicationIntent }
@@ -15,7 +17,6 @@ export type Intent =
         | 'cancelHelpSearch'
         | 'clearHelpSearch'
         | 'closeEmptyHelpSearch'
-        | 'openDetail'
         | 'closeDetail'
         | 'runCommandLine'
         | 'nextCommandLineCompletion'
@@ -23,6 +24,7 @@ export type Intent =
         | 'openMessages'
         | 'closeMessages';
     }
+  | { kind: 'ui'; action: 'openDetail'; row: ThreadRow }
   | { kind: 'ui'; action: 'editHelpSearch'; text: string }
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
@@ -52,7 +54,7 @@ export interface Command {
   scope:
     | 'global'
     | 'list'
-    | 'preview'
+    | 'reader'
     | 'help'
     | 'helpSearch'
     | 'confirm'
@@ -68,7 +70,7 @@ export interface Command {
   overlayKeys?: Partial<Record<OverlayScope, readonly string[]>>;
   configurable?: false;
   mustKeepKey?: true;
-  disabledReason: (snapshot: Snapshot) => string | undefined;
+  disabledReason: (snapshot: Snapshot, reader: ReaderContext) => string | undefined;
   // The help and messages layers also bind this command's keys, and run this move on the open
   // overlay.
   overlayMove?: OverlayMove;
@@ -76,7 +78,7 @@ export interface Command {
   counted?: true;
   // Keys that still run this command while a count is pending, on the list layer.
   keysDuringCount?: readonly string[];
-  intent: (snapshot: Snapshot, count?: number) => Intent;
+  intent: (snapshot: Snapshot, reader: ReaderContext, count?: number) => Intent;
   // False lets the key reach the focused input after the command runs.
   preventDefault?: boolean;
 }
@@ -103,7 +105,7 @@ export const scopePriority: Record<Command['scope'], number> = {
   input: 40,
   command: 40,
   filter: 40,
-  preview: 30,
+  reader: 30,
   list: 20,
   global: 10,
 };
@@ -174,7 +176,10 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'lines', lines: 1 },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectNext', count } }),
+    intent: (_snapshot, _reader, count) => ({
+      kind: 'application',
+      intent: { kind: 'selectNext', count },
+    }),
   },
   {
     id: 'selectPrevious',
@@ -185,7 +190,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'lines', lines: -1 },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'selectPrevious', count },
     }),
@@ -199,7 +204,10 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'edge', edge: 'top' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectFirst', count } }),
+    intent: (_snapshot, _reader, count) => ({
+      kind: 'application',
+      intent: { kind: 'selectFirst', count },
+    }),
   },
   {
     id: 'selectLast',
@@ -210,7 +218,10 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'edge', edge: 'bottom' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectLast', count } }),
+    intent: (_snapshot, _reader, count) => ({
+      kind: 'application',
+      intent: { kind: 'selectLast', count },
+    }),
   },
   {
     id: 'selectNextGroup',
@@ -283,7 +294,7 @@ export const catalog: readonly Command[] = [
     keys: ['zz'],
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'placeSelectedRow', position: 'center', count },
     }),
@@ -296,7 +307,7 @@ export const catalog: readonly Command[] = [
     keys: ['zt'],
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'placeSelectedRow', position: 'top', count },
     }),
@@ -309,7 +320,7 @@ export const catalog: readonly Command[] = [
     keys: ['zb'],
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'placeSelectedRow', position: 'bottom', count },
     }),
@@ -323,7 +334,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'down', size: 'half' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'down', size: 'half', count },
     }),
@@ -337,7 +348,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'up', size: 'half' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'up', size: 'half', count },
     }),
@@ -351,7 +362,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'down', size: 'full' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'down', size: 'full', count },
     }),
@@ -365,7 +376,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'up', size: 'full' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'up', size: 'full', count },
     }),
@@ -378,10 +389,13 @@ export const catalog: readonly Command[] = [
     keys: ['return'],
     disabledReason: (snapshot) =>
       selectedRowOf(snapshot) === undefined ? 'No row is selected' : undefined,
-    intent: (snapshot) =>
-      selectedRowOf(snapshot)?.kind === 'thread'
-        ? { kind: 'ui', action: 'openDetail' }
-        : { kind: 'application', intent: { kind: 'toggleFold' } },
+    intent: (snapshot) => {
+      const row = selectedRowOf(snapshot);
+
+      return row?.kind === 'thread'
+        ? { kind: 'ui', action: 'openDetail', row }
+        : { kind: 'application', intent: { kind: 'toggleFold' } };
+    },
   },
   {
     id: 'cycleGrouping',
@@ -639,10 +653,11 @@ export const catalog: readonly Command[] = [
     id: 'closeDetail',
     mustKeepKey: true,
     label: 'Close thread detail',
-    scope: 'preview',
+    scope: 'reader',
     section: 'threads',
     keys: ['escape'],
-    disabledReason: () => undefined,
+    disabledReason: (_snapshot, reader) =>
+      reader.kind === 'inbox' ? 'No thread detail is open.' : undefined,
     intent: () => ({ kind: 'ui', action: 'closeDetail' }),
   },
   {

@@ -31,34 +31,38 @@ remaps read the same records, and tests assert intents without running effects.
 - Help reads its sections from the catalog, in a fixed order. Input-line copies of one action, such
   as clearing the line, share a `configId`. They show as one help row when their effective keys
   agree; otherwise help shows each scope's keys.
-- `disabledReason(snapshot)` returns why the command cannot run, or nothing when it can.
-- `intent(snapshot, count)` returns an application intent for the session, a UI intent for React, or
-  a terminal intent. It performs no I/O. `count` is the number typed before the key, or `undefined`
-  when none was typed. Only the commands marked `counted` use it: `selectNext`, `selectPrevious`,
-  `selectLast`, `selectFirst`, `centerSelectedRow`, `topSelectedRow`, `bottomSelectedRow`,
-  `halfPageDown`, `halfPageUp`, `pageDown`, and `pageUp`, on the list layer. Esc cancels a pending
-  count or key sequence. A key that does not finish it cancels it and does not run. Fixed Ctrl+C
-  quit bindings run before sequence dispatch. Keys in `keysDuringCount` also work during a count.
-  Only `terminal.tsx` handles terminal intents, so the session never owns the process lifetime.
+- `disabledReason(snapshot, reader)` returns why the command cannot run, or nothing when it can.
+- `intent(snapshot, reader, count)` returns an application intent for the session, a UI intent for
+  React, or a terminal intent. It performs no I/O. `reader` is the reader context:
+  `{ kind: 'inbox' }` when no thread is focused, or `{ kind: 'reader', row }` with the thread row
+  captured at Enter. The UI builds it from its own state at key time, and both functions only read
+  it. `count` is the number typed before the key, or `undefined` when none was typed. Only the
+  commands marked `counted` use it: `selectNext`, `selectPrevious`, `selectLast`, `selectFirst`,
+  `centerSelectedRow`, `topSelectedRow`, `bottomSelectedRow`, `halfPageDown`, `halfPageUp`,
+  `pageDown`, and `pageUp`, on the list layer. Esc cancels a pending count or key sequence. A key
+  that does not finish it cancels it and does not run. Fixed Ctrl+C quit bindings run before
+  sequence dispatch. Keys in `keysDuringCount` also work during a count. Only `terminal.tsx` handles
+  terminal intents, so the session never owns the process lifetime.
 - Keymap layers, help, and availability come from the catalog. Key handlers read the latest
   snapshot, not one captured at render.
 - The session checks preconditions again before it acts. A disabled key is not a safety check.
 
 ### Scopes
 
-- The ten scopes are `global`, `list`, `preview`, `help`, `helpSearch`, `messages`, `confirm`,
+- The ten scopes are `global`, `list`, `reader`, `help`, `helpSearch`, `messages`, `confirm`,
   `input`, `command`, and `filter`.
 - `helpSearch` is active alone while editing help search. It takes precedence over help scrolling
   and global commands, including during input bursts. Its fixed Ctrl+C binding still quits.
 - Each scope has one keymap layer. The layer carries a priority, and a higher priority wins a key
   that a lower one also binds. From highest to lowest: overlay or dialog (`help`, `messages`,
-  `confirm`), input line (`input`, `command`, `filter`), detail pane (`preview`), list (`list`), and
+  `confirm`), input line (`input`, `command`, `filter`), reader (`reader`), list (`list`), and
   global (`global`). Scopes at one level are never active together, so `escape` in one modal never
   runs another's command.
 - A higher level shadows the same key in a lower one on purpose.
-- `list` and `preview` bindings follow focus. `global` bindings stay active under help, messages,
-  and the confirmation, and are off while an input line is open.
-- An open modal blocks the `list` and `preview` commands beneath it. On close, focus returns to the
+- `list` and `reader` bindings follow focus. The reader takes focus on Enter at every terminal
+  width, so width only changes the layout, never which scope is active. `global` bindings stay
+  active under help, messages, and the confirmation, and are off while an input line is open.
+- An open modal blocks the `list` and `reader` commands beneath it. On close, focus returns to the
   previous target only if it is still mounted.
 - A command with an `overlayMove`, such as `selectNext` or `halfPageDown`, also binds its keys in
   the `help` and `messages` layers, where they scroll the open overlay. A remap of the list command

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import type { Intent } from './commands.ts';
+import type { Intent, ReaderContext } from './commands.ts';
 import { catalog, keyHintOf, keyNamesOf, readableKeyOf, readableStrokeOf } from './commands.ts';
 import type { ApplicationIntent, Filter } from './session/session.ts';
 import { createSession, visibleRows } from './session/session.ts';
@@ -39,11 +39,13 @@ const idleEffects = {
 
 const createSnapshot = () => createSession(idleEffects).getSnapshot();
 
+const inbox: ReaderContext = { kind: 'inbox' };
+
 test('quit returns a terminal intent and help returns a UI intent', () => {
   const snapshot = createSnapshot();
 
   const intents = Object.fromEntries(
-    catalog.map((command) => [command.id, command.intent(snapshot)]),
+    catalog.map((command) => [command.id, command.intent(snapshot, inbox)]),
   );
 
   expect(intents['quit']).toEqual({ kind: 'terminal', action: 'quit' });
@@ -59,17 +61,17 @@ test('list commands return the matching application intents on j, k, and r', () 
   expect(byId['selectPrevious']?.keys).toEqual(['k', 'up']);
   expect(byId['refresh']?.keys).toEqual(['r']);
 
-  expect(byId['selectNext']?.intent(snapshot)).toEqual({
+  expect(byId['selectNext']?.intent(snapshot, inbox)).toEqual({
     kind: 'application',
     intent: { kind: 'selectNext' },
   });
 
-  expect(byId['selectPrevious']?.intent(snapshot)).toEqual({
+  expect(byId['selectPrevious']?.intent(snapshot, inbox)).toEqual({
     kind: 'application',
     intent: { kind: 'selectPrevious' },
   });
 
-  expect(byId['refresh']?.intent(snapshot)).toEqual({
+  expect(byId['refresh']?.intent(snapshot, inbox)).toEqual({
     kind: 'application',
     intent: { kind: 'refresh' },
   });
@@ -91,7 +93,7 @@ test('tree commands list their keys and return their intents', () => {
 
   for (const [id, keys, kind] of expected) {
     expect(byId[id]?.keys).toEqual(keys);
-    expect(byId[id]?.intent(snapshot)).toEqual({ kind: 'application', intent: { kind } });
+    expect(byId[id]?.intent(snapshot, inbox)).toEqual({ kind: 'application', intent: { kind } });
   }
 });
 
@@ -108,12 +110,12 @@ test('paging commands return scrollPage intents with and without a count', () =>
   ] as const;
 
   for (const [id, direction, size] of expected) {
-    expect(byId[id]?.intent(snapshot)).toEqual({
+    expect(byId[id]?.intent(snapshot, inbox)).toEqual({
       kind: 'application',
       intent: { kind: 'scrollPage', direction, size, count: undefined },
     });
 
-    expect(byId[id]?.intent(snapshot, 3)).toEqual({
+    expect(byId[id]?.intent(snapshot, inbox, 3)).toEqual({
       kind: 'application',
       intent: { kind: 'scrollPage', direction, size, count: 3 },
     });
@@ -149,23 +151,36 @@ test('return folds a group on a node row and opens the detail on a thread row', 
   expect(bound).toHaveLength(1);
   expect(command?.scope).toBe('list');
 
-  expect(command?.disabledReason(onNode)).toBeUndefined();
-  expect(command?.disabledReason(onThread)).toBeUndefined();
-  expect(command?.disabledReason(nothing)).toBeDefined();
+  expect(command?.disabledReason(onNode, inbox)).toBeUndefined();
+  expect(command?.disabledReason(onThread, inbox)).toBeUndefined();
+  expect(command?.disabledReason(nothing, inbox)).toBeDefined();
 
-  expect(command?.intent(onNode)).toEqual({ kind: 'application', intent: { kind: 'toggleFold' } });
-  expect(command?.intent(onThread)).toEqual({ kind: 'ui', action: 'openDetail' });
+  expect(command?.intent(onNode, inbox)).toEqual({
+    kind: 'application',
+    intent: { kind: 'toggleFold' },
+  });
+
+  expect(command?.intent(onThread, inbox)).toMatchObject({
+    kind: 'ui',
+    action: 'openDetail',
+    row: { kind: 'thread', key: 'thread:1' },
+  });
 });
 
-test('closeDetail has the escape key, the preview scope, and a ui intent', () => {
-  const snapshot = createSnapshot();
+test('closeDetail has the escape key, the reader scope, and a ui intent', () => {
+  const loadedSnapshot = createLoadedSnapshot();
+  const threadRow = visibleRows(loadedSnapshot).find((row) => row.key === 'thread:1');
+
+  const reader: ReaderContext =
+    threadRow?.kind === 'thread' ? { kind: 'reader', row: threadRow } : inbox;
 
   const close = catalog.find((command) => command.id === 'closeDetail');
 
   expect(close?.keys).toEqual(['escape']);
-  expect(close?.scope).toBe('preview');
-  expect(close?.intent(snapshot)).toEqual({ kind: 'ui', action: 'closeDetail' });
-  expect(close?.disabledReason(snapshot)).toBeUndefined();
+  expect(close?.scope).toBe('reader');
+  expect(close?.intent(loadedSnapshot, reader)).toEqual({ kind: 'ui', action: 'closeDetail' });
+  expect(close?.disabledReason(loadedSnapshot, inbox)).toBeDefined();
+  expect(close?.disabledReason(loadedSnapshot, reader)).toBeUndefined();
 });
 
 test('markDone marks one thread on a thread row and every shown thread on a node row', () => {
@@ -185,12 +200,16 @@ test('markDone marks one thread on a thread row and every shown thread on a node
   expect(command?.keys).toEqual(['d']);
   expect(command?.scope).toBe('list');
   expect(nodeThreadIds.length).toBeGreaterThan(0);
-  expect(command?.disabledReason(onNode)).toBeUndefined();
-  expect(command?.disabledReason(onThread)).toBeUndefined();
-  expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null })).toBeDefined();
-  expect(command?.intent(onThread)).toEqual({ kind: 'application', intent: { kind: 'markDone' } });
+  expect(command?.disabledReason(onNode, inbox)).toBeUndefined();
+  expect(command?.disabledReason(onThread, inbox)).toBeUndefined();
+  expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null }, inbox)).toBeDefined();
 
-  expect(command?.intent(onNode)).toEqual({
+  expect(command?.intent(onThread, inbox)).toEqual({
+    kind: 'application',
+    intent: { kind: 'markDone' },
+  });
+
+  expect(command?.intent(onNode, inbox)).toEqual({
     kind: 'application',
     intent: { kind: 'markThreadsDone', threadIds: nodeThreadIds },
   });
@@ -203,7 +222,11 @@ test('undo is bound to u and returns the undoDone intent', () => {
 
   expect(command?.keys).toEqual(['u']);
   expect(command?.scope).toBe('list');
-  expect(command?.intent(snapshot)).toEqual({ kind: 'application', intent: { kind: 'undoDone' } });
+
+  expect(command?.intent(snapshot, inbox)).toEqual({
+    kind: 'application',
+    intent: { kind: 'undoDone' },
+  });
 });
 
 const intentOf = (pages: BrowserPage[]): Intent => ({
@@ -224,7 +247,7 @@ test('o on a thread row, a repo node, and a group node sends the expected open i
   const rows = visibleRows({ ...loadedSnapshot, threads });
 
   const openedOn = (key: string | undefined) =>
-    command?.intent({ ...loadedSnapshot, threads, selectedRowKey: key ?? null });
+    command?.intent({ ...loadedSnapshot, threads, selectedRowKey: key ?? null }, inbox);
 
   const groupRow = rows.find((row) => row.kind === 'node' && row.topLevel);
 
@@ -236,7 +259,7 @@ test('o on a thread row, a repo node, and a group node sends the expected open i
 
   expect(command?.keys).toEqual(['o', 'gx']);
   expect(command?.scope).toBe('list');
-  expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null })).toBeDefined();
+  expect(command?.disabledReason({ ...loadedSnapshot, selectedRowKey: null }, inbox)).toBeDefined();
 
   expect(openedOn(threadRow?.key)).toEqual(
     intentOf([{ kind: 'item', repository: 'acme/app', number: 42 }]),
@@ -267,7 +290,10 @@ test('o on a group node over 3 repos opens at once, and over 4 repos opens the d
     const rows = visibleRows({ ...loadedSnapshot, threads });
     const group = rows.find((row) => row.kind === 'node' && row.topLevel);
 
-    return command?.intent({ ...loadedSnapshot, threads, selectedRowKey: group?.key ?? null });
+    return command?.intent(
+      { ...loadedSnapshot, threads, selectedRowKey: group?.key ?? null },
+      inbox,
+    );
   };
 
   const three = groupOf(3);
@@ -287,28 +313,34 @@ test('the input commands act on the search line and clearSearch is disabled with
 
   expect(byId['openSearch']?.keys).toEqual(['/']);
 
-  expect(byId['submitInput']?.intent(snapshot)).toEqual({
+  expect(byId['submitInput']?.intent(snapshot, inbox)).toEqual({
     kind: 'application',
     intent: { kind: 'keepSearch' },
   });
 
-  expect(byId['cancelInput']?.intent(snapshot)).toEqual({
+  expect(byId['cancelInput']?.intent(snapshot, inbox)).toEqual({
     kind: 'application',
     intent: { kind: 'restoreSearch' },
   });
 
-  expect(byId['clearInput']?.intent(snapshot)).toEqual({
+  expect(byId['clearInput']?.intent(snapshot, inbox)).toEqual({
     kind: 'application',
     intent: { kind: 'editSearch', text: '' },
   });
 
   expect(byId['closeEmptyInput']?.keys).toEqual(['backspace']);
   expect(byId['closeEmptyInput']?.preventDefault).toBe(false);
-  expect(byId['closeEmptyInput']?.disabledReason(snapshot)).toBeUndefined();
-  expect(byId['closeEmptyInput']?.disabledReason({ ...snapshot, searchText: 'a' })).toBeDefined();
-  expect(byId['clearSearch']?.disabledReason(snapshot)).toBeDefined();
+  expect(byId['closeEmptyInput']?.disabledReason(snapshot, inbox)).toBeUndefined();
 
-  expect(byId['clearSearch']?.disabledReason({ ...snapshot, searchText: 'a' })).toBeUndefined();
+  expect(
+    byId['closeEmptyInput']?.disabledReason({ ...snapshot, searchText: 'a' }, inbox),
+  ).toBeDefined();
+
+  expect(byId['clearSearch']?.disabledReason(snapshot, inbox)).toBeDefined();
+
+  expect(
+    byId['clearSearch']?.disabledReason({ ...snapshot, searchText: 'a' }, inbox),
+  ).toBeUndefined();
 });
 
 const byId = (id: string) => catalog.find((command) => command.id === id);
@@ -316,7 +348,7 @@ const byId = (id: string) => catalog.find((command) => command.id === id);
 test('the command line opens on colon and its commands run, close, clear, and quit', () => {
   const snapshot = createSnapshot();
 
-  const commandIntentOf = (id: string) => byId(id)?.intent(snapshot);
+  const commandIntentOf = (id: string) => byId(id)?.intent(snapshot, inbox);
   const open = byId('openCommandLine');
   const emptyClose = byId('closeEmptyCommandLine');
 
@@ -332,8 +364,8 @@ test('the command line opens on colon and its commands run, close, clear, and qu
   expect(intents.map(([id]) => commandIntentOf(id))).toEqual(intents.map(([, intent]) => intent));
 
   expect(emptyClose?.preventDefault).toBe(false);
-  expect(emptyClose?.disabledReason(snapshot)).toBeUndefined();
-  expect(emptyClose?.disabledReason({ ...snapshot, commandLineText: 'a' })).toBeDefined();
+  expect(emptyClose?.disabledReason(snapshot, inbox)).toBeUndefined();
+  expect(emptyClose?.disabledReason({ ...snapshot, commandLineText: 'a' }, inbox)).toBeDefined();
 });
 
 test('the completion keys are disabled only when the last word has no candidates', () => {
@@ -343,8 +375,8 @@ test('the completion keys are disabled only when the last word has no candidates
   const withoutCandidates = { ...loadedSnapshot, searchText: 'zzz' };
 
   for (const id of ['nextSearchCompletion', 'previousSearchCompletion']) {
-    expect(byId(id)?.disabledReason(withoutCandidates)).toBeDefined();
-    expect(byId(id)?.disabledReason(withCandidates)).toBeUndefined();
+    expect(byId(id)?.disabledReason(withoutCandidates, inbox)).toBeDefined();
+    expect(byId(id)?.disabledReason(withCandidates, inbox)).toBeUndefined();
   }
 });
 
@@ -355,8 +387,8 @@ test('shift+f clears filters and is disabled without filters', () => {
   const filters: Filter[] = [{ field: 'repo', value: 'acme/app', negated: false }];
 
   expect(command?.keys).toEqual(['shift+f']);
-  expect(command?.disabledReason({ ...snapshot, filters: [] })).toBeDefined();
-  expect(command?.disabledReason({ ...snapshot, filters })).toBeUndefined();
+  expect(command?.disabledReason({ ...snapshot, filters: [] }, inbox)).toBeDefined();
+  expect(command?.disabledReason({ ...snapshot, filters }, inbox)).toBeUndefined();
 });
 
 const application = (intent: ApplicationIntent): Intent => ({ kind: 'application', intent });
@@ -392,7 +424,7 @@ test('each remaining command returns its intent', () => {
   ] satisfies [string, Intent][];
 
   for (const [id, intent] of expected) {
-    expect(byId(id)?.intent(snapshot)).toEqual(intent);
+    expect(byId(id)?.intent(snapshot, inbox)).toEqual(intent);
   }
 });
 

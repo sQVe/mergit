@@ -53,6 +53,21 @@ const mountFilters = track(cleanups, untrackedMountFilters);
 
 const mount = track(cleanups, untrackedMount);
 
+const readerColumnOf = (frame: string): number | undefined => {
+  const line = frame.split('\n').find((candidate) => /Repo\s+example\/repo/.test(candidate));
+
+  return line?.search(/Repo/);
+};
+
+const longThreads = Array.from({ length: 60 }, (_, index) =>
+  makeThread(index + 1, `Thread ${index + 1}`),
+);
+
+const sizes = [
+  { width: 80, height: 24 },
+  { width: 120, height: 40 },
+];
+
 test('q passes a quit terminal intent and sends nothing to the session', async () => {
   const { press, terminalIntents, sent } = await mount();
 
@@ -179,42 +194,87 @@ test('a long title stays inside the list columns and clear of the pane at 90 col
   expect(border.slice(0, 5).every((char) => char === '│')).toBe(true);
 });
 
-test('Escape with help open inside the detail closes help only', async () => {
-  const { setup, press } = await mount({
+for (const { width, height } of sizes) {
+  test(`Escape with help open inside the detail closes help only at ${width}x${height}`, async () => {
+    const { setup, press } = await mount({
+      themeMode: 'dark',
+      effects: threadsEffects(threeThreads),
+      width,
+      height,
+    });
+
+    await pressAll(press, ['r', 'j', 'j', 'j', 'return', '?', 'escape']);
+
+    const frame = setup.captureCharFrame();
+
+    expect(readerColumnOf(frame)).toBeLessThan(width - paneWidthAt(width));
+    expect(frame).not.toContain('Toggle help');
+  });
+}
+
+test('resizing 120x40 to 80x24 and back keeps the reader focused and the selected row', async () => {
+  const { setup, press, resize, session } = await mount({
     themeMode: 'dark',
     effects: threadsEffects(threeThreads),
+    width: 120,
+    height: 40,
   });
 
-  await pressAll(press, ['r', 'j', 'j', 'j', 'return', '?', 'escape']);
+  await pressAll(press, ['r', 'j', 'j', 'return']);
 
-  expect(setup.captureCharFrame()).toMatch(/Repo\s+example\/repo/);
-  expect(setup.captureCharFrame()).not.toContain('Third');
+  const { selectedRowKey } = session.getSnapshot();
+
+  await resize(80, 24);
+
+  expect(readerColumnOf(setup.captureCharFrame())).toBeLessThan(80 - paneWidthAt(80));
+  expect(session.getSnapshot().selectedRowKey).toBe(selectedRowKey);
+
+  await resize(120, 40);
+
+  expect(readerColumnOf(setup.captureCharFrame())).toBeLessThan(120 - paneWidthAt(120));
+  expect(session.getSnapshot().selectedRowKey).toBe(selectedRowKey);
 });
 
-test('resizing wide shows the side pane and resizing narrow again shows the list, not the detail', async () => {
-  const { setup, press, resize } = await mount({
-    themeMode: 'dark',
-    effects: threadsEffects(threeThreads),
+for (const { width, height } of sizes) {
+  test(`Enter on a thread focuses and grows the reader, and Escape returns to the same row and list top at ${width}x${height}`, async () => {
+    const { setup, press, session } = await mount({
+      themeMode: 'dark',
+      effects: threadsEffects(longThreads),
+      width,
+      height,
+    });
+
+    await press('r');
+
+    await pressAll(
+      press,
+      Array.from({ length: 50 }, () => 'j'),
+    );
+
+    const before = session.getSnapshot();
+    const selected = visibleRows(before).find((row) => row.key === before.selectedRowKey);
+
+    expect(selected?.kind).toBe('thread');
+    expect(before.listTop).toBeGreaterThan(0);
+
+    const title = selected?.kind === 'thread' ? selected.thread.title : '';
+
+    await press('return');
+
+    const reader = setup.captureCharFrame();
+
+    expect(reader).toContain(title);
+    expect(readerColumnOf(reader)).toBeLessThan(width - paneWidthAt(width));
+
+    await press('escape');
+
+    const after = session.getSnapshot();
+
+    expect(after.selectedRowKey).toBe(before.selectedRowKey);
+    expect(after.listTop).toBe(before.listTop);
+    expect(setup.captureCharFrame()).toContain(title);
   });
-
-  await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
-
-  expect(setup.captureCharFrame()).not.toContain('Third');
-
-  await resize(100, 20);
-
-  expect(setup.captureCharFrame()).toContain('Third');
-  expect(paneText(setup, 100)).toMatch(/Repo\s+example\/repo/);
-
-  await resize(60, 20);
-
-  const narrow = setup.captureCharFrame();
-
-  expect(narrow).toContain('First');
-  expect(narrow).toContain('Third');
-  expect(narrow).not.toContain('Unread');
-  expect(selectedRowText(setup)).toContain('Second');
-});
+}
 
 test('list keys do nothing while the dialog is open', async () => {
   const { setup, press, sent } = await mountWithGroup();

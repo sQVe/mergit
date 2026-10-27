@@ -144,7 +144,7 @@ for (const [scope, keys] of [
 }
 
 for (const [scope, keys, visible] of [
-  ['preview', ['r', 'j', 'j', 'return', 'x'], 'Repo'],
+  ['reader', ['r', 'j', 'j', 'return', 'x'], 'Repo'],
   ['confirmation', ['r', 'g', 'g', 'o', 'x'], 'Open 4 repos'],
 ] as const) {
   test(`fixed Ctrl+C quits once during a ${scope} prefix without another action`, async () => {
