@@ -15,6 +15,7 @@ const makeEffects = (run: GhRun = exitedClean) => {
 
       return Promise.resolve(run);
     },
+    host: 'ghe.example.com',
   };
 
   return { effects, calls };
@@ -22,14 +23,18 @@ const makeEffects = (run: GhRun = exitedClean) => {
 
 const signal = new AbortController().signal;
 const repository = 'octo/mergit';
+const hostRepository = 'ghe.example.com/octo/mergit';
 
 test('each page kind runs gh browse with its own arguments', async () => {
   const pages: [BrowserPage, string[]][] = [
-    [{ kind: 'item', repository, number: 42 }, ['browse', '42', '--repo', repository]],
-    [{ kind: 'commit', repository, sha: '0a1b2c3' }, ['browse', '0a1b2c3', '--repo', repository]],
-    [{ kind: 'releases', repository }, ['browse', '--releases', '--repo', repository]],
-    [{ kind: 'actions', repository }, ['browse', '--actions', '--repo', repository]],
-    [{ kind: 'repo', repository }, ['browse', '--repo', repository]],
+    [{ kind: 'item', repository, number: 42 }, ['browse', '42', '--repo', hostRepository]],
+    [
+      { kind: 'commit', repository, sha: '0a1b2c3' },
+      ['browse', '0a1b2c3', '--repo', hostRepository],
+    ],
+    [{ kind: 'releases', repository }, ['browse', '--releases', '--repo', hostRepository]],
+    [{ kind: 'actions', repository }, ['browse', '--actions', '--repo', hostRepository]],
+    [{ kind: 'repo', repository }, ['browse', '--repo', hostRepository]],
   ];
 
   for (const [page, expected] of pages) {
@@ -70,4 +75,13 @@ test('a non-zero exit with empty stderr names the exit code', async () => {
   const result = await openInBrowser(effects, { kind: 'repo', repository }, signal);
 
   expect(result).toEqual({ ok: false, message: 'gh exited with code 3' });
+});
+
+test('a gh run with too much output returns a failure with a message', async () => {
+  const { effects } = makeEffects({ kind: 'tooLarge', limitBytes: 1024 });
+
+  const result = await openInBrowser(effects, { kind: 'repo', repository }, signal);
+
+  expect(result.ok).toBe(false);
+  expect(!result.ok && result.message !== '').toBe(true);
 });

@@ -28,6 +28,7 @@ export interface DoneActionsOwner {
   markDone: () => void;
   markThreadsDone: (threadIds: readonly ThreadId[]) => void;
   undoDone: (threadId?: ThreadId) => void;
+  moveAccount: (from: string, to: string) => void;
   prune: (fetched: NotificationThread[]) => void;
   releaseSent: () => void;
   stop: (deadline: AbortSignal) => Promise<void>;
@@ -37,6 +38,31 @@ export const copyAccountRecords = (
   accounts: ReadonlyMap<string, ReadonlyMap<ThreadId, string>> = new Map(),
 ): Map<string, Map<ThreadId, string>> =>
   new Map([...accounts].map(([account, records]) => [account, new Map(records)]));
+
+// On equal instants the kept string must be the one already under the target login.
+const newerOf = (kept: string | undefined, moved: string): string =>
+  kept === undefined || Date.parse(moved) > Date.parse(kept) ? moved : kept;
+
+export const moveAccountRecords = (
+  accounts: Map<string, Map<ThreadId, string>>,
+  from: string,
+  to: string,
+): void => {
+  const moved = accounts.get(from);
+
+  if (moved === undefined) {
+    return;
+  }
+
+  const target = accounts.get(to) ?? new Map<ThreadId, string>();
+
+  for (const [threadId, timestamp] of moved) {
+    target.set(threadId, newerOf(target.get(threadId), timestamp));
+  }
+
+  accounts.delete(from);
+  accounts.set(to, target);
+};
 
 export const createDoneActions = (inputs: DoneActionsInputs): DoneActionsOwner => {
   const records = copyAccountRecords(inputs.saved);
@@ -164,6 +190,11 @@ export const createDoneActions = (inputs: DoneActionsInputs): DoneActionsOwner =
     }
   };
 
+  const moveAccount = (from: string, to: string) => {
+    moveAccountRecords(records, from, to);
+    doneQueue.moveAccount(from, to);
+  };
+
   const prune = (fetched: NotificationThread[]) => {
     const login = inputs.currentLogin();
 
@@ -198,6 +229,7 @@ export const createDoneActions = (inputs: DoneActionsInputs): DoneActionsOwner =
     markDone,
     markThreadsDone,
     undoDone,
+    moveAccount,
     prune,
     releaseSent,
     stop: doneQueue.stop,

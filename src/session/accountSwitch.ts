@@ -14,12 +14,14 @@ export interface AccountSwitchOwner {
   viewerKnown: () => boolean;
 }
 
-export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchOwner => {
+export const createAccountSwitch = (
+  saved: SavedSnapshot | null,
+  rename: (from: ViewerLogin, to: ViewerLogin) => void,
+): AccountSwitchOwner => {
   let viewerLogin: ViewerLogin | null = null;
   let login: ViewerLogin | null = saved?.viewer.login ?? null;
   let lastViewer: Viewer | null = saved?.viewer ?? null;
 
-  // The feed from a saved snapshot only serves an account that matches the saved login.
   const accept = (
     viewer: Viewer,
     request: NotificationFeedRequest,
@@ -28,11 +30,15 @@ export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchO
   ): NotificationFeedRequest => {
     const firstRead = viewerLogin === null;
 
-    const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
+    const accountChanged = lastViewer !== null && lastViewer.id !== viewer.id;
 
     // Clear before the login changes, so the thread the cursor leaves is seen by its own account.
     if (accountChanged) {
       clear();
+    }
+
+    if (!accountChanged && login !== null && login !== viewer.login) {
+      rename(login, viewer.login);
     }
 
     viewerLogin = viewer.login;

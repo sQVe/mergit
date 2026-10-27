@@ -9,8 +9,14 @@ import type {
   SubjectLookup,
   Viewer,
 } from '../github/github.ts';
-import type { BrowserPage, NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
-import { toThreadId, toViewerLogin } from '../work/work.ts';
+import type {
+  BrowserPage,
+  NotificationThread,
+  ThreadId,
+  ViewerId,
+  ViewerLogin,
+} from '../work/work.ts';
+import { toThreadId, toViewerId, toViewerLogin } from '../work/work.ts';
 import { createSession, filterRowsOf, formatFilter, visibleRows } from './session.ts';
 import type { FilterRow, SavedSnapshot, SavedState, Session, SessionEffects } from './session.ts';
 
@@ -159,9 +165,15 @@ export const failure = (
 
 export const octocat = toViewerLogin('octocat');
 
-export const viewerOf = (login: ViewerLogin, etag: string | null = null): GitHubResult<Viewer> => ({
+export const viewerIdOf = (login: ViewerLogin): ViewerId => toViewerId(`U_${login}`);
+
+export const viewerOf = (
+  login: ViewerLogin,
+  etag: string | null = null,
+  id: ViewerId = viewerIdOf(login),
+): GitHubResult<Viewer> => ({
   ok: true,
-  value: { login, etag },
+  value: { id, login, etag },
 });
 
 export const makeHarness = (
@@ -367,8 +379,12 @@ export const makeHarness = (
 export const savedThreads = [makeThread('1'), makeThread('2')];
 export const savedAt = new Date('2026-01-05T08:00:00Z');
 
-export const savedSnapshotOf = (login: ViewerLogin, etag: string | null = null): SavedSnapshot => ({
-  viewer: { login, etag },
+export const savedSnapshotOf = (
+  login: ViewerLogin,
+  etag: string | null = null,
+  id: ViewerId = viewerIdOf(login),
+): SavedSnapshot => ({
+  viewer: { id, login, etag },
   savedAt,
   feed: makeFeed('saved', savedThreads),
   threads: savedThreads,

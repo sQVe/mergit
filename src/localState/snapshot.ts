@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
-import type { ViewerLogin } from '../work/work.ts';
-import { toViewerLogin } from '../work/work.ts';
+import type { ViewerId, ViewerLogin } from '../work/work.ts';
+import { toViewerId, toViewerLogin } from '../work/work.ts';
 
 interface LocalPage {
   path: string;
@@ -17,6 +17,7 @@ interface LocalPage {
 export interface LocalSnapshot {
   host: string;
   login: ViewerLogin;
+  viewerId: ViewerId;
   viewerEtag: string | null;
   savedAt: Date;
   pages: LocalPage[];
@@ -45,6 +46,7 @@ const pageRow = z.object({
 const lastRow = z.object({
   host: z.string().min(1),
   login: z.string().min(1),
+  viewerId: z.string().min(1),
   viewerEtag: z.string().nullable(),
   savedAt: z
     .number()
@@ -60,10 +62,10 @@ const ownerDirectoryMode = 0o700;
 const ownerFileMode = 0o600;
 const databaseSuffixes = ['', '-journal', '-wal', '-shm'];
 
-const schemaVersion = 2;
+const schemaVersion = 3;
 
 const expectedColumns: Record<string, string[]> = {
-  last: ['id', 'host', 'login', 'viewerEtag', 'savedAt'],
+  last: ['id', 'host', 'login', 'viewerId', 'viewerEtag', 'savedAt'],
   pages: ['host', 'login', 'position', 'path', 'etag', 'next', 'body'],
 };
 
@@ -72,6 +74,7 @@ const schema = `
     id INTEGER PRIMARY KEY CHECK (id = 1),
     host TEXT NOT NULL,
     login TEXT NOT NULL,
+    viewerId TEXT NOT NULL,
     viewerEtag TEXT,
     savedAt INTEGER NOT NULL
   );
@@ -187,7 +190,7 @@ const prepareDatabase = (database: Database): Attempt<null> => {
 
 const readSnapshot = (database: Database): Attempt<LocalSnapshot | null> => {
   const lastRaw = database
-    .query<unknown, []>('SELECT host, login, viewerEtag, savedAt FROM last WHERE id = 1')
+    .query<unknown, []>('SELECT host, login, viewerId, viewerEtag, savedAt FROM last WHERE id = 1')
     .get();
 
   if (lastRaw === null) {
@@ -217,6 +220,7 @@ const readSnapshot = (database: Database): Attempt<LocalSnapshot | null> => {
     value: {
       host: last.data.host,
       login: toViewerLogin(last.data.login),
+      viewerId: toViewerId(last.data.viewerId),
       viewerEtag: last.data.viewerEtag,
       savedAt: last.data.savedAt,
       pages: rows.data,
@@ -245,8 +249,14 @@ const writeSnapshot = (database: Database, snapshot: LocalSnapshot): void => {
     });
 
     database.run(
-      'INSERT INTO last (id, host, login, viewerEtag, savedAt) VALUES (1, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET host = excluded.host, login = excluded.login, viewerEtag = excluded.viewerEtag, savedAt = excluded.savedAt',
-      [snapshot.host, snapshot.login, snapshot.viewerEtag, snapshot.savedAt.getTime()],
+      'INSERT INTO last (id, host, login, viewerId, viewerEtag, savedAt) VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET host = excluded.host, login = excluded.login, viewerId = excluded.viewerId, viewerEtag = excluded.viewerEtag, savedAt = excluded.savedAt',
+      [
+        snapshot.host,
+        snapshot.login,
+        snapshot.viewerId,
+        snapshot.viewerEtag,
+        snapshot.savedAt.getTime(),
+      ],
     );
   });
 

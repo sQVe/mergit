@@ -25,6 +25,10 @@ export const failureMessage = (failure: GitHubFailure): string => {
     return failure.kind;
   }
 
+  if (failure.kind === 'responseTooLarge') {
+    return `GitHub response passed the ${failure.limitBytes} byte limit`;
+  }
+
   return failure.message;
 };
 

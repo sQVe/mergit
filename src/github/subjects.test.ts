@@ -57,6 +57,7 @@ const makeEffects = (answer: (args: readonly string[], call: number) => GhRun) =
       return answer(args, calls.length - 1);
     },
     now: () => new Date('2026-01-01T00:00:00Z'),
+    host: 'github.com',
   };
 
   return { effects, calls };
@@ -108,7 +109,15 @@ test('looks up pull requests and issues in one request', async () => {
   const { lookups: result } = await lookUpSubjects(effects, threads, signal);
 
   expect(calls).toHaveLength(1);
-  expect(calls[0]?.slice(0, 3)).toEqual(['api', 'graphql', '--include']);
+
+  expect(calls[0]?.slice(0, 5)).toEqual([
+    'api',
+    'graphql',
+    '--hostname',
+    'github.com',
+    '--include',
+  ]);
+
   expect(readQuery(calls[0] ?? [])).toContain('issue(number: $n2)');
 
   expect(result).toEqual([
@@ -243,6 +252,7 @@ test('gives no entries when gh is missing', async () => {
   const effects: GitHubEffects = {
     runGh: async () => ({ kind: 'missing' }),
     now: () => new Date('2026-01-01T00:00:00Z'),
+    host: 'github.com',
   };
 
   const { lookups: result } = await lookUpSubjects(effects, [makeThread(1)], signal);
@@ -512,6 +522,7 @@ test('reports the failure of a failed gh run and gives no lookups', async () => 
   const effects: GitHubEffects = {
     runGh: async () => ({ kind: 'missing' }),
     now: () => new Date('2026-01-01T00:00:00Z'),
+    host: 'github.com',
   };
 
   const { lookups, failures } = await lookUpSubjects(effects, [makeThread(1)], signal);

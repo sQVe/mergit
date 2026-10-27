@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import type { NotificationThread } from '../work/work.ts';
 import { toThreadId, toViewerLogin } from '../work/work.ts';
 import type { SavedState } from './session.ts';
 import {
@@ -22,6 +23,7 @@ import {
   sentOk,
   settle,
   stable,
+  viewerIdOf,
   viewerOf,
 } from './sessionHarness.ts';
 
@@ -475,3 +477,78 @@ test.each(['ghMissing', 'notSignedIn'] as const)(
     expect(toast?.lines[0]?.length).toBeGreaterThan(0);
   },
 );
+
+const renameHarness = () => {
+  const renamed = toViewerLogin('octocat2');
+  let login = octocat;
+
+  const harness = makeHarness({
+    readViewer: () => Promise.resolve(viewerOf(login, null, viewerIdOf(octocat))),
+  });
+
+  const rename = async (...threads: NotificationThread[]) => {
+    login = renamed;
+    await harness.load(...threads);
+  };
+
+  return { harness, renamed, rename };
+};
+
+test('a done marked before a login rename and sent after it is saved under the new login', async () => {
+  const { harness, renamed, rename } = renameHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await rename(one, two);
+  await sendAndRelease(harness, before);
+  await harness.answerRead(readOf('next', [one, two]));
+  await harness.answerVerify(stable);
+
+  expect(harness.session.getSnapshot().threads).toEqual([two]);
+  expect(harness.saves.at(-1)?.done).toEqual(doneFor(renamed, one));
+});
+
+test('a done sending during a login rename is saved under the new login', async () => {
+  const { harness, renamed, rename } = renameHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  await fireDoneTimerAt(harness, before);
+  await rename(one, two);
+  harness.sends.at(-1)?.resolve(sentOk);
+  await settle();
+  await harness.answerRead(readOf('next', [one, two]));
+  await harness.answerVerify(stable);
+
+  expect(harness.session.getSnapshot().threads).toEqual([two]);
+  expect(harness.saves.at(-1)?.done).toEqual(doneFor(renamed, one));
+});
+
+test('a login rename after an account switch leaves a pending done of the earlier account under that account', async () => {
+  const hubot = toViewerLogin('hubot');
+  let viewer = viewerOf(octocat);
+
+  const harness = makeHarness({ readViewer: () => Promise.resolve(viewer) });
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+
+  const before = markSelectedDone(harness);
+
+  viewer = viewerOf(hubot);
+  await harness.load(two);
+  viewer = viewerOf(toViewerLogin('hubot2'), null, viewerIdOf(hubot));
+  await harness.load(two);
+  await sendAndRelease(harness, before);
+
+  expect(harness.saves.at(-1)?.done).toEqual(doneFor(octocat, one));
+});

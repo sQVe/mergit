@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import type { NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
-import { toViewerLogin } from '../work/work.ts';
+import type { NotificationThread, ThreadId, ViewerId, ViewerLogin } from '../work/work.ts';
+import { toViewerId, toViewerLogin } from '../work/work.ts';
 import type { GhResponse, GitHubEffects, GitHubFailure, GitHubResult } from './ghApi.ts';
 import { requestGh, requestGhDelete } from './ghApi.ts';
 import type { NotificationFeed, NotificationPage } from './notifications.ts';
@@ -20,6 +20,7 @@ interface FetchedPage {
 }
 
 export interface Viewer {
+  id: ViewerId;
   login: ViewerLogin;
   etag: string | null;
 }
@@ -53,7 +54,9 @@ export interface NotificationVerification {
 
 const notModifiedStatus = 304;
 
-const viewerSchema = z.object({ login: z.string().min(1) });
+const viewerSchema = z.object({ login: z.string().min(1), node_id: z.string().min(1) });
+
+const globalNodeIdHeader = 'X-Github-Next-Global-ID: 1';
 
 const firstNotificationsEndpoint = '/notifications?all=true&per_page=50';
 
@@ -62,12 +65,58 @@ const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
   failure: { kind: 'invalidResponse', message },
 });
 
+const defaultHost = 'github.com';
+
+const authStatusSchema = z.object({ hosts: z.record(z.string(), z.unknown()) });
+
+const hostsOf = (statusOutput: string): string[] => {
+  try {
+    const parsed = authStatusSchema.safeParse(JSON.parse(statusOutput));
+
+    return parsed.success ? Object.keys(parsed.data.hosts) : [];
+  } catch {
+    return [];
+  }
+};
+
+const readSignedInHosts = async (
+  effects: Pick<GitHubEffects, 'runGh'>,
+  signal: AbortSignal,
+): Promise<string[]> => {
+  const run = await effects.runGh(['auth', 'status', '--json', 'hosts'], signal);
+
+  if (run.kind !== 'exited' || run.exitCode !== 0) {
+    return [];
+  }
+
+  return hostsOf(run.stdout);
+};
+
+// gh treats an empty GH_HOST as unset, and without --hostname it uses its only signed-in host.
+export const resolveGitHubHost = async (
+  effects: Pick<GitHubEffects, 'runGh'>,
+  environment: Record<string, string | undefined>,
+  signal: AbortSignal,
+): Promise<string> => {
+  const configured = environment['GH_HOST'];
+
+  if (configured !== undefined && configured !== '') {
+    return configured;
+  }
+
+  const [onlyHost, ...otherHosts] = await readSignedInHosts(effects, signal);
+
+  return onlyHost === undefined || otherHosts.length > 0 ? defaultHost : onlyHost;
+};
+
 export const readViewer = async (
   effects: GitHubEffects,
   previous: Viewer | null,
   signal: AbortSignal,
 ): Promise<GitHubResult<Viewer>> => {
-  const response = await requestGh(effects, '/user', signal, previous?.etag ?? null);
+  const response = await requestGh(effects, '/user', signal, previous?.etag ?? null, [
+    globalNodeIdHeader,
+  ]);
 
   if (!response.ok) {
     return response;
@@ -90,6 +139,7 @@ export const readViewer = async (
   return {
     ok: true,
     value: {
+      id: toViewerId(parsed.data.node_id),
       login: toViewerLogin(parsed.data.login),
       etag: response.value.headers.get('etag') ?? null,
     },

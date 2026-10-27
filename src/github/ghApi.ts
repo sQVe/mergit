@@ -1,10 +1,14 @@
+import type { ReadableStreamDefaultReader } from 'node:stream/web';
+
 export type GhRun =
   | { kind: 'missing' }
-  | { kind: 'exited'; exitCode: number; stdout: string; stderr: string };
+  | { kind: 'exited'; exitCode: number; stdout: string; stderr: string }
+  | { kind: 'tooLarge'; limitBytes: number };
 
 export interface GitHubEffects {
   runGh: (args: readonly string[], signal: AbortSignal) => Promise<GhRun>;
   now: () => Date;
+  host: string;
 }
 
 export type GitHubFailure =
@@ -12,7 +16,8 @@ export type GitHubFailure =
   | { kind: 'notSignedIn' }
   | { kind: 'rateLimited'; resetAt: Date }
   | { kind: 'requestFailed'; status: number | null; message: string }
-  | { kind: 'invalidResponse'; message: string };
+  | { kind: 'invalidResponse'; message: string }
+  | { kind: 'responseTooLarge'; limitBytes: number };
 
 export type GitHubResult<T> = { ok: true; value: T } | { ok: false; failure: GitHubFailure };
 
@@ -43,7 +48,43 @@ const tooManyRequestsStatus = 429;
 const millisecondsPerSecond = 1000;
 const fallbackDelaySeconds = 60;
 
-export const createGhRunner = (): GitHubEffects['runGh'] => async (args, signal) => {
+const ghOutputLimitBytes = 4_194_304;
+
+const readCapped = async (
+  reader: ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>,
+  limitBytes: number,
+  onOverLimit: () => Promise<void>,
+): Promise<Uint8Array<ArrayBuffer>[] | null> => {
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  let total = 0;
+
+  for (;;) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- a stream gives its chunks one at a time
+    const { done, value } = await reader.read();
+
+    if (done) {
+      return chunks;
+    }
+
+    total += value.byteLength;
+
+    if (total > limitBytes) {
+      break;
+    }
+
+    chunks.push(value);
+  }
+
+  await onOverLimit();
+
+  return null;
+};
+
+const runGh = async (
+  args: readonly string[],
+  signal: AbortSignal,
+  limitBytes: number,
+): Promise<GhRun> => {
   const executable = Bun.which('gh', { PATH: Bun.env.PATH ?? '' });
 
   if (executable === null) {
@@ -63,14 +104,35 @@ export const createGhRunner = (): GitHubEffects['runGh'] => async (args, signal)
     return { kind: 'missing' };
   }
 
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
+  const readers = [child.stdout.getReader(), child.stderr.getReader()];
+
+  const stopReading = async (): Promise<void> => {
+    child.kill('SIGKILL');
+    await Promise.all(readers.map((reader) => reader.cancel()));
+  };
+
+  const [stdoutChunks, stderrChunks] = await Promise.all(
+    readers.map((reader) => readCapped(reader, limitBytes, stopReading)),
+  );
+
+  const exitCode = await child.exited;
+
+  if (stdoutChunks === null || stderrChunks === null) {
+    return { kind: 'tooLarge', limitBytes };
+  }
+
+  const [stdout, stderr] = await Promise.all([
+    new Blob(stdoutChunks).text(),
+    new Blob(stderrChunks).text(),
   ]);
 
   return { kind: 'exited', exitCode, stdout, stderr };
 };
+
+export const createGhRunner =
+  (limitBytes = ghOutputLimitBytes): GitHubEffects['runGh'] =>
+  (args, signal) =>
+    runGh(args, signal, limitBytes);
 
 const fail = (failure: GitHubFailure): { ok: false; failure: GitHubFailure } => ({
   ok: false,
@@ -193,6 +255,10 @@ const runApi = async (
     return fail({ kind: 'ghMissing' });
   }
 
+  if (run.kind === 'tooLarge') {
+    return fail({ kind: 'responseTooLarge', limitBytes: run.limitBytes });
+  }
+
   const parsed = parseHttp(run.stdout);
 
   if (parsed === null) {
@@ -236,10 +302,16 @@ export const requestGh = (
   endpoint: string,
   signal: AbortSignal,
   etag: string | null = null,
+  headers: readonly string[] = [],
 ): Promise<GitHubResult<GhResponse>> => {
   const conditional = etag === null ? [] : ['-H', `If-None-Match: ${etag}`];
+  const extra = headers.flatMap((header) => ['-H', header]);
 
-  return runApi(effects, ['api', '--include', ...conditional, endpoint], signal);
+  return runApi(
+    effects,
+    ['api', '--hostname', effects.host, '--include', ...conditional, ...extra, endpoint],
+    signal,
+  );
 };
 
 export const requestGhDelete = (
@@ -247,7 +319,11 @@ export const requestGhDelete = (
   endpoint: string,
   signal: AbortSignal,
 ): Promise<GitHubResult<GhResponse>> =>
-  runApi(effects, ['api', '--include', '--method', 'DELETE', endpoint], signal);
+  runApi(
+    effects,
+    ['api', '--hostname', effects.host, '--include', '--method', 'DELETE', endpoint],
+    signal,
+  );
 
 export const requestGraphql = (
   effects: GitHubEffects,
@@ -267,7 +343,17 @@ export const requestGraphql = (
 
   return runApi(
     effects,
-    ['api', 'graphql', '--include', '-f', `query=${query}`, ...strings, ...integers],
+    [
+      'api',
+      'graphql',
+      '--hostname',
+      effects.host,
+      '--include',
+      '-f',
+      `query=${query}`,
+      ...strings,
+      ...integers,
+    ],
     signal,
   );
 };

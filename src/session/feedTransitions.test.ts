@@ -110,3 +110,17 @@ test('an unchanged poll after a notSignedIn poll failure clears the notice', asy
 
   expect(session.getSnapshot().notice).toBeNull();
 });
+
+test('a responseTooLarge read keeps the list and shows an error', async () => {
+  const { session, load, answerRead } = makeHarness();
+  const thread = makeThread('1');
+
+  await load(thread);
+  session.send({ kind: 'refresh' });
+  await settle();
+  await answerRead({ ok: false, failure: { kind: 'responseTooLarge', limitBytes: 1024 } });
+
+  expect(session.getSnapshot().threads).toEqual([thread]);
+  expect(session.getSnapshot().notice).toBeNull();
+  expect(session.getSnapshot().errorMessage ?? '').toContain('1024');
+});

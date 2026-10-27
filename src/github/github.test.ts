@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { NotificationThread } from '../work/work.ts';
-import { toThreadId, toViewerLogin } from '../work/work.ts';
+import { toThreadId, toViewerId, toViewerLogin } from '../work/work.ts';
 import type { GhRun } from './ghApi.ts';
 import type { GitHubEffects } from './github.ts';
 import {
@@ -9,6 +9,7 @@ import {
   pollNotificationFeed,
   readNotificationFeed,
   readViewer,
+  resolveGitHubHost,
   restoreNotificationFeed,
   verifyNotificationFeed,
 } from './github.ts';
@@ -62,6 +63,7 @@ const makeEffects = (pages: Record<string, GhRun>) => {
       return pages[endpoint] ?? failedPage;
     },
     now: () => new Date('2026-01-01T00:00:00Z'),
+    host: 'github.com',
   };
 
   return { effects, endpoints, calls };
@@ -420,25 +422,49 @@ test('verifyNotificationFeed returns the failure of a request', async () => {
   expect(!result.ok && result.failure.kind).toBe('requestFailed');
 });
 
-test('readViewer reads the login from /user', async () => {
-  const { effects, endpoints } = makeEffects({ '/user': page({ login: 'octocat', id: 1 }) });
-
-  const result = await readViewer(effects, null, signal);
-
-  expect(result).toEqual({ ok: true, value: { login: toViewerLogin('octocat'), etag: null } });
-  expect(endpoints).toEqual(['/user']);
-});
-
-test('readViewer returns the ETag of the response', async () => {
-  const { effects, calls } = makeEffects({
-    '/user': page({ login: 'octocat' }, undefined, '"viewer-1"'),
+test('readViewer reads the login and node ID from /user', async () => {
+  const { effects, endpoints } = makeEffects({
+    '/user': page({ login: 'octocat', node_id: 'U_kgDOACLctA' }),
   });
 
   const result = await readViewer(effects, null, signal);
 
   expect(result).toEqual({
     ok: true,
-    value: { login: toViewerLogin('octocat'), etag: '"viewer-1"' },
+    value: { id: toViewerId('U_kgDOACLctA'), login: toViewerLogin('octocat'), etag: null },
+  });
+
+  expect(endpoints).toEqual(['/user']);
+});
+
+test('readViewer asks for the global node ID format', async () => {
+  const { effects, calls } = makeEffects({
+    '/user': page({ login: 'octocat', node_id: 'U_kgDOACLctA' }),
+  });
+
+  await readViewer(effects, null, signal);
+
+  expect(calls[0]).toEqual([
+    'api',
+    '--hostname',
+    'github.com',
+    '--include',
+    '-H',
+    'X-Github-Next-Global-ID: 1',
+    '/user',
+  ]);
+});
+
+test('readViewer returns the ETag of the response', async () => {
+  const { effects, calls } = makeEffects({
+    '/user': page({ login: 'octocat', node_id: 'U_1' }, undefined, '"viewer-1"'),
+  });
+
+  const result = await readViewer(effects, null, signal);
+
+  expect(result).toEqual({
+    ok: true,
+    value: { id: toViewerId('U_1'), login: toViewerLogin('octocat'), etag: '"viewer-1"' },
   });
 
   expect(calls[0]?.some((arg) => arg.startsWith('If-None-Match'))).toBe(false);
@@ -446,7 +472,7 @@ test('readViewer returns the ETag of the response', async () => {
 
 test('readViewer sends the previous ETag and returns the previous viewer on 304', async () => {
   const { effects, calls } = makeEffects({ '/user': notModified() });
-  const previous = { login: toViewerLogin('octocat'), etag: '"viewer-1"' };
+  const previous = { id: toViewerId('U_1'), login: toViewerLogin('octocat'), etag: '"viewer-1"' };
 
   const result = await readViewer(effects, previous, signal);
 
@@ -456,18 +482,18 @@ test('readViewer sends the previous ETag and returns the previous viewer on 304'
 
 test('readViewer takes the new login and ETag when the previous ETag is stale', async () => {
   const { effects } = makeEffects({
-    '/user': page({ login: 'hubot' }, undefined, '"viewer-2"'),
+    '/user': page({ login: 'hubot', node_id: 'U_2' }, undefined, '"viewer-2"'),
   });
 
   const result = await readViewer(
     effects,
-    { login: toViewerLogin('octocat'), etag: '"viewer-1"' },
+    { id: toViewerId('U_1'), login: toViewerLogin('octocat'), etag: '"viewer-1"' },
     signal,
   );
 
   expect(result).toEqual({
     ok: true,
-    value: { login: toViewerLogin('hubot'), etag: '"viewer-2"' },
+    value: { id: toViewerId('U_2'), login: toViewerLogin('hubot'), etag: '"viewer-2"' },
   });
 });
 
@@ -480,15 +506,93 @@ test('readViewer returns invalidResponse for a 304 without a previous viewer', a
 });
 
 test('readViewer returns invalidResponse for a body without login', async () => {
-  const { effects } = makeEffects({ '/user': page({ id: 1 }) });
+  const { effects } = makeEffects({ '/user': page({ node_id: 'U_1' }) });
 
   const result = await readViewer(effects, null, signal);
 
   expect(!result.ok && result.failure.kind).toBe('invalidResponse');
 });
 
+test('readViewer returns invalidResponse for a body without node_id', async () => {
+  const { effects } = makeEffects({ '/user': page({ login: 'octocat' }) });
+
+  const result = await readViewer(effects, null, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+test('readViewer returns invalidResponse for an empty node_id', async () => {
+  const { effects } = makeEffects({ '/user': page({ login: 'octocat', node_id: '' }) });
+
+  const result = await readViewer(effects, null, signal);
+
+  expect(!result.ok && result.failure.kind).toBe('invalidResponse');
+});
+
+const statusRunner = (run: GhRun) => {
+  const calls: (readonly string[])[] = [];
+
+  const runGh = async (args: readonly string[]): Promise<GhRun> => {
+    calls.push(args);
+
+    return run;
+  };
+
+  return { effects: { runGh }, calls };
+};
+
+const hostsStatus = (hosts: Record<string, unknown>): GhRun => ({
+  kind: 'exited',
+  exitCode: 0,
+  stdout: JSON.stringify({ hosts }),
+  stderr: '',
+});
+
+const account = [{ state: 'success', active: true, login: 'octocat' }];
+
+test('resolveGitHubHost uses GH_HOST without running gh', async () => {
+  const { effects, calls } = statusRunner(hostsStatus({ 'other.example.com': account }));
+
+  const host = await resolveGitHubHost(effects, { GH_HOST: 'ghe.example.com' }, signal);
+
+  expect(host).toBe('ghe.example.com');
+  expect(calls).toEqual([]);
+});
+
+test('resolveGitHubHost uses the only host gh is signed in to when GH_HOST is empty', async () => {
+  const { effects, calls } = statusRunner(hostsStatus({ 'ghe.example.com': account }));
+
+  const host = await resolveGitHubHost(effects, { GH_HOST: '' }, signal);
+
+  expect(host).toBe('ghe.example.com');
+  expect(calls).toEqual([['auth', 'status', '--json', 'hosts']]);
+});
+
+test('resolveGitHubHost uses github.com when gh cannot name one host', async () => {
+  const runs: GhRun[] = [
+    hostsStatus({ 'ghe.example.com': account, 'github.com': account }),
+    hostsStatus({}),
+    { kind: 'missing' },
+    { kind: 'exited', exitCode: 0, stdout: '{"hosts":', stderr: '' },
+    { kind: 'exited', exitCode: 0, stdout: '{"hosts":[]}', stderr: '' },
+    {
+      kind: 'exited',
+      exitCode: 1,
+      stdout: JSON.stringify({ hosts: { 'ghe.example.com': account } }),
+      stderr: '',
+    },
+    { kind: 'tooLarge', limitBytes: 1024 },
+  ];
+
+  const hosts = await Promise.all(
+    runs.map((run) => resolveGitHubHost(statusRunner(run).effects, {}, signal)),
+  );
+
+  expect(hosts).toEqual(runs.map(() => 'github.com'));
+});
+
 test('readViewer returns invalidResponse for an empty login', async () => {
-  const { effects } = makeEffects({ '/user': page({ login: '' }) });
+  const { effects } = makeEffects({ '/user': page({ login: '', node_id: 'U_1' }) });
 
   const result = await readViewer(effects, null, signal);
 
@@ -540,7 +644,17 @@ test('markThreadDone sends a DELETE to the thread and accepts an empty 205', asy
 
   expect(result).toEqual({ ok: true, value: null });
 
-  expect(calls).toEqual([['api', '--include', '--method', 'DELETE', '/notifications/threads/42']]);
+  expect(calls).toEqual([
+    [
+      'api',
+      '--hostname',
+      'github.com',
+      '--include',
+      '--method',
+      'DELETE',
+      '/notifications/threads/42',
+    ],
+  ]);
 });
 
 test('markThreadDone maps a failed status to a failure', async () => {
@@ -558,6 +672,7 @@ test('readViewer returns ghMissing when gh is missing', async () => {
   const effects: GitHubEffects = {
     runGh: async () => ({ kind: 'missing' }),
     now: () => new Date('2026-01-01T00:00:00Z'),
+    host: 'github.com',
   };
 
   const result = await readViewer(effects, null, signal);
