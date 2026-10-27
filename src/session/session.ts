@@ -19,7 +19,7 @@ import {
   openCommandLine,
   moveCommandLineCompletion,
 } from './commandLine.ts';
-import { copyAccountRecords, createDoneActions } from './doneActions.ts';
+import { copyAccountRecords, createDoneActions, moveAccountRecords } from './doneActions.ts';
 import { createFeedRefresh } from './feedRefresh.ts';
 import type { SettledRefresh } from './feedRefresh.ts';
 import {
@@ -280,7 +280,10 @@ export const createSession = (effects: SessionEffects): Session => {
   const { savedSnapshot } = effects;
   const listeners = new Set<() => void>();
 
-  const accountSwitch = createAccountSwitch(savedSnapshot);
+  const accountSwitch = createAccountSwitch(savedSnapshot, (from, to) => {
+    // oxlint-disable-next-line seam/helper-before-use -- a rename moves the records of owners that read this one
+    moveAccount(`${effects.host}/${from}`, `${effects.host}/${to}`);
+  });
 
   const doneActions = createDoneActions({
     host: effects.host,
@@ -374,6 +377,13 @@ export const createSession = (effects: SessionEffects): Session => {
       saveStateQuietly('seen', grouping);
     },
   });
+
+  const moveAccount = (from: string, to: string) => {
+    doneActions.moveAccount(from, to);
+    moveAccountRecords(marker.records, from, to);
+    unsavedChanges.add('done');
+    saveStateQuietly('seen');
+  };
 
   const announceNotice = (previous: Snapshot, next: Snapshot) => {
     if (next.notice === null || next.notice === previous.notice || visibleRows(next).length === 0) {

@@ -809,7 +809,7 @@ const fakeRefreshHost = (overrides: Partial<FeedRefreshHost> = {}) => {
         timer.active = false;
       };
     },
-    accountSwitch: createAccountSwitch(null),
+    accountSwitch: createAccountSwitch(null, () => undefined),
     clearAccount: () => undefined,
     getSnapshot: () => initialSnapshot,
     update: () => undefined,

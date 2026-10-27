@@ -14,7 +14,10 @@ export interface AccountSwitchOwner {
   viewerKnown: () => boolean;
 }
 
-export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchOwner => {
+export const createAccountSwitch = (
+  saved: SavedSnapshot | null,
+  rename: (from: ViewerLogin, to: ViewerLogin) => void,
+): AccountSwitchOwner => {
   let viewerLogin: ViewerLogin | null = null;
   let login: ViewerLogin | null = saved?.viewer.login ?? null;
   let lastViewer: Viewer | null = saved?.viewer ?? null;
@@ -32,6 +35,10 @@ export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchO
     // Clear before the login changes, so the thread the cursor leaves is seen by its own account.
     if (accountChanged) {
       clear();
+    }
+
+    if (!accountChanged && login !== null && login !== viewer.login) {
+      rename(login, viewer.login);
     }
 
     viewerLogin = viewer.login;

@@ -24,6 +24,7 @@ interface FailedThread {
 export interface DoneQueue {
   add: (threads: readonly NotificationThread[], account: string) => void;
   undoLatest: (threadId?: ThreadId) => UndoOutcome;
+  moveAccount: (from: string, to: string) => void;
   stop: (deadline: AbortSignal) => Promise<void>;
 }
 
@@ -142,6 +143,14 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
     return { kind: 'undone', threads: waiting.threads };
   };
 
+  const moveAccount = (from: string, to: string) => {
+    for (const entry of entries) {
+      if (entry.account === from) {
+        entry.account = to;
+      }
+    }
+  };
+
   const stop = async (deadline: AbortSignal) => {
     stopping = true;
 
@@ -167,5 +176,5 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
     await sendNext();
   };
 
-  return { add, undoLatest, stop };
+  return { add, undoLatest, moveAccount, stop };
 };
