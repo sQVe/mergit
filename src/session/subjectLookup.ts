@@ -128,8 +128,6 @@ export const createSubjectLookup = (host: SubjectLookupHost): SubjectLookupOwner
           return;
         }
 
-        // A request that started counts against the limit, so its rate limit applies even after
-        // a newer lookup aborted it.
         pauseOnRateLimit(result);
 
         if (!own.signal.aborted) {

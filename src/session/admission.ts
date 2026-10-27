@@ -13,7 +13,6 @@ export interface AdmissionHost {
   update: (next: Snapshot) => void;
 }
 
-// The pause lives in `Snapshot.pausedUntil`, so every admission over one session shares it.
 export const createAdmission = (host: AdmissionHost): Admission => {
   const pauseRemaining = () => {
     const { pausedUntil } = host.getSnapshot();
