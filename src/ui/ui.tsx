@@ -7,8 +7,14 @@ import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useSyncExternalStore } from 'react';
 
-import type { Command, TerminalIntent } from '../commands.ts';
-import { commandsOfLayer, keyHintOf, readableStrokeOf, scopePriority } from '../commands.ts';
+import type { Command, ReaderContext, TerminalIntent } from '../commands.ts';
+import {
+  commandsOfLayer,
+  isReaderDetached,
+  keyHintOf,
+  readableStrokeOf,
+  scopePriority,
+} from '../commands.ts';
 import type { FilterRow, Session, Snapshot } from '../session/session.ts';
 import { filterRowsOf, visibleRows } from '../session/session.ts';
 import { CommandLine, commandLineRows, commandLineNamesOf } from './CommandLine.tsx';
@@ -48,9 +54,8 @@ export interface AppProps {
 interface KeysProps extends AppProps {
   modal: RefObject<ModalState>;
   overlay: Overlay;
-  detailOpen: boolean;
+  reader: ReaderContext;
   runUiAction: (intent: UiIntent) => void;
-  sideLayout: boolean;
   searchOpen: boolean;
   filtersOpen: boolean;
   commandLineOpen: boolean;
@@ -63,6 +68,8 @@ const statusRows = 1;
 const sidePaneMinimumWidth = 90;
 const sidePaneMaximumWidth = 44;
 const sidePaneShare = 0.36;
+const readerStripMinimumWidth = 24;
+const readerStripShare = 0.2;
 
 const inputScopes = new Set<Command['scope']>(['input', 'filter', 'command']);
 const inputSegmenter = new Intl.Segmenter();
@@ -71,13 +78,13 @@ const isActive = (
   scope: Command['scope'],
   state: {
     overlay: Overlay['kind'];
-    detailOpen: boolean;
+    readerOpen: boolean;
     searchOpen: boolean;
     filtersOpen: boolean;
     commandLineOpen: boolean;
   },
 ): boolean => {
-  const { overlay, detailOpen } = state;
+  const { overlay, readerOpen } = state;
   const { searchOpen, filtersOpen, commandLineOpen } = state;
 
   if (commandLineOpen) {
@@ -116,7 +123,7 @@ const isActive = (
     return false;
   }
 
-  return scope === 'preview' ? detailOpen : !detailOpen;
+  return scope === 'reader' ? readerOpen : !readerOpen;
 };
 
 const composerRowsOf = (snapshot: Snapshot) => (snapshot.filtersOpen ? filterRowsOf(snapshot) : []);
@@ -320,12 +327,13 @@ const Keys = (props: KeysProps): ReactNode => {
 
   const run = (command: Command, count?: number) => {
     const snapshot = session.getSnapshot();
+    const reader = modal.current.reader;
 
-    if (command.disabledReason(snapshot) !== undefined) {
+    if (command.disabledReason(snapshot, reader) !== undefined) {
       return;
     }
 
-    const intent = command.intent(snapshot, count);
+    const intent = command.intent(snapshot, reader, count);
 
     if (isFilterRowIntent(intent) && isComposerBlind(snapshot, props.width, props.height)) {
       return;
@@ -358,7 +366,7 @@ const Keys = (props: KeysProps): ReactNode => {
   // renders what the first key changed.
   const scopeActive = (scope: Command['scope']): boolean => {
     const { searchOpen, filtersOpen, commandLineOpen } = session.getSnapshot();
-    const { overlay, detailOpen } = modal.current;
+    const { overlay, reader } = modal.current;
 
     if (overlay.kind === 'help' && overlay.editing) {
       return scope === 'helpSearch';
@@ -370,7 +378,7 @@ const Keys = (props: KeysProps): ReactNode => {
 
     return isActive(scope, {
       overlay: overlay.kind,
-      detailOpen: detailOpen && !props.sideLayout,
+      readerOpen: reader.kind === 'reader',
       searchOpen,
       filtersOpen,
       commandLineOpen,
@@ -394,8 +402,7 @@ const Keys = (props: KeysProps): ReactNode => {
 
   const bindingDeps = [
     props.overlay,
-    props.detailOpen,
-    props.sideLayout,
+    props.reader,
     props.width,
     props.height,
     props.catalog,
@@ -418,11 +425,13 @@ const Keys = (props: KeysProps): ReactNode => {
 
       const snapshot = session.getSnapshot();
 
-      if (command === undefined || command.disabledReason(snapshot) !== undefined) {
+      const { reader } = modal.current;
+
+      if (command === undefined || command.disabledReason(snapshot, reader) !== undefined) {
         return;
       }
 
-      const intent = command.intent(snapshot);
+      const intent = command.intent(snapshot, reader);
 
       if (intent.kind !== 'terminal') {
         return;
@@ -499,62 +508,102 @@ const Keys = (props: KeysProps): ReactNode => {
   return <CountPatterns />;
 };
 
+const readerHints: [string, string][] = [
+  ['readerMarkDone', 'done'],
+  ['readerOpenInBrowser', 'open'],
+  ['readerRefresh', 'refresh'],
+  ['readerUndoDone', 'undo'],
+  ['closeDetail', 'close'],
+];
+
+const readerHintOf = (catalog: readonly Command[]): string => {
+  const parts = readerHints.map(([id, label]) => {
+    const key = keyHintOf(catalog, id);
+
+    return key === undefined ? undefined : `${key} ${label}`;
+  });
+
+  return parts.filter((part): part is string => part !== undefined).join('  ');
+};
+
+const paneWidthsOf = (
+  width: number,
+  reader: ReaderContext,
+): { listWidth: number; detailWidth: number } => {
+  const sideLayout = width >= sidePaneMinimumWidth;
+
+  if (reader.kind === 'reader') {
+    const stripWidth = sideLayout
+      ? Math.max(readerStripMinimumWidth, Math.floor(width * readerStripShare))
+      : 0;
+
+    return { listWidth: stripWidth, detailWidth: width - stripWidth };
+  }
+
+  const widestPane = Math.floor(width * sidePaneShare);
+  const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
+
+  return { listWidth: width - paneWidth, detailWidth: paneWidth };
+};
+
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
-  width: number;
-  paneWidth: number;
-  fullDetail: boolean;
+  listWidth: number;
+  detailWidth: number;
+  reader: ReaderContext;
   listHeight: number;
   catalog: readonly Command[];
 }): ReactNode => {
-  const { snapshot, palette, width, paneWidth, listHeight } = props;
+  const { snapshot, palette, listWidth, detailWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
+  const detailRow = props.reader.kind === 'reader' ? props.reader.row : selectedRow;
+  const detached = isReaderDetached(snapshot, props.reader);
 
   const facts =
-    selectedRow?.kind === 'thread' ? snapshot.subjectFacts.get(selectedRow.thread.id) : undefined;
+    detailRow?.kind === 'thread' ? snapshot.subjectFacts.get(detailRow.thread.id) : undefined;
 
   const now = snapshot.savedAt ?? snapshot.refreshedAt ?? new Date(0);
 
-  const noticeMessage = readNoticeMessage(snapshot, keyHintOf(props.catalog, 'refresh'));
+  const readerFocused = props.reader.kind === 'reader';
+
+  const noticeMessage = readNoticeMessage(
+    snapshot,
+    keyHintOf(props.catalog, 'refresh'),
+    readerFocused,
+  );
 
   if (noticeMessage !== null) {
     return <Notice message={noticeMessage} palette={palette} />;
   }
 
-  if (props.fullDetail) {
-    return (
-      <box flexDirection="column" flexGrow={1}>
-        <DetailPane
-          row={selectedRow}
-          facts={facts}
-          newThreadIds={snapshot.newThreadIds}
-          palette={palette}
-          now={now}
-          width={width}
-        />
-      </box>
+  const detailPane =
+    detailWidth === 0 ? null : (
+      <DetailPane
+        row={detailRow}
+        facts={facts}
+        newThreadIds={snapshot.newThreadIds}
+        palette={palette}
+        now={now}
+        width={detailWidth}
+        detached={detached}
+      />
     );
-  }
 
   return (
     <box flexDirection="row" flexGrow={1}>
-      <ThreadList
-        snapshot={snapshot}
-        palette={palette}
-        width={width - paneWidth}
-        height={listHeight}
-      />
-      {paneWidth > 0 ? (
-        <DetailPane
-          row={selectedRow}
-          facts={facts}
-          newThreadIds={snapshot.newThreadIds}
-          palette={palette}
-          now={now}
-          width={paneWidth}
-        />
-      ) : null}
+      {listWidth === 0 ? null : (
+        <ThreadList snapshot={snapshot} palette={palette} width={listWidth} height={listHeight} />
+      )}
+      {readerFocused ? (
+        <box flexDirection="column" flexGrow={1}>
+          {detailPane}
+          <box flexGrow={1} />
+          <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
+        </box>
+      ) : (
+        detailPane
+      )}
     </box>
   );
 };
@@ -577,17 +626,14 @@ export const App = (props: AppProps): ReactNode => {
   };
 
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
-  const sideLayout = width >= sidePaneMinimumWidth;
 
-  const { overlay, helpTop, helpInput, messagesTop, detailOpen, modal, runUiAction } = useUiState(
+  const { overlay, helpTop, helpInput, messagesTop, reader, modal, runUiAction } = useUiState(
     props.session,
-    sideLayout,
     helpWindowFor,
     messageWindow,
   );
 
   const helpWindow = helpWindowFor(overlay);
-  const fullDetail = detailOpen && !sideLayout;
 
   const composerRows = composerRowsOf(snapshot);
   const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
@@ -607,8 +653,7 @@ export const App = (props: AppProps): ReactNode => {
     props.session.send({ kind: 'setListRows', rows: listHeight });
   }, [props.session, listHeight]);
 
-  const widestPane = Math.floor(width * sidePaneShare);
-  const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
+  const { listWidth, detailWidth } = paneWidthsOf(width, reader);
 
   return (
     <KeymapProvider keymap={props.keymap}>
@@ -617,9 +662,8 @@ export const App = (props: AppProps): ReactNode => {
         {...props}
         modal={modal}
         overlay={overlay}
-        detailOpen={fullDetail}
+        reader={reader}
         runUiAction={runUiAction}
-        sideLayout={sideLayout}
         searchOpen={snapshot.searchOpen}
         filtersOpen={snapshot.filtersOpen}
         commandLineOpen={snapshot.commandLineOpen}
@@ -642,9 +686,9 @@ export const App = (props: AppProps): ReactNode => {
         <Body
           snapshot={snapshot}
           palette={palette}
-          width={width}
-          paneWidth={paneWidth}
-          fullDetail={fullDetail}
+          listWidth={listWidth}
+          detailWidth={detailWidth}
+          reader={reader}
           listHeight={listHeight}
           catalog={props.catalog}
         />

@@ -1,6 +1,7 @@
 import type { Command, HelpSection } from '../commands.ts';
 import {
   commandsOfLayer,
+  configIdOf,
   helpSections,
   keyHintOf,
   keyNamesOf,
@@ -76,28 +77,22 @@ const listedCommandsOf = (catalog: readonly Command[]): Command[] => {
 
   for (const command of catalog) {
     const hidden = command.hiddenFromHelp === true;
-    const repeated = command.configId !== undefined && seenConfigIds.has(command.configId);
+    const configId = configIdOf(command);
 
-    if (hidden || repeated) {
+    if (hidden || seenConfigIds.has(configId)) {
       continue;
     }
 
     const copies = catalog.filter(
-      (candidate) => candidate.configId === command.configId && candidate.hiddenFromHelp !== true,
+      (candidate) => configIdOf(candidate) === configId && candidate.hiddenFromHelp !== true,
     );
 
-    const diverges =
-      command.configId !== undefined && copies.some((copy) => !sameKeys(command, copy));
-
-    if (diverges) {
+    if (copies.some((copy) => !sameKeys(command, copy))) {
       const scope = command.scope === 'input' ? 'search' : command.scope;
 
       listed.push({ ...command, label: `${command.label} (${scope})` });
     } else {
-      if (command.configId !== undefined) {
-        seenConfigIds.add(command.configId);
-      }
-
+      seenConfigIds.add(configId);
       listed.push(command);
     }
   }

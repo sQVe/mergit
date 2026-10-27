@@ -67,7 +67,7 @@ const stubCommand = (id: string, scope: Command['scope'], keys: string[]): Comma
   section: 'app',
   keys,
   disabledReason: () => undefined,
-  intent: () => ({ kind: 'ui', action: 'openDetail' }),
+  intent: () => ({ kind: 'ui', action: 'toggleHelp' }),
 });
 
 test('no key is bound to two commands whose scopes can be active together', () => {

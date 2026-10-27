@@ -144,7 +144,7 @@ for (const [scope, keys] of [
 }
 
 for (const [scope, keys, visible] of [
-  ['preview', ['r', 'j', 'j', 'return', 'x'], 'Repo'],
+  ['reader', ['r', 'j', 'j', 'return', 'x'], 'Repo'],
   ['confirmation', ['r', 'g', 'g', 'o', 'x'], 'Open 4 repos'],
 ] as const) {
   test(`fixed Ctrl+C quits once during a ${scope} prefix without another action`, async () => {
@@ -449,4 +449,49 @@ test('a notice naming a key taken from the defaults shows after mount', async ()
   expect(notices[0]).toContain('d');
   expect(session.getSnapshot().toast?.lines).toEqual(notices);
   expect(toastText).toContain(noticeText);
+});
+
+test('a remapped closeDetail takes d from the reader, and d in the list still marks done', async () => {
+  const { catalog } = configured({ version: 1, keys: { closeDetail: ['d'] } });
+
+  const { setup, press, sent } = await mount({
+    catalog,
+    effects: feedEffects(() => fourRepoThreads),
+  });
+
+  await press('r');
+  await pressAll(press, ['j', 'j', 'return']);
+  await press('d');
+
+  expect(setup.captureCharFrame()).not.toMatch(/Repo\s+example/);
+
+  expect(sent.some((intent) => (intent as { kind?: string }).kind === 'markThreadsDone')).toBe(
+    false,
+  );
+
+  await press('d');
+
+  expect(sent.at(-1)).toEqual({ kind: 'markDone' });
+});
+
+test('markDone cannot take Escape because closeDetail must keep a key', () => {
+  expect(() => configured({ version: 1, keys: { markDone: ['<Esc>'] } })).toThrow('closeDetail');
+});
+
+test('the reader hint shows a remapped markDone key and no default key', async () => {
+  const { catalog } = configured({ version: 1, keys: { markDone: ['x'] } });
+
+  const { setup, press, settle } = await mount({
+    catalog,
+    effects: feedEffects(() => fourRepoThreads),
+  });
+
+  await press('r');
+  await pressAll(press, ['j', 'j', 'return']);
+  await settle();
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('x done');
+  expect(frame).not.toContain('d done');
 });

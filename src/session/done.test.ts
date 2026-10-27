@@ -92,6 +92,41 @@ test('undo after the send leaves the thread hidden and says it cannot be undone'
   expect(toast?.title).toContain('cannot be undone');
 });
 
+test('thread undo leaves the hidden threads as they are when the latest done is another thread', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+  markSelectedDone(harness);
+  harness.selectThread(two);
+  markSelectedDone(harness);
+
+  const before = harness.session.getSnapshot().hiddenThreadIds;
+
+  harness.session.send({ kind: 'undoThreadDone', threadId: one.id });
+
+  expect(harness.session.getSnapshot().hiddenThreadIds).toEqual(before);
+  expect(harness.session.getSnapshot().hiddenThreadIds.has(one.id)).toBe(true);
+  expect(harness.sends).toHaveLength(0);
+});
+
+test('thread undo restores the thread when it holds the latest done', async () => {
+  const harness = makeHarness();
+  const [one, two] = [makeThread('1'), makeThread('2')];
+
+  await harness.load(one, two);
+  harness.selectThread(one);
+  markSelectedDone(harness);
+  harness.selectThread(two);
+  markSelectedDone(harness);
+  harness.session.send({ kind: 'undoThreadDone', threadId: two.id });
+
+  expect(rowKeysOf(harness.session)).toContain(`thread:${two.id}`);
+  expect(harness.session.getSnapshot().hiddenThreadIds.has(one.id)).toBe(true);
+  expect(harness.sends).toHaveLength(0);
+});
+
 test('undo with no done does nothing', async () => {
   const harness = makeHarness();
 

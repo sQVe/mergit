@@ -7,7 +7,8 @@ import { testRender } from '@opentui/react/test-utils';
 import { act, useMemo, useState } from 'react';
 
 import { catalog } from '../commands.ts';
-import type { SessionEffects } from '../session/session.ts';
+import { invariant } from '../invariant.ts';
+import type { Session, SessionEffects } from '../session/session.ts';
 import { createSession, visibleRows } from '../session/session.ts';
 import { App } from './ui.tsx';
 import type { Setup } from './uiHarness.tsx';
@@ -52,6 +53,21 @@ const mountWithGroup = track(cleanups, untrackedMountWithGroup);
 const mountFilters = track(cleanups, untrackedMountFilters);
 
 const mount = track(cleanups, untrackedMount);
+
+const readerColumnOf = (frame: string): number | undefined => {
+  const line = frame.split('\n').find((candidate) => /Repo\s+example\/repo/.test(candidate));
+
+  return line?.search(/Repo/);
+};
+
+const longThreads = Array.from({ length: 60 }, (_, index) =>
+  makeThread(index + 1, `Thread ${index + 1}`),
+);
+
+const sizes = [
+  { width: 80, height: 24 },
+  { width: 120, height: 40 },
+];
 
 test('q passes a quit terminal intent and sends nothing to the session', async () => {
   const { press, terminalIntents, sent } = await mount();
@@ -179,42 +195,87 @@ test('a long title stays inside the list columns and clear of the pane at 90 col
   expect(border.slice(0, 5).every((char) => char === '│')).toBe(true);
 });
 
-test('Escape with help open inside the detail closes help only', async () => {
-  const { setup, press } = await mount({
+for (const { width, height } of sizes) {
+  test(`Escape with help open inside the detail closes help only at ${width}x${height}`, async () => {
+    const { setup, press } = await mount({
+      themeMode: 'dark',
+      effects: threadsEffects(threeThreads),
+      width,
+      height,
+    });
+
+    await pressAll(press, ['r', 'j', 'j', 'j', 'return', '?', 'escape']);
+
+    const frame = setup.captureCharFrame();
+
+    expect(readerColumnOf(frame)).toBeLessThan(width - paneWidthAt(width));
+    expect(frame).not.toContain('Toggle help');
+  });
+}
+
+test('resizing 120x40 to 80x24 and back keeps the reader focused and the selected row', async () => {
+  const { setup, press, resize, session } = await mount({
     themeMode: 'dark',
     effects: threadsEffects(threeThreads),
+    width: 120,
+    height: 40,
   });
 
-  await pressAll(press, ['r', 'j', 'j', 'j', 'return', '?', 'escape']);
+  await pressAll(press, ['r', 'j', 'j', 'return']);
 
-  expect(setup.captureCharFrame()).toMatch(/Repo\s+example\/repo/);
-  expect(setup.captureCharFrame()).not.toContain('Third');
+  const { selectedRowKey } = session.getSnapshot();
+
+  await resize(80, 24);
+
+  expect(readerColumnOf(setup.captureCharFrame())).toBeLessThan(80 - paneWidthAt(80));
+  expect(session.getSnapshot().selectedRowKey).toBe(selectedRowKey);
+
+  await resize(120, 40);
+
+  expect(readerColumnOf(setup.captureCharFrame())).toBeLessThan(120 - paneWidthAt(120));
+  expect(session.getSnapshot().selectedRowKey).toBe(selectedRowKey);
 });
 
-test('resizing wide shows the side pane and resizing narrow again shows the list, not the detail', async () => {
-  const { setup, press, resize } = await mount({
-    themeMode: 'dark',
-    effects: threadsEffects(threeThreads),
+for (const { width, height } of sizes) {
+  test(`Enter on a thread focuses and grows the reader, and Escape returns to the same row and list top at ${width}x${height}`, async () => {
+    const { setup, press, session } = await mount({
+      themeMode: 'dark',
+      effects: threadsEffects(longThreads),
+      width,
+      height,
+    });
+
+    await press('r');
+
+    await pressAll(
+      press,
+      Array.from({ length: 50 }, () => 'j'),
+    );
+
+    const before = session.getSnapshot();
+    const selected = visibleRows(before).find((row) => row.key === before.selectedRowKey);
+
+    expect(selected?.kind).toBe('thread');
+    expect(before.listTop).toBeGreaterThan(0);
+
+    const title = selected?.kind === 'thread' ? selected.thread.title : '';
+
+    await press('return');
+
+    const reader = setup.captureCharFrame();
+
+    expect(reader).toContain(title);
+    expect(readerColumnOf(reader)).toBeLessThan(width - paneWidthAt(width));
+
+    await press('escape');
+
+    const after = session.getSnapshot();
+
+    expect(after.selectedRowKey).toBe(before.selectedRowKey);
+    expect(after.listTop).toBe(before.listTop);
+    expect(setup.captureCharFrame()).toContain(title);
   });
-
-  await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
-
-  expect(setup.captureCharFrame()).not.toContain('Third');
-
-  await resize(100, 20);
-
-  expect(setup.captureCharFrame()).toContain('Third');
-  expect(paneText(setup, 100)).toMatch(/Repo\s+example\/repo/);
-
-  await resize(60, 20);
-
-  const narrow = setup.captureCharFrame();
-
-  expect(narrow).toContain('First');
-  expect(narrow).toContain('Third');
-  expect(narrow).not.toContain('Unread');
-  expect(selectedRowText(setup)).toContain('Second');
-});
+}
 
 test('list keys do nothing while the dialog is open', async () => {
   const { setup, press, sent } = await mountWithGroup();
@@ -1251,4 +1312,185 @@ test('swapping the keymap A to B to A keeps counts working, drops old layers, an
   await expectStep(0);
 
   expect(diagnostics).toEqual([]);
+});
+
+const selectedThreadOf = (session: Session) => {
+  const snapshot = session.getSnapshot();
+  const row = visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
+
+  invariant(row?.kind === 'thread', 'The selected row is not a thread.');
+
+  return row.thread;
+};
+
+const openReaderOnFirstThread = async (press: (key: string) => Promise<void>) => {
+  await press('r');
+  await pressAll(press, ['j', 'j', 'return']);
+};
+
+test('d in the focused reader marks only the reader thread done', async () => {
+  const { press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  await press('d');
+
+  expect(sent.at(-1)).toEqual({ kind: 'markThreadsDone', threadIds: [readerThread.id] });
+});
+
+test('o and r in the focused reader send the reader thread pages and refresh', async () => {
+  const { press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const { repository } = selectedThreadOf(session);
+
+  await press('o');
+
+  expect(sent.at(-1)).toEqual({ kind: 'openInBrowser', pages: [{ kind: 'repo', repository }] });
+
+  await press('r');
+
+  expect(sent.at(-1)).toEqual({ kind: 'refresh' });
+});
+
+test('a refresh that drops the reader thread keeps the reader on a detached notice and sends no done', async () => {
+  let current = fourRepoThreads;
+
+  const { setup, press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: feedEffects(() => current),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  current = fourRepoThreads.filter((thread) => thread.id !== readerThread.id);
+
+  await press('r');
+
+  expect(visibleRows(session.getSnapshot()).some((row) => row.key === 'node:review')).toBe(true);
+  expect(setup.captureCharFrame()).toContain('no longer in the list');
+
+  const before = sent.length;
+
+  await press('d');
+
+  expect(sent.slice(before)).toEqual([]);
+  expect(setup.captureCharFrame()).toContain(readerThread.title);
+});
+
+test('a refresh that empties the inbox keeps the reader on a detached notice and sends no done', async () => {
+  let current = fourRepoThreads;
+
+  const { setup, press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: feedEffects(() => current),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  current = [];
+
+  await press('r');
+
+  expect(visibleRows(session.getSnapshot())).toEqual([]);
+  expect(setup.captureCharFrame()).toContain(readerThread.title);
+  expect(setup.captureCharFrame()).toContain('no longer in the list');
+
+  const before = sent.length;
+
+  await press('d');
+
+  expect(sent.slice(before)).toEqual([]);
+});
+
+test('u in the reader does not restore a thread that a done in the list hid', async () => {
+  const { press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await press('r');
+  await pressAll(press, ['j', 'j']);
+
+  const doneThread = selectedThreadOf(session);
+
+  await press('d');
+  await press('j');
+  await press('return');
+
+  expect(selectedThreadOf(session).id).not.toBe(doneThread.id);
+
+  const before = sent.length;
+
+  await press('u');
+
+  expect(session.getSnapshot().hiddenThreadIds.has(doneThread.id)).toBe(true);
+  expect(sent.slice(before)).toEqual([]);
+});
+
+test('d then u in the reader restores the reader thread and attaches the reader again', async () => {
+  const { setup, press, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  await press('d');
+
+  expect(setup.captureCharFrame()).toContain('no longer in the list');
+
+  await press('u');
+
+  expect(session.getSnapshot().hiddenThreadIds.has(readerThread.id)).toBe(false);
+  expect(setup.captureCharFrame()).not.toContain('no longer in the list');
+});
+
+test('the focused reader shows the inbox strip at 120x40, hides it at 80x24, and brings it back on resize', async () => {
+  const { setup, press, resize } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+    width: 120,
+    height: 40,
+  });
+
+  await openReaderOnFirstThread(press);
+
+  expect(setup.captureCharFrame()).toContain('example/b');
+
+  await resize(80, 24);
+
+  expect(setup.captureCharFrame()).not.toContain('example/b');
+
+  await resize(120, 40);
+
+  expect(setup.captureCharFrame()).toContain('example/b');
+});
+
+test('the focused reader shows no inbox strip at 80x24', async () => {
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+    width: 80,
+    height: 24,
+  });
+
+  await openReaderOnFirstThread(press);
+
+  expect(setup.captureCharFrame()).not.toContain('example/b');
 });

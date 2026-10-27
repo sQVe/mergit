@@ -157,6 +157,8 @@ const RowDetail = (
   );
 };
 
+const detachedNotice = 'This thread is no longer in the list. Done is off.';
+
 export const DetailPane = (
   props: PaneProps & {
     row: TreeRow | undefined;
@@ -164,6 +166,7 @@ export const DetailPane = (
     newThreadIds: ReadonlySet<ThreadId>;
     now: Date;
     width: number;
+    detached: boolean;
   },
 ): ReactNode => {
   const { row } = props;
@@ -177,6 +180,7 @@ export const DetailPane = (
       border={['left']}
       borderColor={props.palette.dim}
     >
+      {props.detached ? <text fg={props.palette.dim}>{detachedNotice}</text> : null}
       {row === undefined ? null : (
         <RowDetail
           palette={props.palette}

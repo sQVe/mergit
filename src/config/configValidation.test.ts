@@ -32,8 +32,8 @@ test('Escape after a prefix is refused with the entry and cancellation rule', ()
   expect(catalog.map((command) => command.keys)).toEqual(before);
 });
 
-test('standalone Escape and Escape as the first stroke remain usable config keys', () => {
-  const result = loadText('{"version":1,"keys":{"cancelInput":["<Esc>"],"refresh":["<Esc>x"]}}');
+test('standalone Escape remains a usable config key', () => {
+  const result = loadText('{"version":1,"keys":{"cancelInput":["<Esc>"]}}');
 
   expect(result.ok).toBe(true);
 
@@ -41,9 +41,15 @@ test('standalone Escape and Escape as the first stroke remain usable config keys
     expect(result.catalog.find((command) => command.id === 'cancelInput')?.keys).toEqual([
       'escape',
     ]);
-
-    expect(result.catalog.find((command) => command.id === 'refresh')?.keys).toEqual(['escapex']);
   }
+});
+
+test('Escape as the first stroke of refresh is refused because the reader needs Escape for closeDetail', () => {
+  const before = catalog.map((command) => [...command.keys]);
+  const message = failureOf('{"version":1,"keys":{"refresh":["<Esc>x"]}}');
+
+  expect(message).toContain('closeDetail');
+  expect(catalog.map((command) => command.keys)).toEqual(before);
 });
 
 for (const field of ['keys', 'aliases']) {

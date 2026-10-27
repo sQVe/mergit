@@ -5,6 +5,7 @@ import { guardEffect, requestFailed } from './effectGuard.ts';
 type UndoOutcome =
   | { kind: 'undone'; threads: readonly NotificationThread[] }
   | { kind: 'tooLate' }
+  | { kind: 'otherThread' }
   | { kind: 'nothing' };
 
 export interface DoneQueueEffects {
@@ -22,7 +23,7 @@ interface FailedThread {
 
 export interface DoneQueue {
   add: (threads: readonly NotificationThread[], account: string) => void;
-  undoLatest: () => UndoOutcome;
+  undoLatest: (threadId?: ThreadId) => UndoOutcome;
   stop: (deadline: AbortSignal) => Promise<void>;
 }
 
@@ -37,6 +38,9 @@ export const undoWindowMilliseconds = 5000;
 
 const failsEveryRequest = (failure: GitHubFailure) =>
   failure.kind === 'ghMissing' || failure.kind === 'notSignedIn' || failure.kind === 'rateLimited';
+
+const holdsThread = (entry: Entry, threadId: ThreadId) =>
+  entry.threads.some((thread) => thread.id === threadId);
 
 export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
   let entries: Entry[] = [];
@@ -121,17 +125,21 @@ export const createDoneQueue = (effects: DoneQueueEffects): DoneQueue => {
     entries.push(entry);
   };
 
-  const undoLatest = (): UndoOutcome => {
+  const undoLatest = (threadId?: ThreadId): UndoOutcome => {
     const waiting = entries.findLast((entry) => entry.state === 'waiting');
 
-    if (waiting !== undefined) {
-      waiting.cancelTimer();
-      entries = entries.filter((entry) => entry !== waiting);
-
-      return { kind: 'undone', threads: waiting.threads };
+    if (waiting === undefined) {
+      return entries.length > 0 || hasCompletedSuccess ? { kind: 'tooLate' } : { kind: 'nothing' };
     }
 
-    return entries.length > 0 || hasCompletedSuccess ? { kind: 'tooLate' } : { kind: 'nothing' };
+    if (threadId !== undefined && !holdsThread(waiting, threadId)) {
+      return { kind: 'otherThread' };
+    }
+
+    waiting.cancelTimer();
+    entries = entries.filter((entry) => entry !== waiting);
+
+    return { kind: 'undone', threads: waiting.threads };
   };
 
   const stop = async (deadline: AbortSignal) => {

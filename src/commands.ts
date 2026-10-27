@@ -1,7 +1,10 @@
+import { invariant } from './invariant.ts';
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
 import { searchCandidatesOf, visibleRows } from './session/session.ts';
-import type { BrowserPage } from './work/work.ts';
+import type { BrowserPage, ThreadRow } from './work/work.ts';
 import { pagesOfRow } from './work/work.ts';
+
+export type ReaderContext = { kind: 'inbox' } | { kind: 'reader'; row: ThreadRow };
 
 export type Intent =
   | { kind: 'application'; intent: ApplicationIntent }
@@ -15,7 +18,6 @@ export type Intent =
         | 'cancelHelpSearch'
         | 'clearHelpSearch'
         | 'closeEmptyHelpSearch'
-        | 'openDetail'
         | 'closeDetail'
         | 'runCommandLine'
         | 'nextCommandLineCompletion'
@@ -23,6 +25,7 @@ export type Intent =
         | 'openMessages'
         | 'closeMessages';
     }
+  | { kind: 'ui'; action: 'openDetail'; row: ThreadRow }
   | { kind: 'ui'; action: 'editHelpSearch'; text: string }
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
@@ -52,7 +55,7 @@ export interface Command {
   scope:
     | 'global'
     | 'list'
-    | 'preview'
+    | 'reader'
     | 'help'
     | 'helpSearch'
     | 'confirm'
@@ -68,7 +71,7 @@ export interface Command {
   overlayKeys?: Partial<Record<OverlayScope, readonly string[]>>;
   configurable?: false;
   mustKeepKey?: true;
-  disabledReason: (snapshot: Snapshot) => string | undefined;
+  disabledReason: (snapshot: Snapshot, reader: ReaderContext) => string | undefined;
   // The help and messages layers also bind this command's keys, and run this move on the open
   // overlay.
   overlayMove?: OverlayMove;
@@ -76,7 +79,7 @@ export interface Command {
   counted?: true;
   // Keys that still run this command while a count is pending, on the list layer.
   keysDuringCount?: readonly string[];
-  intent: (snapshot: Snapshot, count?: number) => Intent;
+  intent: (snapshot: Snapshot, reader: ReaderContext, count?: number) => Intent;
   // False lets the key reach the focused input after the command runs.
   preventDefault?: boolean;
 }
@@ -103,13 +106,15 @@ export const scopePriority: Record<Command['scope'], number> = {
   input: 40,
   command: 40,
   filter: 40,
-  preview: 30,
+  reader: 30,
   list: 20,
   global: 10,
 };
 
 export const isOverlayScope = (scope: Command['scope']): scope is OverlayScope =>
   scope === 'help' || scope === 'messages';
+
+export const configIdOf = (command: Command): string => command.configId ?? command.id;
 
 const scrollCopyOf = (command: Command, scope: OverlayScope, move: OverlayMove): Command => ({
   ...command,
@@ -140,6 +145,44 @@ const confirmAfterRepositories = 3;
 
 const selectedRowOf = (snapshot: Snapshot) =>
   visibleRows(snapshot).find((candidate) => candidate.key === snapshot.selectedRowKey);
+
+const openIntentOf = (pages: readonly BrowserPage[]): Intent =>
+  pages.length > confirmAfterRepositories
+    ? { kind: 'ui', action: 'askOpen', pages }
+    : { kind: 'application', intent: { kind: 'openInBrowser', pages } };
+
+const readerRowOf = (reader: ReaderContext): ThreadRow => {
+  invariant(reader.kind === 'reader', 'Reader commands run only while a thread detail is open.');
+
+  return reader.row;
+};
+
+const noReaderReason = (reader: ReaderContext): string | undefined =>
+  reader.kind === 'inbox' ? 'No thread detail is open.' : undefined;
+
+export const isReaderDetached = (snapshot: Snapshot, reader: ReaderContext): boolean =>
+  reader.kind === 'reader' &&
+  !visibleRows(snapshot).some(
+    (candidate) => candidate.kind === 'thread' && candidate.thread.id === reader.row.thread.id,
+  );
+
+const readerUndoReason = (snapshot: Snapshot, reader: ReaderContext): string | undefined => {
+  if (reader.kind === 'inbox') {
+    return noReaderReason(reader);
+  }
+
+  return snapshot.hiddenThreadIds.has(reader.row.thread.id)
+    ? undefined
+    : 'This thread is not marked done.';
+};
+
+const readerDoneReason = (snapshot: Snapshot, reader: ReaderContext): string | undefined => {
+  if (reader.kind === 'inbox') {
+    return noReaderReason(reader);
+  }
+
+  return isReaderDetached(snapshot, reader) ? 'This thread is no longer in the list.' : undefined;
+};
 
 const noCompletion = (snapshot: Snapshot) =>
   searchCandidatesOf(snapshot).length === 0 ? 'No completion for the last word.' : undefined;
@@ -174,7 +217,10 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'lines', lines: 1 },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectNext', count } }),
+    intent: (_snapshot, _reader, count) => ({
+      kind: 'application',
+      intent: { kind: 'selectNext', count },
+    }),
   },
   {
     id: 'selectPrevious',
@@ -185,7 +231,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'lines', lines: -1 },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'selectPrevious', count },
     }),
@@ -199,7 +245,10 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'edge', edge: 'top' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectFirst', count } }),
+    intent: (_snapshot, _reader, count) => ({
+      kind: 'application',
+      intent: { kind: 'selectFirst', count },
+    }),
   },
   {
     id: 'selectLast',
@@ -210,7 +259,10 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'edge', edge: 'bottom' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({ kind: 'application', intent: { kind: 'selectLast', count } }),
+    intent: (_snapshot, _reader, count) => ({
+      kind: 'application',
+      intent: { kind: 'selectLast', count },
+    }),
   },
   {
     id: 'selectNextGroup',
@@ -283,7 +335,7 @@ export const catalog: readonly Command[] = [
     keys: ['zz'],
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'placeSelectedRow', position: 'center', count },
     }),
@@ -296,7 +348,7 @@ export const catalog: readonly Command[] = [
     keys: ['zt'],
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'placeSelectedRow', position: 'top', count },
     }),
@@ -309,7 +361,7 @@ export const catalog: readonly Command[] = [
     keys: ['zb'],
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'placeSelectedRow', position: 'bottom', count },
     }),
@@ -323,7 +375,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'down', size: 'half' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'down', size: 'half', count },
     }),
@@ -337,7 +389,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'up', size: 'half' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'up', size: 'half', count },
     }),
@@ -351,7 +403,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'down', size: 'full' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'down', size: 'full', count },
     }),
@@ -365,7 +417,7 @@ export const catalog: readonly Command[] = [
     overlayMove: { kind: 'page', direction: 'up', size: 'full' },
     disabledReason: () => undefined,
     counted: true,
-    intent: (_snapshot, count) => ({
+    intent: (_snapshot, _reader, count) => ({
       kind: 'application',
       intent: { kind: 'scrollPage', direction: 'up', size: 'full', count },
     }),
@@ -378,10 +430,13 @@ export const catalog: readonly Command[] = [
     keys: ['return'],
     disabledReason: (snapshot) =>
       selectedRowOf(snapshot) === undefined ? 'No row is selected' : undefined,
-    intent: (snapshot) =>
-      selectedRowOf(snapshot)?.kind === 'thread'
-        ? { kind: 'ui', action: 'openDetail' }
-        : { kind: 'application', intent: { kind: 'toggleFold' } },
+    intent: (snapshot) => {
+      const row = selectedRowOf(snapshot);
+
+      return row?.kind === 'thread'
+        ? { kind: 'ui', action: 'openDetail', row }
+        : { kind: 'application', intent: { kind: 'toggleFold' } };
+    },
   },
   {
     id: 'cycleGrouping',
@@ -431,13 +486,8 @@ export const catalog: readonly Command[] = [
       selectedRowOf(snapshot) === undefined ? 'Select a row to open it' : undefined,
     intent: (snapshot) => {
       const row = selectedRowOf(snapshot);
-      const pages = row === undefined ? [] : pagesOfRow(row);
 
-      if (row !== undefined && pages.length > confirmAfterRepositories) {
-        return { kind: 'ui', action: 'askOpen', pages };
-      }
-
-      return { kind: 'application', intent: { kind: 'openInBrowser', pages } };
+      return openIntentOf(row === undefined ? [] : pagesOfRow(row));
     },
   },
   {
@@ -639,11 +689,57 @@ export const catalog: readonly Command[] = [
     id: 'closeDetail',
     mustKeepKey: true,
     label: 'Close thread detail',
-    scope: 'preview',
+    scope: 'reader',
     section: 'threads',
     keys: ['escape'],
-    disabledReason: () => undefined,
+    disabledReason: (_snapshot, reader) => noReaderReason(reader),
     intent: () => ({ kind: 'ui', action: 'closeDetail' }),
+  },
+  {
+    id: 'readerMarkDone',
+    configId: 'markDone',
+    label: 'Mark done',
+    scope: 'reader',
+    section: 'threads',
+    keys: ['d'],
+    disabledReason: readerDoneReason,
+    intent: (_snapshot, reader) => ({
+      kind: 'application',
+      intent: { kind: 'markThreadsDone', threadIds: [readerRowOf(reader).thread.id] },
+    }),
+  },
+  {
+    id: 'readerOpenInBrowser',
+    configId: 'openInBrowser',
+    label: 'Open in browser',
+    scope: 'reader',
+    section: 'threads',
+    keys: ['o', 'gx'],
+    disabledReason: (_snapshot, reader) => noReaderReason(reader),
+    intent: (_snapshot, reader) => openIntentOf(pagesOfRow(readerRowOf(reader))),
+  },
+  {
+    id: 'readerRefresh',
+    configId: 'refresh',
+    label: 'Refresh',
+    scope: 'reader',
+    section: 'app',
+    keys: ['r'],
+    disabledReason: (_snapshot, reader) => noReaderReason(reader),
+    intent: () => ({ kind: 'application', intent: { kind: 'refresh' } }),
+  },
+  {
+    id: 'readerUndoDone',
+    configId: 'undoDone',
+    label: 'Undo done for this thread',
+    scope: 'reader',
+    section: 'threads',
+    keys: ['u'],
+    disabledReason: readerUndoReason,
+    intent: (_snapshot, reader) => ({
+      kind: 'application',
+      intent: { kind: 'undoThreadDone', threadId: readerRowOf(reader).thread.id },
+    }),
   },
   {
     id: 'openHelpSearch',
