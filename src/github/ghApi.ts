@@ -80,52 +80,59 @@ const readCapped = async (
   return null;
 };
 
+const runGh = async (
+  args: readonly string[],
+  signal: AbortSignal,
+  limitBytes: number,
+): Promise<GhRun> => {
+  const executable = Bun.which('gh', { PATH: Bun.env.PATH ?? '' });
+
+  if (executable === null) {
+    return { kind: 'missing' };
+  }
+
+  let child: Bun.Subprocess<'ignore', 'pipe', 'pipe'>;
+
+  try {
+    child = Bun.spawn([executable, ...args], {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      signal,
+    });
+  } catch {
+    return { kind: 'missing' };
+  }
+
+  const readers = [child.stdout.getReader(), child.stderr.getReader()];
+
+  const stopReading = async (): Promise<void> => {
+    child.kill();
+    await Promise.all(readers.map((reader) => reader.cancel()));
+  };
+
+  const [stdoutChunks, stderrChunks] = await Promise.all(
+    readers.map((reader) => readCapped(reader, limitBytes, stopReading)),
+  );
+
+  const exitCode = await child.exited;
+
+  if (stdoutChunks === null || stderrChunks === null) {
+    return { kind: 'tooLarge', limitBytes };
+  }
+
+  const [stdout, stderr] = await Promise.all([
+    new Blob(stdoutChunks).text(),
+    new Blob(stderrChunks).text(),
+  ]);
+
+  return { kind: 'exited', exitCode, stdout, stderr };
+};
+
 export const createGhRunner =
   (limitBytes = ghOutputLimitBytes): GitHubEffects['runGh'] =>
-  async (args, signal) => {
-    const executable = Bun.which('gh', { PATH: Bun.env.PATH ?? '' });
-
-    if (executable === null) {
-      return { kind: 'missing' };
-    }
-
-    let child: Bun.Subprocess<'ignore', 'pipe', 'pipe'>;
-
-    try {
-      child = Bun.spawn([executable, ...args], {
-        stdin: 'ignore',
-        stdout: 'pipe',
-        stderr: 'pipe',
-        signal,
-      });
-    } catch {
-      return { kind: 'missing' };
-    }
-
-    const readers = [child.stdout.getReader(), child.stderr.getReader()];
-
-    const stopReading = async (): Promise<void> => {
-      child.kill();
-      await Promise.all(readers.map((reader) => reader.cancel()));
-    };
-
-    const [stdoutChunks, stderrChunks] = await Promise.all(
-      readers.map((reader) => readCapped(reader, limitBytes, stopReading)),
-    );
-
-    const exitCode = await child.exited;
-
-    if (stdoutChunks === null || stderrChunks === null) {
-      return { kind: 'tooLarge', limitBytes };
-    }
-
-    const [stdout, stderr] = await Promise.all([
-      new Blob(stdoutChunks).text(),
-      new Blob(stderrChunks).text(),
-    ]);
-
-    return { kind: 'exited', exitCode, stdout, stderr };
-  };
+  (args, signal) =>
+    runGh(args, signal, limitBytes);
 
 const fail = (failure: GitHubFailure): { ok: false; failure: GitHubFailure } => ({
   ok: false,

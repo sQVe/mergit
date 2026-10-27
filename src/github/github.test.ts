@@ -444,7 +444,15 @@ test('readViewer asks for the global node ID format', async () => {
 
   await readViewer(effects, null, signal);
 
-  expect(calls[0]).toContain('X-Github-Next-Global-ID: 1');
+  expect(calls[0]).toEqual([
+    'api',
+    '--hostname',
+    'github.com',
+    '--include',
+    '-H',
+    'X-Github-Next-Global-ID: 1',
+    '/user',
+  ]);
 });
 
 test('readViewer returns the ETag of the response', async () => {

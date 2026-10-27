@@ -1,5 +1,5 @@
 import type { NotificationFeed, NotificationFeedRequest, Viewer } from '../github/github.ts';
-import type { ViewerId, ViewerLogin } from '../work/work.ts';
+import type { ViewerLogin } from '../work/work.ts';
 import type { SavedSnapshot } from './session.ts';
 
 export interface AccountSwitchOwner {
@@ -10,7 +10,6 @@ export interface AccountSwitchOwner {
     clear: () => void,
   ) => NotificationFeedRequest;
   currentLogin: () => ViewerLogin | null;
-  currentViewerId: () => ViewerId | null;
   lastViewer: () => Viewer | null;
   viewerKnown: () => boolean;
 }
@@ -53,7 +52,6 @@ export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchO
   return {
     accept,
     currentLogin: () => login,
-    currentViewerId: () => lastViewer?.id ?? null,
     lastViewer: () => lastViewer,
     viewerKnown: () => viewerLogin !== null,
   };
