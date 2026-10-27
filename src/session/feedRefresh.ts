@@ -9,6 +9,7 @@ import type {
   Viewer,
 } from '../github/github.ts';
 import type { AccountSwitchOwner } from './accountSwitch.ts';
+import { createAdmission } from './admission.ts';
 import { guardEffect, requestFailed } from './effectGuard.ts';
 import { applyFailure, clearFailure, startRefresh } from './feedTransitions.ts';
 import type { Snapshot } from './sessionState.ts';
@@ -72,6 +73,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   let cancelTimer: (() => void) | null = null;
   let pollSeconds = minimumPollSeconds;
   let lastFullRefreshAt = 0;
+  const admission = createAdmission(host);
 
   const rememberInterval = (seconds: number | null) => {
     if (seconds !== null) {
@@ -164,20 +166,10 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
     });
   };
 
-  const pauseRemaining = () => {
-    const { pausedUntil } = host.getSnapshot();
-
-    if (pausedUntil === null) {
-      return 0;
-    }
-
-    return Math.max(pausedUntil.getTime() - host.now().getTime(), 0);
-  };
-
   const completeOperation = () => {
     controller = null;
 
-    const paused = pauseRemaining();
+    const paused = admission.pauseRemaining();
 
     if (paused > 0) {
       followUpPending = false;
@@ -234,7 +226,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
     signal: AbortSignal,
     request: NotificationFeedRequest,
   ) => {
-    host.update(startRefresh(host.getSnapshot()));
+    host.update(startRefresh(host.getSnapshot(), host.now()));
 
     const outcome = await fullRefresh(request, signal);
 
@@ -264,7 +256,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
     rememberInterval(result.value.pollInterval);
 
     if (result.value.kind === 'unchanged') {
-      host.update(clearFailure(host.getSnapshot()));
+      host.update(clearFailure(host.getSnapshot(), host.now()));
 
       return;
     }
@@ -300,7 +292,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
       return;
     }
 
-    const paused = pauseRemaining();
+    const paused = admission.pauseRemaining();
 
     if (paused > 0) {
       schedule(paused);
@@ -324,7 +316,7 @@ export const createFeedRefresh = (host: FeedRefreshHost): FeedRefreshOwner => {
   };
 
   const request = () => {
-    if (pauseRemaining() > 0) {
+    if (admission.isPaused()) {
       return;
     }
 

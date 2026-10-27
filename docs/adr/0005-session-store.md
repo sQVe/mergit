@@ -46,8 +46,10 @@ tests drive the same way production does.
   overlap.
 - Each refresh carries a generation. A result from an older generation, or after `stop`, is dropped.
 - A failed refresh keeps the previous items and shows the error.
-- A rate-limit response pauses polling until the reset time. Manual refresh does not bypass the
-  pause.
+- One pause covers every GitHub read. A rate limit from the feed or from a subject lookup, including
+  a GraphQL limit reported with HTTP 200, pauses feed refreshes and subject lookups until the reset
+  time. The pause gates the start of a read. A refresh that already started finishes. Manual refresh
+  does not bypass the pause.
 - Cached data and its sync follow [ADR 0016](./0016-snapshot-and-full-refresh.md). A manual refresh
   skips the stored feed ETags.
 

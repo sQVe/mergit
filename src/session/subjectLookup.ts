@@ -1,5 +1,6 @@
 import type { SubjectLookup, SubjectLookupResult } from '../github/github.ts';
 import type { NotificationThread, ThreadId } from '../work/work.ts';
+import type { Admission } from './admission.ts';
 import type { Snapshot } from './sessionState.ts';
 import { keepSelectionVisible } from './sessionState.ts';
 
@@ -20,6 +21,7 @@ export interface SubjectLookupHost {
   getSnapshot: () => Snapshot;
   update: (next: Snapshot) => void;
   isStopped: () => boolean;
+  admission: Admission;
 }
 
 const isSubject = (thread: NotificationThread) =>
@@ -81,6 +83,14 @@ export const createSubjectLookup = (host: SubjectLookupHost): SubjectLookupOwner
     host.update(applySubjectLookups(snapshot, fresh));
   };
 
+  const pauseOnRateLimit = (result: SubjectLookupResult) => {
+    for (const failure of result.failures) {
+      if (failure.kind === 'rateLimited') {
+        host.admission.pause(failure.resetAt);
+      }
+    }
+  };
+
   const abort = () => {
     lookupController?.abort();
     lookupController = null;
@@ -97,7 +107,7 @@ export const createSubjectLookup = (host: SubjectLookupHost): SubjectLookupOwner
 
     abort();
 
-    if (unknown.length === 0) {
+    if (unknown.length === 0 || host.admission.isPaused()) {
       return;
     }
 
@@ -114,7 +124,13 @@ export const createSubjectLookup = (host: SubjectLookupHost): SubjectLookupOwner
     Promise.resolve()
       .then(() => host.lookUpSubjects(unknown, own.signal))
       .then((result) => {
-        if (!own.signal.aborted && !host.isStopped()) {
+        if (host.isStopped()) {
+          return;
+        }
+
+        pauseOnRateLimit(result);
+
+        if (!own.signal.aborted) {
           acceptLookups(unknown, result.lookups);
         }
       })

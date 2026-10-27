@@ -5,10 +5,39 @@ import { selectAfterRefresh } from './selectionRepair.ts';
 import type { Snapshot } from './sessionState.ts';
 import { visibleRows } from './sessionState.ts';
 
-export const startRefresh = (snapshot: Snapshot): Snapshot => ({
+const isoTimeStart = 11;
+const isoTimeEnd = 19;
+
+const futurePauseOf = (snapshot: Snapshot, now: Date): Date | null => {
+  const { pausedUntil } = snapshot;
+
+  return pausedUntil !== null && pausedUntil.getTime() > now.getTime() ? pausedUntil : null;
+};
+
+export const failureMessage = (failure: GitHubFailure): string => {
+  if (failure.kind === 'rateLimited') {
+    const resetTime = failure.resetAt.toISOString().slice(isoTimeStart, isoTimeEnd);
+
+    return `Rate limited, paused until ${resetTime} UTC`;
+  }
+
+  if (failure.kind === 'ghMissing' || failure.kind === 'notSignedIn') {
+    return failure.kind;
+  }
+
+  return failure.message;
+};
+
+export const laterPauseOf = (first: Date | null, second: Date): Date =>
+  first === null ? second : new Date(Math.max(first.getTime(), second.getTime()));
+
+const pauseMessageOf = (pausedUntil: Date | null): string | null =>
+  pausedUntil === null ? null : failureMessage({ kind: 'rateLimited', resetAt: pausedUntil });
+
+export const startRefresh = (snapshot: Snapshot, now: Date): Snapshot => ({
   ...snapshot,
   refreshStatus: 'running',
-  pausedUntil: null,
+  pausedUntil: futurePauseOf(snapshot, now),
 });
 
 export const applyThreads = (
@@ -34,6 +63,7 @@ export const applyThreads = (
   );
 
   const updated = { ...snapshot, threads, subjectFacts, refreshedAt: now, savedAt: null };
+  const pausedUntil = futurePauseOf(snapshot, now);
 
   return {
     ...updated,
@@ -43,11 +73,11 @@ export const applyThreads = (
       visibleRows(updated),
     ),
     refreshStatus: 'idle',
-    errorMessage: null,
+    errorMessage: pauseMessageOf(pausedUntil),
     notice: null,
     hasLoaded: true,
     feedBusy: false,
-    pausedUntil: null,
+    pausedUntil,
   };
 };
 
@@ -85,38 +115,32 @@ export const markFeedBusy = (snapshot: Snapshot): Snapshot => ({
   feedBusy: true,
 });
 
-export const failureMessage = (failure: GitHubFailure): string => {
-  if (failure.kind === 'rateLimited') {
-    const resetTime = /T(\d{2}:\d{2}:\d{2})/.exec(failure.resetAt.toISOString())?.[1] ?? '';
-
-    return `Rate limited, paused until ${resetTime} UTC`;
-  }
-
-  if (failure.kind === 'ghMissing' || failure.kind === 'notSignedIn') {
-    return failure.kind;
-  }
-
-  return failure.message;
-};
-
 export const applyFailure = (snapshot: Snapshot, failure: GitHubFailure, now: Date): Snapshot => {
   const isNotice = failure.kind === 'ghMissing' || failure.kind === 'notSignedIn';
+  const activePause = futurePauseOf(snapshot, now);
+
+  const pausedUntil =
+    failure.kind === 'rateLimited' ? laterPauseOf(activePause, failure.resetAt) : activePause;
+
+  const failureText = isNotice ? null : failureMessage(failure);
 
   return {
     ...snapshot,
     refreshStatus: 'idle',
-    errorMessage: isNotice ? null : failureMessage(failure),
+    errorMessage: pauseMessageOf(pausedUntil) ?? failureText,
     notice: isNotice ? failure.kind : null,
     hasLoaded: true,
     refreshedAt: now,
-    pausedUntil: failure.kind === 'rateLimited' ? failure.resetAt : null,
+    pausedUntil,
   };
 };
 
-export const clearFailure = (snapshot: Snapshot): Snapshot => {
-  if (snapshot.errorMessage === null && snapshot.notice === null) {
+export const clearFailure = (snapshot: Snapshot, now: Date): Snapshot => {
+  const errorMessage = pauseMessageOf(futurePauseOf(snapshot, now));
+
+  if (snapshot.errorMessage === errorMessage && snapshot.notice === null) {
     return snapshot;
   }
 
-  return { ...snapshot, errorMessage: null, notice: null };
+  return { ...snapshot, errorMessage, notice: null };
 };
