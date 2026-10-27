@@ -1323,7 +1323,6 @@ const selectedThreadOf = (session: Session) => {
   return row.thread;
 };
 
-// The first thread sits below the review group and its first repository group.
 const openReaderOnFirstThread = async (press: (key: string) => Promise<void>) => {
   await press('r');
   await pressAll(press, ['j', 'j', 'return']);

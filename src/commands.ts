@@ -158,7 +158,6 @@ const readerRowOf = (reader: ReaderContext): ThreadRow => {
 const noReaderReason = (reader: ReaderContext): string | undefined =>
   reader.kind === 'inbox' ? 'No thread detail is open.' : undefined;
 
-// The reader keeps its captured row; only the list decides whether the thread is still shown.
 export const isReaderDetached = (snapshot: Snapshot, reader: ReaderContext): boolean =>
   reader.kind === 'reader' &&
   !visibleRows(snapshot).some(
