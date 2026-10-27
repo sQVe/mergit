@@ -10,7 +10,7 @@ import { catalog, keyHintOf } from '../commands.ts';
 import type { Command, TerminalIntent } from '../commands.ts';
 import { createSession } from '../session/session.ts';
 import type { Session, SessionEffects } from '../session/session.ts';
-import { toThreadId, toViewerLogin } from '../work/work.ts';
+import { toThreadId, toViewerId, toViewerLogin } from '../work/work.ts';
 import type { NotificationThread } from '../work/work.ts';
 import { pickPalette } from './palette.ts';
 import { App } from './ui.tsx';
@@ -57,7 +57,10 @@ export const idleEffects: SessionEffects = {
   configNotices: [],
   stateWarning: null,
   readViewer: () =>
-    Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
+    Promise.resolve({
+      ok: true as const,
+      value: { id: toViewerId('U_octocat'), login: toViewerLogin('octocat'), etag: null },
+    }),
   saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({
@@ -356,7 +359,7 @@ export const savedEffects = (
 ): SessionEffects => ({
   ...idleEffects,
   savedSnapshot: {
-    viewer: { login: toViewerLogin('octocat'), etag: null },
+    viewer: { id: toViewerId('U_octocat'), login: toViewerLogin('octocat'), etag: null },
     savedAt,
     feed: { pages: [] },
     threads: [...threads],

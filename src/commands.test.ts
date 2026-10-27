@@ -5,7 +5,7 @@ import { catalog, keyHintOf, keyNamesOf, readableKeyOf, readableStrokeOf } from 
 import type { ApplicationIntent, Filter } from './session/session.ts';
 import { createSession, visibleRows } from './session/session.ts';
 import type { BrowserPage } from './work/work.ts';
-import { toThreadId, toViewerLogin } from './work/work.ts';
+import { toThreadId, toViewerId, toViewerLogin } from './work/work.ts';
 
 const idleEffects = {
   savedSnapshot: null,
@@ -18,7 +18,10 @@ const idleEffects = {
   configNotices: [],
   stateWarning: null,
   readViewer: () =>
-    Promise.resolve({ ok: true as const, value: { login: toViewerLogin('octocat'), etag: null } }),
+    Promise.resolve({
+      ok: true as const,
+      value: { id: toViewerId('U_octocat'), login: toViewerLogin('octocat'), etag: null },
+    }),
   saveSnapshot: () => undefined,
   pollFeed: () =>
     Promise.resolve({

@@ -22,6 +22,7 @@ import {
   stable,
   unchanged,
   verified,
+  viewerIdOf,
   viewerOf,
 } from './sessionHarness.ts';
 import { initialSnapshot } from './sessionState.ts';
@@ -530,7 +531,7 @@ test('a loaded refresh saves the new feed once and applyThreads clears the saved
 
   expect(saves).toEqual([
     {
-      viewer: { login: octocat, etag: null },
+      viewer: { id: viewerIdOf(octocat), login: octocat, etag: null },
       feed: makeFeed('fresh', [makeThread('3')]),
       savedAt: now(),
     },
@@ -667,7 +668,7 @@ test('a saved snapshot with no open threads starts with no selection', () => {
   const harness = makeHarness(
     {
       savedSnapshot: {
-        viewer: { login: octocat, etag: null },
+        viewer: { id: viewerIdOf(octocat), login: octocat, etag: null },
         savedAt,
         feed: makeFeed('saved', []),
         threads: [],

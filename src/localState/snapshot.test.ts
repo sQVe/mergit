@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { toViewerLogin } from '../work/work.ts';
+import { toViewerId, toViewerLogin } from '../work/work.ts';
 import type { LocalSnapshot } from './snapshot.ts';
 import { cacheDirectory, loadSnapshot, saveSnapshot } from './snapshot.ts';
 
@@ -33,6 +33,7 @@ afterEach(() => {
 const makeSnapshot = (login: string, bodies: string[]): LocalSnapshot => ({
   host: 'github.com',
   login: toViewerLogin(login),
+  viewerId: toViewerId(`U_${login}`),
   viewerEtag: '"viewer-1"',
   savedAt: new Date('2026-10-12T06:00:00.000Z'),
   pages: bodies.map((body, index) => ({
@@ -56,6 +57,18 @@ test('loads the saved snapshot from a fresh open', () => {
   expect(saveSnapshot(directory, snapshot).ok).toBe(true);
 
   expect(loadValue()).toEqual(snapshot);
+});
+
+test('saves and loads the viewer ID with the snapshot', () => {
+  const first = { ...makeSnapshot('octocat', ['a']), viewerId: toViewerId('U_first') };
+  saveSnapshot(directory, first);
+
+  expect(loadValue()?.viewerId).toBe(toViewerId('U_first'));
+
+  const renamed = { ...first, viewerId: toViewerId('U_second') };
+  saveSnapshot(directory, renamed);
+
+  expect(loadValue()).toEqual(renamed);
 });
 
 test('loads no snapshot when nothing was saved', () => {
@@ -233,7 +246,7 @@ test('a recreated cache file is owner-only', () => {
   expect(modeOf(file)).toBe(0o600);
 });
 
-const writeVersionTwoCache = (statements: string[]): void => {
+const writeCurrentVersionCache = (statements: string[]): void => {
   mkdirSync(directory);
   const database = new Database(join(directory, 'cache.db'));
 
@@ -241,7 +254,7 @@ const writeVersionTwoCache = (statements: string[]): void => {
     database.run(statement);
   }
 
-  database.run('PRAGMA user_version = 2');
+  database.run('PRAGMA user_version = 3');
   database.close();
 };
 
@@ -254,29 +267,29 @@ const expectRecreated = (): void => {
 };
 
 const createLast =
-  'CREATE TABLE last (id INTEGER PRIMARY KEY CHECK (id = 1), host TEXT NOT NULL, login TEXT NOT NULL, viewerEtag TEXT, savedAt INTEGER NOT NULL)';
+  'CREATE TABLE last (id INTEGER PRIMARY KEY CHECK (id = 1), host TEXT NOT NULL, login TEXT NOT NULL, viewerId TEXT NOT NULL, viewerEtag TEXT, savedAt INTEGER NOT NULL)';
 
 const createPages =
   'CREATE TABLE pages (host TEXT NOT NULL, login TEXT NOT NULL, position INTEGER NOT NULL, path TEXT NOT NULL, etag TEXT, next TEXT, body TEXT NOT NULL, PRIMARY KEY (host, login, position))';
 
 test('recreates a cache whose savedAt is not a valid date', () => {
-  writeVersionTwoCache([
+  writeCurrentVersionCache([
     createLast,
     createPages,
-    "INSERT INTO last VALUES (1, 'github.com', 'octocat', NULL, 9000000000000000000)",
+    "INSERT INTO last VALUES (1, 'github.com', 'octocat', 'U_octocat', NULL, 9000000000000000000)",
   ]);
 
   expectRecreated();
 });
 
 test('recreates a cache at the current version with a missing table or column', () => {
-  writeVersionTwoCache([createLast]);
+  writeCurrentVersionCache([createLast]);
 
   expectRecreated();
 
   rmSync(directory, { recursive: true, force: true });
 
-  writeVersionTwoCache([
+  writeCurrentVersionCache([
     createLast,
     'CREATE TABLE pages (host TEXT NOT NULL, login TEXT NOT NULL, position INTEGER NOT NULL, path TEXT NOT NULL, etag TEXT, body TEXT NOT NULL)',
   ]);
@@ -285,13 +298,44 @@ test('recreates a cache at the current version with a missing table or column', 
 });
 
 test('recreates a cache with an empty login', () => {
-  writeVersionTwoCache([
+  writeCurrentVersionCache([
     createLast,
     createPages,
-    "INSERT INTO last VALUES (1, 'github.com', '', NULL, 0)",
+    "INSERT INTO last VALUES (1, 'github.com', '', 'U_octocat', NULL, 0)",
   ]);
 
   expectRecreated();
+});
+
+test('recreates a cache with an empty viewer ID', () => {
+  writeCurrentVersionCache([
+    createLast,
+    createPages,
+    "INSERT INTO last VALUES (1, 'github.com', 'octocat', '', NULL, 0)",
+  ]);
+
+  expectRecreated();
+});
+
+test('replaces a schema version 2 cache with an empty snapshot', () => {
+  mkdirSync(directory);
+  const database = new Database(join(directory, 'cache.db'));
+
+  const statements = [
+    'CREATE TABLE last (id INTEGER PRIMARY KEY CHECK (id = 1), host TEXT NOT NULL, login TEXT NOT NULL, viewerEtag TEXT, savedAt INTEGER NOT NULL)',
+    createPages,
+    "INSERT INTO last VALUES (1, 'github.com', 'octocat', NULL, 0)",
+    "INSERT INTO pages VALUES ('github.com', 'octocat', 0, '/p', NULL, NULL, '[{\"id\":\"1\"}]')",
+  ];
+
+  for (const statement of statements) {
+    database.run(statement);
+  }
+
+  database.run('PRAGMA user_version = 2');
+  database.close();
+
+  expect(loadSnapshot(directory)).toEqual({ ok: true, value: null });
 });
 
 test('an empty HOME gives no cache directory', () => {
@@ -299,10 +343,10 @@ test('an empty HOME gives no cache directory', () => {
 });
 
 test('recreates a cache whose page body is not text', () => {
-  writeVersionTwoCache([
+  writeCurrentVersionCache([
     createLast,
     createPages,
-    "INSERT INTO last VALUES (1, 'github.com', 'octocat', NULL, 0)",
+    "INSERT INTO last VALUES (1, 'github.com', 'octocat', 'U_octocat', NULL, 0)",
     "INSERT INTO pages VALUES ('github.com', 'octocat', 0, '/p', NULL, NULL, x'0102')",
   ]);
 

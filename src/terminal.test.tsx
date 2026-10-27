@@ -34,7 +34,7 @@ const idleEffects: SessionEffects = {
   readViewer: () =>
     Promise.resolve({
       ok: true as const,
-      value: { login: 'octocat' as Viewer['login'], etag: null },
+      value: { id: 'U_octocat' as Viewer['id'], login: 'octocat' as Viewer['login'], etag: null },
     }),
   saveSnapshot: () => undefined,
   pollFeed: () =>

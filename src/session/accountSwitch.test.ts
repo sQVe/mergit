@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { NotificationFeed, Viewer } from '../github/github.ts';
-import { toViewerLogin } from '../work/work.ts';
+import { toViewerId, toViewerLogin } from '../work/work.ts';
 import {
   failure,
   makeFeed,
@@ -13,6 +13,7 @@ import {
   savedThreads,
   settle,
   stable,
+  viewerIdOf,
   viewerOf,
 } from './sessionHarness.ts';
 
@@ -26,6 +27,30 @@ test('another account empties the list before the feed answers and reads without
   expect(session.getSnapshot().selectedRowKey).toBeNull();
   expect(session.getSnapshot().savedAt).toBeNull();
   expect(take('read').request.previous).toBeNull();
+});
+
+test('the same login with another node ID empties the list and reads without a previous feed', async () => {
+  const { session, send, answerViewer, take } = makeSavedHarness(octocat, {
+    savedSnapshot: savedSnapshotOf(octocat, null, toViewerId('U_a')),
+  });
+
+  await send();
+  await answerViewer(viewerOf(octocat, null, toViewerId('U_b')));
+
+  expect(session.getSnapshot().threads).toEqual([]);
+  expect(take('read').request.previous).toBeNull();
+});
+
+test('a changed login with the same node ID keeps the saved threads', async () => {
+  const { session, send, answerViewer, take } = makeSavedHarness(octocat, {
+    savedSnapshot: savedSnapshotOf(octocat, null, toViewerId('U_a')),
+  });
+
+  await send();
+  await answerViewer(viewerOf(toViewerLogin('hubot'), null, toViewerId('U_a')));
+
+  expect(session.getSnapshot().threads).toEqual(savedThreads);
+  expect(take('read').request.previous).toEqual(makeFeed('saved', savedThreads));
 });
 
 test('a failed viewer read shows the failure and keeps the saved threads', async () => {
@@ -104,6 +129,7 @@ test('a saved snapshot sends its viewer etag on the first read', async () => {
   await send();
 
   expect(take('viewer').previous).toEqual({
+    id: viewerIdOf(octocat),
     login: octocat,
     etag: '"saved-viewer"',
   });
@@ -118,7 +144,11 @@ test('the next full refresh sends the etag of the previous viewer read', async (
   await answerVerify(stable);
   await send();
 
-  expect(take('viewer').previous).toEqual({ login: octocat, etag: '"first"' });
+  expect(take('viewer').previous).toEqual({
+    id: viewerIdOf(octocat),
+    login: octocat,
+    etag: '"first"',
+  });
 });
 
 test('a changed login saves the new viewer etag', async () => {
@@ -136,7 +166,7 @@ test('a changed login saves the new viewer etag', async () => {
   await answerRead(readOf('second', []));
   await answerVerify(stable);
 
-  expect(saves).toEqual([{ login: hubot, etag: '"hubot-tag"' }]);
+  expect(saves).toEqual([{ id: viewerIdOf(hubot), login: hubot, etag: '"hubot-tag"' }]);
 });
 
 test('a second manual refresh after the first load sends no previous feed', async () => {

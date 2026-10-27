@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { GhResponse, GhRun, GitHubEffects, GitHubResult } from './ghApi.ts';
-import { createGhRunner, requestGh } from './ghApi.ts';
+import { createGhRunner, requestGh, requestGhDelete, requestGraphql } from './ghApi.ts';
 
 const exited = (exitCode: number, stdout: string, stderr = ''): GhRun => ({
   kind: 'exited',
@@ -23,6 +23,7 @@ const makeEffects = (run: GhRun, now = new Date('2026-01-01T00:00:00Z')) => {
       return run;
     },
     now: () => now,
+    host: 'ghe.example.com',
   };
 
   return { effects, calls };
@@ -48,7 +49,7 @@ test('requestGh returns the status, lower case headers, and JSON body', async ()
     },
   });
 
-  expect(calls).toEqual([['api', '--include', '/notifications']]);
+  expect(calls).toEqual([['api', '--hostname', 'ghe.example.com', '--include', '/notifications']]);
 });
 
 const failureOf = async (run: GhRun, now?: Date) => {
@@ -229,7 +230,17 @@ test('requestGh sends the ETag as If-None-Match before the endpoint', async () =
 
   await requestGh(effects, '/notifications', signal, '"a"');
 
-  expect(calls).toEqual([['api', '--include', '-H', 'If-None-Match: "a"', '/notifications']]);
+  expect(calls).toEqual([
+    [
+      'api',
+      '--hostname',
+      'ghe.example.com',
+      '--include',
+      '-H',
+      'If-None-Match: "a"',
+      '/notifications',
+    ],
+  ]);
 });
 
 test('requestGh reports a 304 with an empty body as a success', async () => {
@@ -354,4 +365,126 @@ test('requestGh reports requestFailed for a 300 response with a JSON body', asyn
     ok: false,
     failure: { kind: 'requestFailed', status: 300, message: 'HTTP 300' },
   });
+});
+
+test('requestGhDelete names the host of the effects', async () => {
+  const { effects, calls } = makeEffects(exited(0, 'HTTP/2.0 205 Reset Content\r\n\r\n'));
+
+  await requestGhDelete(effects, '/notifications/threads/42', signal);
+
+  expect(calls).toEqual([
+    [
+      'api',
+      '--hostname',
+      'ghe.example.com',
+      '--include',
+      '--method',
+      'DELETE',
+      '/notifications/threads/42',
+    ],
+  ]);
+});
+
+test('requestGraphql names the host of the effects', async () => {
+  const { effects, calls } = makeEffects(exited(0, 'HTTP/2.0 200 OK\r\n\r\n{}'));
+
+  await requestGraphql(effects, '{ viewer { login } }', { strings: {}, integers: {} }, signal);
+
+  expect(calls).toEqual([
+    [
+      'api',
+      'graphql',
+      '--hostname',
+      'ghe.example.com',
+      '--include',
+      '-f',
+      'query={ viewer { login } }',
+    ],
+  ]);
+});
+
+test('requestGh reports responseTooLarge when gh output passes the limit', async () => {
+  const result = await failureOf({ kind: 'tooLarge', limitBytes: 1024 });
+
+  expect(result).toEqual({ ok: false, failure: { kind: 'responseTooLarge', limitBytes: 1024 } });
+});
+
+const isRunning = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const runOverLimitGh = async (body: string) => {
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-gh-'));
+  directories.push(directory);
+  const pidFile = join(directory, 'pid');
+
+  await writeFile(join(directory, 'gh'), `#!/bin/sh\necho $$ > '${pidFile}'\n${body}\n`, {
+    mode: 0o755,
+  });
+
+  const run = await withPath(directory, () => createGhRunner(4096)(['api'], signal));
+  const pid = Number((await Bun.file(pidFile).text()).trim());
+
+  return { run, pid, directory };
+};
+
+test('createGhRunner returns tooLarge and ends gh when stdout passes the limit', async () => {
+  const { run, pid } = await runOverLimitGh('while :; do echo 0123456789abcdef; done');
+
+  expect(run).toEqual({ kind: 'tooLarge', limitBytes: 4096 });
+  expect(isRunning(pid)).toBe(false);
+});
+
+test('createGhRunner returns tooLarge and ends gh when stderr passes the limit', async () => {
+  const { run, pid } = await runOverLimitGh('while :; do echo 0123456789abcdef >&2; done');
+
+  expect(run).toEqual({ kind: 'tooLarge', limitBytes: 4096 });
+  expect(isRunning(pid)).toBe(false);
+});
+
+test('createGhRunner ends gh that waits after it passes the limit', async () => {
+  const { run, pid } = await runOverLimitGh('head -c 5000 /dev/zero\nexec sleep 30');
+
+  expect(run).toEqual({ kind: 'tooLarge', limitBytes: 4096 });
+  expect(isRunning(pid)).toBe(false);
+});
+
+test('createGhRunner returns tooLarge while another process keeps the output open', async () => {
+  const helperPids: number[] = [];
+
+  try {
+    const { run, pid, directory } = await runOverLimitGh(
+      `sleep 30 &\necho $! > "$(dirname "$0")/helper"\nwhile :; do echo 0123456789abcdef; done`,
+    );
+
+    helperPids.push(Number((await Bun.file(join(directory, 'helper')).text()).trim()));
+
+    expect(run).toEqual({ kind: 'tooLarge', limitBytes: 4096 });
+    expect(isRunning(pid)).toBe(false);
+  } finally {
+    for (const helperPid of helperPids) {
+      process.kill(helperPid);
+    }
+  }
+});
+
+test('createGhRunner returns output that fills the limit unchanged', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mergit-gh-'));
+  directories.push(directory);
+
+  await writeFile(
+    join(directory, 'gh'),
+    "#!/bin/sh\nprintf '0123456789'\nprintf 'é界' >&2\nexit 2\n",
+    { mode: 0o755 },
+  );
+
+  const run = await withPath(directory, () => createGhRunner(10)(['api'], signal));
+
+  expect(run).toEqual({ kind: 'exited', exitCode: 2, stdout: '0123456789', stderr: 'é界' });
 });

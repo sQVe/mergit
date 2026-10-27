@@ -19,6 +19,7 @@ import {
   settle,
   stable,
   stateWithSeen,
+  viewerIdOf,
   viewerOf,
 } from './sessionHarness.ts';
 
@@ -208,7 +209,7 @@ const savedMarkerHarness = (thread: NotificationThread) =>
   makeHarness(
     {
       savedSnapshot: {
-        viewer: { login: octocat, etag: null },
+        viewer: { id: viewerIdOf(octocat), login: octocat, etag: null },
         savedAt,
         feed: makeFeed('saved', [thread]),
         threads: [thread],
@@ -270,7 +271,7 @@ test('moving the cursor before the first load with a saved login and no seen rec
   const harness = makeHarness(
     {
       savedSnapshot: {
-        viewer: { login: octocat, etag: null },
+        viewer: { id: viewerIdOf(octocat), login: octocat, etag: null },
         savedAt,
         feed: makeFeed('saved', [makeThread('1'), makeThread('2')]),
         threads: [makeThread('1'), makeThread('2')],

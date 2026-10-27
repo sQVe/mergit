@@ -20,14 +20,14 @@ subjects across repositories in one request, at a small point cost.
 GraphQL has no notifications field. Notifications come only from the REST `GET /notifications`
 endpoint.
 
-Users already sign in with `gh`, which stores the token, picks the host, and switches accounts. A
-token that Mergit keeps from startup misses a later `gh auth switch`.
+Users already sign in with `gh`, which stores the token and switches accounts. A token that Mergit
+keeps from startup misses a later `gh auth switch`.
 
 ## Decision
 
 Mergit reads and writes GitHub by running `gh api`. Subject lookups use batched GraphQL queries, and
-notifications use one REST call per page. `gh` owns authentication, the host, and the active
-account, and Mergit adds no dependency.
+notifications use one REST call per page. Mergit names the GitHub host on every call. `gh` owns
+authentication and the active account, and Mergit adds no dependency.
 
 ### Requests
 
@@ -37,6 +37,12 @@ account, and Mergit adds no dependency.
   `gh auth switch` work as they do for `gh`.
 - `gh` is a required tool. Mergit reports a clear error when `gh` is missing or not signed in.
 - Each request starts a new `gh` process, so it uses the account that is active at that time.
+- Every `gh api` call passes `--hostname HOST`, and every `gh browse` call passes
+  `--repo HOST/OWNER/REPO`. The host selects a server, never an account. `gh` still picks the
+  account and token for that host.
+- Mergit reads at most a fixed number of bytes from each of the stdout and stderr streams of `gh`.
+  It counts bytes while it reads. When a stream passes the limit, Mergit stops reading, ends the
+  process, and returns a size failure instead of the output.
 - Every call runs with `--include`. Mergit reads the HTTP status and headers, and the GraphQL
   `errors` field, instead of the exit code. GraphQL can report a rate limit with HTTP 200, and `gh`
   exits 1 on a 304 Not Modified.
@@ -53,7 +59,8 @@ account, and Mergit adds no dependency.
 ### Positive
 
 - A refresh costs few processes and requests, at a small point cost.
-- Mergit has no token handling, no host config, and no HTTP client dependency.
+- Mergit has no token handling and no HTTP client dependency.
+- A large or endless response cannot fill Mergit's memory.
 
 ### Negative
 
@@ -62,6 +69,7 @@ account, and Mergit adds no dependency.
   typed HTTP errors.
 - Mergit owns its GraphQL query and must follow GitHub schema deprecations.
 - Cancellation kills the `gh` process instead of aborting a request.
+- A valid response larger than the limit fails instead of loading.
 
 ## Alternatives considered
 

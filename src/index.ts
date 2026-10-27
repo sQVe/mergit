@@ -70,9 +70,9 @@ const readSavedSnapshot = (directory: string | null, host: string): SavedSnapsho
     return null;
   }
 
-  const { login, viewerEtag, savedAt } = loaded.value;
+  const { login, viewerId, viewerEtag, savedAt } = loaded.value;
 
-  return { viewer: { login, etag: viewerEtag }, savedAt, ...restored.value };
+  return { viewer: { id: viewerId, login, etag: viewerEtag }, savedAt, ...restored.value };
 };
 
 const start = async (): Promise<void> => {
@@ -86,8 +86,8 @@ const start = async (): Promise<void> => {
 
   const { catalog, notices } = config;
   const runGh = createGhRunner();
-  const githubEffects = { runGh, now };
   const host = Bun.env['GH_HOST'] ?? 'github.com';
+  const githubEffects = { runGh, now, host };
   const directory = cacheDirectory(Bun.env);
   const stateHome = stateDirectory(Bun.env);
   const loadedState = stateHome === null ? { kind: 'missing' as const } : loadState(stateHome);
@@ -129,7 +129,7 @@ const start = async (): Promise<void> => {
     savedState,
     saveState: (state) => writer?.save(state),
     markThreadDone: (threadId, signal) => markThreadDone(githubEffects, threadId, signal),
-    openInBrowser: (page, signal) => openInBrowser({ runGh }, page, signal),
+    openInBrowser: (page, signal) => openInBrowser({ runGh, host }, page, signal),
     configNotices: notices,
     stateWarning,
     readViewer: (previous, signal) => readViewer(githubEffects, previous, signal),
@@ -138,6 +138,7 @@ const start = async (): Promise<void> => {
         saveSnapshot(directory, {
           host,
           login: viewer.login,
+          viewerId: viewer.id,
           viewerEtag: viewer.etag,
           savedAt,
           pages: feed.pages.map(toSavedPage),

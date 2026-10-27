@@ -1,5 +1,5 @@
 import type { NotificationFeed, NotificationFeedRequest, Viewer } from '../github/github.ts';
-import type { ViewerLogin } from '../work/work.ts';
+import type { ViewerId, ViewerLogin } from '../work/work.ts';
 import type { SavedSnapshot } from './session.ts';
 
 export interface AccountSwitchOwner {
@@ -10,6 +10,7 @@ export interface AccountSwitchOwner {
     clear: () => void,
   ) => NotificationFeedRequest;
   currentLogin: () => ViewerLogin | null;
+  currentViewerId: () => ViewerId | null;
   lastViewer: () => Viewer | null;
   viewerKnown: () => boolean;
 }
@@ -19,7 +20,7 @@ export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchO
   let login: ViewerLogin | null = saved?.viewer.login ?? null;
   let lastViewer: Viewer | null = saved?.viewer ?? null;
 
-  // The feed from a saved snapshot only serves an account that matches the saved login.
+  // The feed from a saved snapshot only serves an account that matches the saved ID.
   const accept = (
     viewer: Viewer,
     request: NotificationFeedRequest,
@@ -28,7 +29,7 @@ export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchO
   ): NotificationFeedRequest => {
     const firstRead = viewerLogin === null;
 
-    const accountChanged = lastViewer !== null && lastViewer.login !== viewer.login;
+    const accountChanged = lastViewer !== null && lastViewer.id !== viewer.id;
 
     // Clear before the login changes, so the thread the cursor leaves is seen by its own account.
     if (accountChanged) {
@@ -53,6 +54,7 @@ export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchO
   return {
     accept,
     currentLogin: () => login,
+    currentViewerId: () => lastViewer?.id ?? null,
     lastViewer: () => lastViewer,
     viewerKnown: () => viewerLogin !== null,
   };

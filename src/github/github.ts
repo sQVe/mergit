@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import type { NotificationThread, ThreadId, ViewerLogin } from '../work/work.ts';
-import { toViewerLogin } from '../work/work.ts';
+import type { NotificationThread, ThreadId, ViewerId, ViewerLogin } from '../work/work.ts';
+import { toViewerId, toViewerLogin } from '../work/work.ts';
 import type { GhResponse, GitHubEffects, GitHubFailure, GitHubResult } from './ghApi.ts';
 import { requestGh, requestGhDelete } from './ghApi.ts';
 import type { NotificationFeed, NotificationPage } from './notifications.ts';
@@ -20,6 +20,7 @@ interface FetchedPage {
 }
 
 export interface Viewer {
+  id: ViewerId;
   login: ViewerLogin;
   etag: string | null;
 }
@@ -53,7 +54,10 @@ export interface NotificationVerification {
 
 const notModifiedStatus = 304;
 
-const viewerSchema = z.object({ login: z.string().min(1) });
+const viewerSchema = z.object({ login: z.string().min(1), node_id: z.string().min(1) });
+
+// Asks /user for the global node ID format in node_id.
+const globalNodeIdHeader = 'X-Github-Next-Global-ID: 1';
 
 const firstNotificationsEndpoint = '/notifications?all=true&per_page=50';
 
@@ -67,7 +71,9 @@ export const readViewer = async (
   previous: Viewer | null,
   signal: AbortSignal,
 ): Promise<GitHubResult<Viewer>> => {
-  const response = await requestGh(effects, '/user', signal, previous?.etag ?? null);
+  const response = await requestGh(effects, '/user', signal, previous?.etag ?? null, [
+    globalNodeIdHeader,
+  ]);
 
   if (!response.ok) {
     return response;
@@ -90,6 +96,7 @@ export const readViewer = async (
   return {
     ok: true,
     value: {
+      id: toViewerId(parsed.data.node_id),
       login: toViewerLogin(parsed.data.login),
       etag: response.value.headers.get('etag') ?? null,
     },

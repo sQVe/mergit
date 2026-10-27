@@ -9,6 +9,8 @@ export type ThreadId = string & { readonly brand: 'ThreadId' };
 
 export type ViewerLogin = string & { readonly brand: 'ViewerLogin' };
 
+export type ViewerId = string & { readonly brand: 'ViewerId' };
+
 export interface NotificationThread {
   id: ThreadId;
   reason: string;
@@ -41,6 +43,8 @@ const isThreadId = (value: string): value is ThreadId => value !== '';
 
 const isViewerLogin = (value: string): value is ViewerLogin => value !== '';
 
+const isViewerId = (value: string): value is ViewerId => value !== '';
+
 export const toThreadId = (value: string): ThreadId => {
   invariant(isThreadId(value), 'A thread ID must not be empty.');
 
@@ -49,6 +53,12 @@ export const toThreadId = (value: string): ThreadId => {
 
 export const toViewerLogin = (value: string): ViewerLogin => {
   invariant(isViewerLogin(value), 'A viewer login must not be empty.');
+
+  return value;
+};
+
+export const toViewerId = (value: string): ViewerId => {
+  invariant(isViewerId(value), 'A viewer ID must not be empty.');
 
   return value;
 };
