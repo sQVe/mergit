@@ -10,6 +10,7 @@ import type {
 } from '../github/github.ts';
 import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../work/work.ts';
 import { createAccountSwitch } from './accountSwitch.ts';
+import { createAdmission } from './admission.ts';
 import { createBrowserOpen } from './browserOpen.ts';
 import type { BrowserOpenInputs } from './browserOpen.ts';
 import {
@@ -323,15 +324,18 @@ export const createSession = (effects: SessionEffects): Session => {
   let reporting = false;
   let unsavedChanges = new Set<UnsavedChange>();
 
+  const publish = (candidate: Snapshot) => {
+    // oxlint-disable-next-line seam/helper-before-use -- update reads the marker, which reads the subject lookup's pending threads
+    update(candidate);
+  };
+
   const subjectLookup = createSubjectLookup({
     saved: savedSnapshot,
     lookUpSubjects: effects.lookUpSubjects,
     getSnapshot: () => snapshot,
-    update: (candidate) => {
-      // oxlint-disable-next-line seam/helper-before-use -- update reads the marker, which reads this owner's pending threads
-      update(candidate);
-    },
+    update: publish,
     isStopped: () => stopped,
+    admission: createAdmission({ now: effects.now, getSnapshot: () => snapshot, update: publish }),
   });
 
   const getSnapshot = () => snapshot;
