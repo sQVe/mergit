@@ -165,6 +165,16 @@ export const isReaderDetached = (snapshot: Snapshot, reader: ReaderContext): boo
     (candidate) => candidate.kind === 'thread' && candidate.thread.id === reader.row.thread.id,
   );
 
+const readerUndoReason = (snapshot: Snapshot, reader: ReaderContext): string | undefined => {
+  if (reader.kind === 'inbox') {
+    return noReaderReason(reader);
+  }
+
+  return snapshot.hiddenThreadIds.has(reader.row.thread.id)
+    ? undefined
+    : 'This thread is not marked done.';
+};
+
 const readerDoneReason = (snapshot: Snapshot, reader: ReaderContext): string | undefined => {
   if (reader.kind === 'inbox') {
     return noReaderReason(reader);
@@ -720,12 +730,15 @@ export const catalog: readonly Command[] = [
   {
     id: 'readerUndoDone',
     configId: 'undoDone',
-    label: 'Undo the last done',
+    label: 'Undo done for this thread',
     scope: 'reader',
     section: 'threads',
     keys: ['u'],
-    disabledReason: (_snapshot, reader) => noReaderReason(reader),
-    intent: () => ({ kind: 'application', intent: { kind: 'undoDone' } }),
+    disabledReason: readerUndoReason,
+    intent: (_snapshot, reader) => ({
+      kind: 'application',
+      intent: { kind: 'undoThreadDone', threadId: readerRowOf(reader).thread.id },
+    }),
   },
   {
     id: 'openHelpSearch',

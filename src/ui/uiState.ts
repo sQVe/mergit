@@ -219,8 +219,10 @@ export const useUiState = (
         setOverlay({ kind: 'none' });
       } else if (intent.action === 'scrollOverlay') {
         scrollOverlay(intent.move);
-      } else {
-        toggleHelp(action === 'toggleHelp');
+      } else if (action === 'toggleHelp') {
+        toggleHelp(true);
+      } else if (action === 'closeHelp') {
+        toggleHelp(false);
       }
     },
     [session, setOverlay, setReader],

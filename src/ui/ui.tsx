@@ -526,17 +526,36 @@ const readerHintOf = (catalog: readonly Command[]): string => {
   return parts.filter((part): part is string => part !== undefined).join('  ');
 };
 
+const paneWidthsOf = (
+  width: number,
+  reader: ReaderContext,
+): { listWidth: number; detailWidth: number } => {
+  const sideLayout = width >= sidePaneMinimumWidth;
+
+  if (reader.kind === 'reader') {
+    const stripWidth = sideLayout
+      ? Math.max(readerStripMinimumWidth, Math.floor(width * readerStripShare))
+      : 0;
+
+    return { listWidth: stripWidth, detailWidth: width - stripWidth };
+  }
+
+  const widestPane = Math.floor(width * sidePaneShare);
+  const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
+
+  return { listWidth: width - paneWidth, detailWidth: paneWidth };
+};
+
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
-  width: number;
-  paneWidth: number;
-  stripWidth: number;
+  listWidth: number;
+  detailWidth: number;
   reader: ReaderContext;
   listHeight: number;
   catalog: readonly Command[];
 }): ReactNode => {
-  const { snapshot, palette, width, paneWidth, stripWidth, listHeight } = props;
+  const { snapshot, palette, listWidth, detailWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
   const detailRow = props.reader.kind === 'reader' ? props.reader.row : selectedRow;
   const detached = isReaderDetached(snapshot, props.reader);
@@ -546,59 +565,45 @@ const Body = (props: {
 
   const now = snapshot.savedAt ?? snapshot.refreshedAt ?? new Date(0);
 
-  const noticeMessage = readNoticeMessage(snapshot, keyHintOf(props.catalog, 'refresh'));
+  const readerFocused = props.reader.kind === 'reader';
+
+  const noticeMessage = readNoticeMessage(
+    snapshot,
+    keyHintOf(props.catalog, 'refresh'),
+    readerFocused,
+  );
 
   if (noticeMessage !== null) {
     return <Notice message={noticeMessage} palette={palette} />;
   }
 
-  if (props.reader.kind === 'reader') {
-    return (
-      <box flexDirection="row" flexGrow={1}>
-        {stripWidth === 0 ? null : (
-          <ThreadList
-            snapshot={snapshot}
-            palette={palette}
-            width={stripWidth}
-            height={listHeight}
-          />
-        )}
-        <box flexDirection="column" flexGrow={1}>
-          <DetailPane
-            row={detailRow}
-            facts={facts}
-            newThreadIds={snapshot.newThreadIds}
-            palette={palette}
-            now={now}
-            width={width - stripWidth}
-            detached={detached}
-          />
-          <box flexGrow={1} />
-          <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
-        </box>
-      </box>
+  const detailPane =
+    detailWidth === 0 ? null : (
+      <DetailPane
+        row={detailRow}
+        facts={facts}
+        newThreadIds={snapshot.newThreadIds}
+        palette={palette}
+        now={now}
+        width={detailWidth}
+        detached={detached}
+      />
     );
-  }
 
   return (
     <box flexDirection="row" flexGrow={1}>
-      <ThreadList
-        snapshot={snapshot}
-        palette={palette}
-        width={width - paneWidth}
-        height={listHeight}
-      />
-      {paneWidth > 0 ? (
-        <DetailPane
-          row={selectedRow}
-          facts={facts}
-          newThreadIds={snapshot.newThreadIds}
-          palette={palette}
-          now={now}
-          width={paneWidth}
-          detached={detached}
-        />
-      ) : null}
+      {listWidth === 0 ? null : (
+        <ThreadList snapshot={snapshot} palette={palette} width={listWidth} height={listHeight} />
+      )}
+      {readerFocused ? (
+        <box flexDirection="column" flexGrow={1}>
+          {detailPane}
+          <box flexGrow={1} />
+          <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
+        </box>
+      ) : (
+        detailPane
+      )}
     </box>
   );
 };
@@ -621,7 +626,6 @@ export const App = (props: AppProps): ReactNode => {
   };
 
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
-  const sideLayout = width >= sidePaneMinimumWidth;
 
   const { overlay, helpTop, helpInput, messagesTop, reader, modal, runUiAction } = useUiState(
     props.session,
@@ -649,12 +653,7 @@ export const App = (props: AppProps): ReactNode => {
     props.session.send({ kind: 'setListRows', rows: listHeight });
   }, [props.session, listHeight]);
 
-  const widestPane = Math.floor(width * sidePaneShare);
-  const paneWidth = sideLayout ? Math.min(sidePaneMaximumWidth, widestPane) : 0;
-
-  const stripWidth = sideLayout
-    ? Math.max(readerStripMinimumWidth, Math.floor(width * readerStripShare))
-    : 0;
+  const { listWidth, detailWidth } = paneWidthsOf(width, reader);
 
   return (
     <KeymapProvider keymap={props.keymap}>
@@ -687,9 +686,8 @@ export const App = (props: AppProps): ReactNode => {
         <Body
           snapshot={snapshot}
           palette={palette}
-          width={width}
-          paneWidth={paneWidth}
-          stripWidth={stripWidth}
+          listWidth={listWidth}
+          detailWidth={detailWidth}
           reader={reader}
           listHeight={listHeight}
           catalog={props.catalog}

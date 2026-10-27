@@ -121,6 +121,7 @@ export type ApplicationIntent =
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
+  | { kind: 'undoThreadDone'; threadId: ThreadId }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
   | { kind: 'setListRows'; rows: number };
 
@@ -198,6 +199,7 @@ type StateIntent = Exclude<
   | { kind: 'markDone' }
   | { kind: 'markThreadsDone'; threadIds: readonly ThreadId[] }
   | { kind: 'undoDone' }
+  | { kind: 'undoThreadDone'; threadId: ThreadId }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
   | { kind: 'setListRows'; rows: number }
   | EditIntent
@@ -574,6 +576,8 @@ export const createSession = (effects: SessionEffects): Session => {
       doneActions.markThreadsDone(intent.threadIds);
     } else if (intent.kind === 'undoDone') {
       doneActions.undoDone();
+    } else if (intent.kind === 'undoThreadDone') {
+      doneActions.undoDone(intent.threadId);
     } else if (intent.kind === 'openInBrowser') {
       browserOpen.open(intent.pages);
     } else if (intent.kind === 'setListRows') {

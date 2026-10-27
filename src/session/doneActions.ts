@@ -27,7 +27,7 @@ export interface DoneActionsOwner {
   currentRecords: () => ReadonlyMap<ThreadId, string>;
   markDone: () => void;
   markThreadsDone: (threadIds: readonly ThreadId[]) => void;
-  undoDone: () => void;
+  undoDone: (threadId?: ThreadId) => void;
   prune: (fetched: NotificationThread[]) => void;
   releaseSent: () => void;
   stop: (deadline: AbortSignal) => Promise<void>;
@@ -130,8 +130,8 @@ export const createDoneActions = (inputs: DoneActionsInputs): DoneActionsOwner =
     markThreads(threads);
   };
 
-  const undoDone = () => {
-    const outcome = doneQueue.undoLatest();
+  const undoDone = (threadId?: ThreadId) => {
+    const outcome = doneQueue.undoLatest(threadId);
 
     if (outcome.kind === 'undone') {
       const [first] = outcome.threads;
@@ -152,6 +152,12 @@ export const createDoneActions = (inputs: DoneActionsInputs): DoneActionsOwner =
     } else if (outcome.kind === 'tooLate') {
       inputs.showToast({
         title: 'The last done cannot be undone',
+        lines: [],
+        tone: 'info',
+      });
+    } else if (outcome.kind === 'otherThread') {
+      inputs.showToast({
+        title: 'The last done is for another thread',
         lines: [],
         tone: 'info',
       });

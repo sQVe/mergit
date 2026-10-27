@@ -17,6 +17,7 @@ const readNoticeText = (snapshot: Snapshot, refreshKey: string | undefined): str
 export const readNoticeMessage = (
   snapshot: Snapshot,
   refreshKey: string | undefined,
+  readerFocused: boolean,
 ): NoticeMessage | null => {
   const notice = readNoticeText(snapshot, refreshKey);
 
@@ -28,7 +29,7 @@ export const readNoticeMessage = (
     return { text: 'Loading notifications...', dim: true };
   }
 
-  if (hasNoRows(snapshot) && snapshot.errorMessage === null) {
+  if (hasNoRows(snapshot) && snapshot.errorMessage === null && !readerFocused) {
     if (openThreads(snapshot).length > 0) {
       return { text: 'No notifications match the search or filters', dim: false };
     }

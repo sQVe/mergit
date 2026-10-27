@@ -1344,7 +1344,7 @@ test('d in the focused reader marks only the reader thread done', async () => {
   expect(sent.at(-1)).toEqual({ kind: 'markThreadsDone', threadIds: [readerThread.id] });
 });
 
-test('o, r, and u in the focused reader send the reader thread pages, refresh, and undo', async () => {
+test('o and r in the focused reader send the reader thread pages and refresh', async () => {
   const { press, sent, session } = await mount({
     themeMode: 'dark',
     effects: threadsEffects(fourRepoThreads),
@@ -1361,10 +1361,6 @@ test('o, r, and u in the focused reader send the reader thread pages, refresh, a
   await press('r');
 
   expect(sent.at(-1)).toEqual({ kind: 'refresh' });
-
-  await press('u');
-
-  expect(sent.at(-1)).toEqual({ kind: 'undoDone' });
 });
 
 test('a refresh that drops the reader thread keeps the reader on a detached notice and sends no done', async () => {
@@ -1392,4 +1388,110 @@ test('a refresh that drops the reader thread keeps the reader on a detached noti
 
   expect(sent.slice(before)).toEqual([]);
   expect(setup.captureCharFrame()).toContain(readerThread.title);
+});
+
+test('a refresh that empties the inbox keeps the reader on a detached notice and sends no done', async () => {
+  let current = fourRepoThreads;
+
+  const { setup, press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: feedEffects(() => current),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  current = [];
+
+  await press('r');
+
+  expect(visibleRows(session.getSnapshot())).toEqual([]);
+  expect(setup.captureCharFrame()).toContain(readerThread.title);
+  expect(setup.captureCharFrame()).toContain('no longer in the list');
+
+  const before = sent.length;
+
+  await press('d');
+
+  expect(sent.slice(before)).toEqual([]);
+});
+
+test('u in the reader does not restore a thread that a done in the list hid', async () => {
+  const { press, sent, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await press('r');
+  await pressAll(press, ['j', 'j']);
+
+  const doneThread = selectedThreadOf(session);
+
+  await press('d');
+  await press('j');
+  await press('return');
+
+  expect(selectedThreadOf(session).id).not.toBe(doneThread.id);
+
+  const before = sent.length;
+
+  await press('u');
+
+  expect(session.getSnapshot().hiddenThreadIds.has(doneThread.id)).toBe(true);
+  expect(sent.slice(before)).toEqual([]);
+});
+
+test('d then u in the reader restores the reader thread and attaches the reader again', async () => {
+  const { setup, press, session } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+  });
+
+  await openReaderOnFirstThread(press);
+
+  const readerThread = selectedThreadOf(session);
+
+  await press('d');
+
+  expect(setup.captureCharFrame()).toContain('no longer in the list');
+
+  await press('u');
+
+  expect(session.getSnapshot().hiddenThreadIds.has(readerThread.id)).toBe(false);
+  expect(setup.captureCharFrame()).not.toContain('no longer in the list');
+});
+
+test('the focused reader shows the inbox strip at 120x40, hides it at 80x24, and brings it back on resize', async () => {
+  const { setup, press, resize } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+    width: 120,
+    height: 40,
+  });
+
+  await openReaderOnFirstThread(press);
+
+  expect(setup.captureCharFrame()).toContain('example/b');
+
+  await resize(80, 24);
+
+  expect(setup.captureCharFrame()).not.toContain('example/b');
+
+  await resize(120, 40);
+
+  expect(setup.captureCharFrame()).toContain('example/b');
+});
+
+test('the focused reader shows no inbox strip at 80x24', async () => {
+  const { setup, press } = await mount({
+    themeMode: 'dark',
+    effects: threadsEffects(fourRepoThreads),
+    width: 80,
+    height: 24,
+  });
+
+  await openReaderOnFirstThread(press);
+
+  expect(setup.captureCharFrame()).not.toContain('example/b');
 });
