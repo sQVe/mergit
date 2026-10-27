@@ -20,7 +20,6 @@ export const createAccountSwitch = (saved: SavedSnapshot | null): AccountSwitchO
   let login: ViewerLogin | null = saved?.viewer.login ?? null;
   let lastViewer: Viewer | null = saved?.viewer ?? null;
 
-  // The feed from a saved snapshot only serves an account that matches the saved ID.
   const accept = (
     viewer: Viewer,
     request: NotificationFeedRequest,

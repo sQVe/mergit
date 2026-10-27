@@ -56,7 +56,6 @@ const notModifiedStatus = 304;
 
 const viewerSchema = z.object({ login: z.string().min(1), node_id: z.string().min(1) });
 
-// Asks /user for the global node ID format in node_id.
 const globalNodeIdHeader = 'X-Github-Next-Global-ID: 1';
 
 const firstNotificationsEndpoint = '/notifications?all=true&per_page=50';
