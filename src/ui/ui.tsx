@@ -605,8 +605,9 @@ const Body = (props: {
       )}
       {readerFocused ? (
         <box flexDirection="column" flexGrow={1}>
-          {detailPane}
-          <box flexGrow={1} />
+          <box flexDirection="row" flexGrow={1}>
+            {detailPane}
+          </box>
           <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
         </box>
       ) : (

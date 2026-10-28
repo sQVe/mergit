@@ -163,6 +163,20 @@ test('below 90 columns, Enter on a thread opens the full-width detail and Escape
   expect(selectedRowText(setup)).toContain('Second');
 });
 
+test('the focused reader draws its divider down to the hint line', async () => {
+  const { setup, press } = await mount({ effects: threadsEffects(threeThreads), width: 100 });
+
+  await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
+
+  const lines = setup.captureCharFrame().split('\n');
+  const dividerColumn = lines[0]?.indexOf('│ Second') ?? -1;
+  const hintIndex = lines.findIndex((line) => line.includes('d done'));
+  const paneLines = lines.slice(0, hintIndex);
+
+  expect(dividerColumn).toBeGreaterThan(0);
+  expect(paneLines.filter((line) => line[dividerColumn] !== '│')).toEqual([]);
+});
+
 test('j and k do not move the selection while the full-width detail is open', async () => {
   const { setup, press } = await mount({
     themeMode: 'dark',
