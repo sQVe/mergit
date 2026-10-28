@@ -544,6 +544,50 @@ test('the header shows the state, author, and title of the fetched issue over th
   expect(frame).toContain('Workspace lost after login');
 });
 
+const bodyReadWith = (body: string) => {
+  const fetched = issueRead(twoComments);
+
+  return { ...fetched, overview: { ...fetched.overview, body } };
+};
+
+test('control characters in an issue body show as replacement text and never reach the frame', async () => {
+  const body = 'Restart \x1b[31mred\x07 and\x9b done.';
+
+  const { setup, press } = await mount({
+    effects: detailEffects(() => Promise.resolve({ ok: true as const, value: bodyReadWith(body) })),
+    width: 80,
+    height: 24,
+  });
+
+  await openReader(press);
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Restart \uFFFD[31mred\uFFFD and\uFFFD done.');
+  expect(frame).not.toContain('\x1b');
+  expect(frame).not.toContain('\x07');
+  expect(frame).not.toContain('\x9b');
+});
+
+test('a CRLF issue body keeps each line break and shows no replacement text', async () => {
+  const { setup, press } = await mount({
+    effects: detailEffects(() =>
+      Promise.resolve({ ok: true as const, value: bodyReadWith('First line\r\nSecond line') }),
+    ),
+    width: 80,
+    height: 24,
+  });
+
+  await openReader(press);
+
+  const frame = setup.captureCharFrame();
+  const lines = frame.split('\n');
+  const rowOf = (text: string) => lines.findIndex((line) => line.includes(text));
+
+  expect(rowOf('Second line')).toBe(rowOf('First line') + 1);
+  expect(frame).not.toContain('\uFFFD');
+});
+
 test('moving the other pane in the reader shows the next issue and returns to the first tab and top line', async () => {
   const otherThread: NotificationThread = {
     ...issueThread,

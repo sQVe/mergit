@@ -2,6 +2,11 @@ const segmenter = new Intl.Segmenter();
 
 const ellipsis = '…';
 
+const controlCharacter = /(?!\t|\n)\p{Cc}/gu;
+
+export const visibleText = (text: string): string =>
+  text.replace(/\r\n?/g, '\n').replace(controlCharacter, '\uFFFD');
+
 export const cellWidth = (text: string): number => {
   let total = 0;
 

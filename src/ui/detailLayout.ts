@@ -1,5 +1,5 @@
 import type { DetailAnchor, DetailPosition } from '../session/session.ts';
-import { cellWidth, fitText } from './textLayout.ts';
+import { cellWidth, fitText, visibleText } from './textLayout.ts';
 
 export interface DetailRecord {
   id: string;
@@ -59,12 +59,12 @@ const recordLines = (record: DetailRecord, columns: number): DetailLine[] => {
   const lines: DetailLine[] = [];
 
   if (record.heading !== null) {
-    lines.push(lineOf(record, { kind: 'heading' }, fitText(record.heading, columns)));
+    lines.push(lineOf(record, { kind: 'heading' }, fitText(visibleText(record.heading), columns)));
   }
 
   let start = 0;
 
-  for (const paragraph of record.text.split('\n')) {
+  for (const paragraph of visibleText(record.text).split('\n')) {
     for (const [offset, text] of wrapParagraph(paragraph, start, columns)) {
       lines.push(lineOf(record, { kind: 'text', offset }, text));
     }

@@ -13,7 +13,7 @@ import type { NotificationThread } from '../work/work.ts';
 import type { DetailLine, DetailRecord } from './detailLayout.ts';
 import { anchorOfLine, layoutRecords, topOfAnchor } from './detailLayout.ts';
 import type { Palette } from './palette.ts';
-import { fitText } from './textLayout.ts';
+import { fitText, visibleText } from './textLayout.ts';
 import { formatAge, numberLabelFor } from './threadRow.ts';
 
 export interface ReaderLayout {
@@ -265,7 +265,7 @@ export const readerInputOf = (
 
 const viewOf = (input: ReaderInput) => {
   const body = bodyOf(input);
-  const header = body.header.map((line) => fitText(line, input.columns));
+  const header = body.header.map((line) => fitText(visibleText(line), input.columns));
   const viewportRows = Math.max(1, input.rows - header.length);
   const top = topOfAnchor(body.lines, body.anchor);
   const maximumTop = Math.max(0, body.lines.length - viewportRows, top);
