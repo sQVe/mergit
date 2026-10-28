@@ -5,6 +5,17 @@ import { listedRepositories } from './workTree.ts';
 export { groupings, treeRows } from './workTree.ts';
 export type { Grouping, NodeRow, ThreadRow, TreeRow } from './workTree.ts';
 
+export { toIssueCommentId, toIssueId } from './detail.ts';
+
+export type {
+  IssueComment,
+  IssueCommentPage,
+  IssueDetailRead,
+  IssueId,
+  IssueOverview,
+  IssueSubject,
+} from './detail.ts';
+
 export type ThreadId = string & { readonly brand: 'ThreadId' };
 
 export type ViewerLogin = string & { readonly brand: 'ViewerLogin' };

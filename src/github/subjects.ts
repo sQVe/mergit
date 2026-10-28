@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 import type { NotificationThread, SubjectFacts, ThreadId } from '../work/work.ts';
-import type { GhResponse, GitHubEffects, GitHubFailure } from './ghApi.ts';
-import { requestGraphql } from './ghApi.ts';
+import type { GitHubEffects, GitHubFailure } from './ghApi.ts';
+import { graphqlErrorSchema, readGraphqlFailure, requestGraphql } from './ghApi.ts';
 
 export interface SubjectLookup {
   threadId: ThreadId;
@@ -134,15 +134,7 @@ const repositorySchema = z
 
 const responseSchema = z.object({
   data: z.record(z.string(), repositorySchema.optional()).nullish(),
-  errors: z
-    .array(
-      z.object({
-        type: z.string().optional(),
-        message: z.string(),
-        path: z.array(z.union([z.string(), z.number()])).optional(),
-      }),
-    )
-    .optional(),
+  errors: z.array(graphqlErrorSchema).optional(),
 });
 
 const stateByGraphql: Record<'OPEN' | 'CLOSED' | 'MERGED', SubjectFacts['state']> = {
@@ -178,25 +170,7 @@ const readFacts = (subject: z.infer<typeof subjectSchema>): SubjectFacts => ({
   latestActor: readLatestActor(subject),
 });
 
-type GraphqlError = NonNullable<z.infer<typeof responseSchema>['errors']>[number];
-
-const rateLimitedType = 'RATE_LIMITED';
 const notFoundType = 'NOT_FOUND';
-const millisecondsPerSecond = 1000;
-
-const readFailure = (error: GraphqlError, response: GhResponse): GitHubFailure => {
-  const reset = Number(response.headers.get('x-ratelimit-reset'));
-
-  if (error.type === rateLimitedType && Number.isFinite(reset)) {
-    return { kind: 'rateLimited', resetAt: new Date(reset * millisecondsPerSecond) };
-  }
-
-  return {
-    kind: 'requestFailed',
-    status: response.status,
-    message: error.message,
-  };
-};
 
 const decodeAlias = (
   request: SubjectRequest,
@@ -245,7 +219,7 @@ const lookUpBatch = async (
   const errors = parsed.data.errors ?? [];
   const data = parsed.data.data ?? {};
   const failedErrors = errors.filter((error) => error.type !== notFoundType);
-  const failures = failedErrors.map((error) => readFailure(error, response.value));
+  const failures = failedErrors.map((error) => readGraphqlFailure(error, response.value));
 
   const lookups = batch.flatMap((request, index) => {
     const alias = `t${index}`;
