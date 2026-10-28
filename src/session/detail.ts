@@ -50,10 +50,8 @@ interface ShownIssue {
   coordinates: IssueDetailRequest['coordinates'];
 }
 
-// Each load is its own generation: only the load in `current` may publish.
 interface Load extends ShownIssue {
   controller: AbortController;
-  // A subject learned earlier is read by its node ID, because its coordinates can name another.
   subjectId: IssueId | null;
 }
 
@@ -97,7 +95,6 @@ const coordinatesOf = (thread: NotificationThread): IssueDetailRequest['coordina
   };
 };
 
-// Only a page after the first carries a cursor, and the first page brings the Overview.
 const pastFirstPage = (traversal: Traversal): boolean => traversal.cursor !== null;
 
 const reachedLimit = (traversal: Traversal): boolean =>
@@ -121,7 +118,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
   const showEntry = (entry: DetailEntry) => {
     const state = detail();
 
-    // A shown entry moves to the end, so the map keeps the order subjects were last shown.
     const entries = new Map(state.entries);
 
     entries.delete(entry.key);
@@ -158,7 +154,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     });
   };
 
-  // A waiting read takes over the slot, so the count only drops when nothing waits.
   const releaseSlot = () => {
     const next = queue.shift();
 
@@ -169,7 +164,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     }
   };
 
-  // The slot stays taken until the process settles, aborted or not, so it bounds live processes.
   const request = async (load: Load, traversal: Traversal) => {
     await takeSlot();
 
@@ -179,7 +173,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
       return null;
     }
 
-    // A read can wait for a process while a rate limit pauses every GitHub read.
     if (host.admission.isPaused()) {
       releaseSlot();
 
@@ -224,7 +217,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     replaceEntry(setCoverage(entry, sources, coverageOf, failureMessage(failure)));
   };
 
-  // Returns whether the traversal goes on to the next page.
   const acceptIssue = (entry: IssueEntry, read: IssueRead, traversal: Traversal): boolean => {
     const continuedAnother =
       traversal.subjectId !== null && read.subject.id !== traversal.subjectId;
@@ -258,7 +250,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     return read.comments.hasNextPage && !partial;
   };
 
-  // Returns whether the traversal goes on to the next page.
   const acceptPage = (
     entry: IssueEntry,
     result: GitHubResult<IssueDetailRead>,
@@ -350,7 +341,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
 
     replaceEntry(loadingEntry(entry));
 
-    // The feed refresh that sets the viewer resumes this load.
     if (host.lastViewer() === null) {
       return;
     }
@@ -432,7 +422,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     }
   };
 
-  // The account clears before the feed refresh sets the new viewer, so the shown subject waits.
   const clear = () => {
     abortCurrent();
 

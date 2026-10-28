@@ -24,7 +24,6 @@ const lineOf = (record: DetailRecord, position: DetailPosition, text: string): D
   text,
 });
 
-// Breaks after the last space that fits, or between graphemes when one word is wider than the line.
 const wrapParagraph = (paragraph: string, start: number, columns: number): [number, string][] => {
   const lines: [number, string][] = [];
   let lineStart = 0;
@@ -80,7 +79,6 @@ export const layoutRecords = (records: readonly DetailRecord[], columns: number)
   const width = Math.max(1, columns);
   const lines: DetailLine[] = [];
 
-  // The blank line before a record belongs to it, so every line has its own anchor.
   for (const [index, record] of records.entries()) {
     if (index > 0) {
       lines.push(lineOf(record, { kind: 'separator' }, ''));
@@ -98,7 +96,6 @@ const startIndexOf = (lines: readonly DetailLine[], recordId: string): number =>
 const textOffsetOf = (line: DetailLine): number | null =>
   line.position.kind === 'text' ? line.position.offset : null;
 
-// Offsets grow within a record, so the last text line that starts at or before the offset holds it.
 const textIndexOf = (lines: readonly DetailLine[], recordId: string, offset: number): number => {
   let found = -1;
 
@@ -119,8 +116,6 @@ const kindIndexOf = (
   kind: 'separator' | 'heading',
 ) => lines.findIndex((line) => line.recordId === recordId && line.position.kind === kind);
 
-// A line that no longer exists, such as the separator before a record that is now first, restores
-// to the record's start.
 const positionIndexOf = (lines: readonly DetailLine[], anchor: DetailAnchor, start: number) => {
   const { position, recordId } = anchor;
 
@@ -132,7 +127,6 @@ const positionIndexOf = (lines: readonly DetailLine[], anchor: DetailAnchor, sta
   return found === -1 ? start : found;
 };
 
-// A missing record falls back to the nearest surviving record before it, or the top.
 export const topOfAnchor = (
   lines: readonly DetailLine[],
   anchor: DetailAnchor | undefined,
@@ -158,7 +152,6 @@ export const topOfAnchor = (
   return positionIndexOf(lines, anchor, start);
 };
 
-// `order` is the tab's record IDs, so the anchor can fall back when its record disappears.
 export const anchorOfLine = (line: DetailLine, order: readonly string[]): DetailAnchor => ({
   recordId: line.recordId,
   digest: line.digest,

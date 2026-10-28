@@ -77,7 +77,6 @@ const isIssueCommentId = (value: string): value is IssueCommentId => value !== '
 
 const isDetailSubjectKey = (value: string): value is DetailSubjectKey => value !== '';
 
-// Repository and number can name another subject after a rename, so detail is keyed by thread.
 export const toDetailSubjectKey = (host: string, threadId: ThreadId): DetailSubjectKey => {
   const key = `${host}@${threadId}`;
 

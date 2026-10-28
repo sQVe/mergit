@@ -171,7 +171,6 @@ const envelopeSchema = z.object({
   errors: z.array(graphqlErrorSchema).optional(),
 });
 
-// A node that is not an Issue has no Issue fields, so only its type name is checked here.
 const dataSchema = z
   .object({
     viewer: viewerSchema,

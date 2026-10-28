@@ -74,7 +74,6 @@ const issueNode = (comments: unknown[]) => ({
   comments: { totalCount: 2, pageInfo: { hasNextPage: true, endCursor: 'C1' }, nodes: comments },
 });
 
-// The node query aliases __typename as typeName, so the fake answers it the same way.
 const issueAnswer = (issue: unknown) => (args: readonly string[]) =>
   httpResponse(
     isNodeQuery(args)

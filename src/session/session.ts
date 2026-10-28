@@ -577,7 +577,6 @@ export const createSession = (effects: SessionEffects): Session => {
       update(applyFailure(snapshot, outcome.failure, now));
     }
 
-    // After the outcome, so a rate limit from this refresh pauses the waiting read.
     detail.resume();
   };
 

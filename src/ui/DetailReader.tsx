@@ -218,7 +218,6 @@ const bodyOf = (input: ReaderInput): ReaderBody => {
   return { ...empty, lines: noticeLines(texts, columns) };
 };
 
-// The pane is the detail column's width and the body's height, which the hint row shares.
 export const readerInputOf = (
   snapshot: Snapshot,
   reader: ReaderContext,
@@ -244,7 +243,6 @@ const viewOf = (input: ReaderInput) => {
   const body = bodyOf(input);
   const header = body.header.map((line) => fitText(line, input.columns));
   const viewportRows = Math.max(1, input.rows - header.length);
-  // The anchored line stays at the top even past the last full page, with blank rows below.
   const top = topOfAnchor(body.lines, body.anchor);
   const maximumTop = Math.max(0, body.lines.length - viewportRows, top);
 

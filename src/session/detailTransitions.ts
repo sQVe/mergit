@@ -12,7 +12,6 @@ import type { Snapshot } from './sessionState.ts';
 
 export type DetailTab = 'overview' | 'discussion';
 
-// `offset` is the UTF-16 index in the record's text where a text line starts.
 export type DetailPosition =
   | { kind: 'separator' }
   | { kind: 'heading' }
@@ -22,7 +21,6 @@ export interface DetailAnchor {
   recordId: string;
   digest: string;
   position: DetailPosition;
-  // The tab's record IDs before this one, nearest last.
   earlierRecordIds: readonly string[];
 }
 
@@ -72,7 +70,6 @@ export type DetailEntry = IssueEntry | UnsupportedEntry;
 export interface DetailState {
   activeKey: DetailSubjectKey | null;
   entries: ReadonlyMap<DetailSubjectKey, DetailEntry>;
-  // The login of the account a detail response came from, when it is not the feed's account.
   mismatch: { login: ViewerLogin } | null;
 }
 
@@ -85,7 +82,6 @@ const maximumCachedBytes = maximumCachedMebibytes * bytesPerKibibyte * bytesPerK
 
 const textEncoder = new TextEncoder();
 
-// Records are shared between entries, so each body is encoded once.
 const recordBytes = new WeakMap<object, number>();
 
 const bodyBytesOf = (record: { body: string }): number => {
@@ -177,7 +173,6 @@ export const keepNewer = (
   }
 };
 
-// A complete traversal holds every comment, so earlier records it did not return are gone.
 const discussionRecordsOf = (
   previous: readonly IssueComment[],
   traversal: ReadonlyMap<string, IssueComment>,
@@ -245,7 +240,6 @@ const entryBytesOf = (entry: DetailEntry): number => {
   return records.reduce((total, record) => total + bodyBytesOf(record), anchorBytesOf(entry));
 };
 
-// The shown subject is never evicted, so it alone keeps whole comments, in order, up to the budget.
 export const fitCacheBudget = (entry: IssueEntry): { entry: IssueEntry; trimmed: boolean } => {
   const { overview, discussion } = entry.sources;
   const overviewBytes = overview.record === null ? 0 : bodyBytesOf(overview.record);
@@ -277,8 +271,6 @@ const totalBytesOf = (entries: ReadonlyMap<DetailSubjectKey, DetailEntry>): numb
 const isOverLimits = (entries: ReadonlyMap<DetailSubjectKey, DetailEntry>): boolean =>
   entries.size > maximumCachedSubjects || totalBytesOf(entries) > maximumCachedBytes;
 
-// Entries are kept in the order they were last shown, so the first one that is not active is the
-// least recently shown.
 export const evictDetail = (detail: DetailState): DetailState => {
   const entries = new Map(detail.entries);
 

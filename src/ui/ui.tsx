@@ -672,7 +672,6 @@ export const App = (props: AppProps): ReactNode => {
 
   const helpWindow = helpWindowFor(overlay);
 
-  // Only an account change empties a loaded feed, so the reader then holds the former account's row.
   const heldByFormerAccount = reader.kind === 'reader' && !snapshot.hasLoaded;
 
   useLayoutEffect(() => {
