@@ -76,6 +76,41 @@ test('Ctrl+n, Alt+j, Ctrl+p, and Alt+k scroll the list preview and stop at both 
   expect(setup.captureCharFrame()).not.toContain('Alt+j/Ctrl+N next');
 });
 
+test('Ctrl+n scrolls a preview that overflows only after the terminal shrinks', async () => {
+  const mounted = await untrackedMount({
+    effects: threadsEffects(fourRepoThreads),
+    width: paneWidth,
+    height: 24,
+  });
+
+  cleanups.push(mounted.cleanup);
+
+  const { setup, press, resize } = mounted;
+
+  await pressAll(press, ['r', 'g', 'g', 'j', 'j']);
+  await resize(paneWidth, 6);
+
+  expect(paneTopLineOf(setup)).toBe('Thread a');
+
+  await press('ctrl+n');
+
+  expect(paneTopLineOf(setup)).toBe('');
+});
+
+test('Ctrl+n changes nothing after the terminal gets too narrow for the preview', async () => {
+  const { setup, press, resize, session } = await mountWithShortPreview();
+  const rowKey = session.getSnapshot().selectedRowKey;
+
+  await resize(60, 6);
+
+  const frame = setup.captureCharFrame();
+
+  await pressAll(press, ['ctrl+n', 'ctrl+p']);
+
+  expect(setup.captureCharFrame()).toBe(frame);
+  expect(session.getSnapshot().selectedRowKey).toBe(rowKey);
+});
+
 test('opening the reader from a scrolled preview shows the thread from its top', async () => {
   const { setup, press } = await mountWithShortPreview();
 

@@ -29,7 +29,7 @@ export interface UiState {
   helpInput: HelpSearchInput;
   messagesTop: number;
   previewTop: number;
-  reportPreviewWindow: (window: ScrollWindow) => void;
+  reportPreviewWindow: (measure: () => ScrollWindow) => void;
   reader: ReaderContext;
   modal: RefObject<ModalState>;
   runUiAction: (intent: UiIntent) => void;
@@ -107,10 +107,10 @@ export const useUiState = (
     windows.current = { helpWindow, messageWindow };
   });
 
-  const previewWindow = useRef<ScrollWindow>({ viewportRows: 0, maximumTop: 0 });
+  const previewWindow = useRef<() => ScrollWindow>(() => ({ viewportRows: 0, maximumTop: 0 }));
 
-  const reportPreviewWindow = useCallback((next: ScrollWindow) => {
-    previewWindow.current = next;
+  const reportPreviewWindow = useCallback((measure: () => ScrollWindow) => {
+    previewWindow.current = measure;
   }, []);
 
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
@@ -246,7 +246,7 @@ export const useUiState = (
       } else if (intent.action === 'scrollPreview') {
         const move = { kind: 'lines', lines: intent.lines } as const;
 
-        setPreviewTop((top) => topAfter(top, move, previewWindow.current));
+        setPreviewTop((top) => topAfter(top, move, previewWindow.current()));
       } else {
         plainActions[intent.action]?.();
       }

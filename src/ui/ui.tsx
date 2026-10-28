@@ -557,7 +557,7 @@ const Body = (props: {
   listHeight: number;
   catalog: readonly Command[];
   previewTop: number;
-  onPreviewWindow: (window: ScrollWindow) => void;
+  onPreviewWindow: (measure: () => ScrollWindow) => void;
 }): ReactNode => {
   const { snapshot, palette, listWidth, detailWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);

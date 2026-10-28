@@ -172,7 +172,7 @@ export const DetailPane = (
     width: number;
     detached: boolean;
     previewTop: number;
-    onPreviewWindow: (window: ScrollWindow) => void;
+    onPreviewWindow: (measure: () => ScrollWindow) => void;
   },
 ): ReactNode => {
   const { row } = props;
@@ -185,10 +185,11 @@ export const DetailPane = (
 
     box.scrollTop = props.previewTop;
 
-    props.onPreviewWindow({
+    // Layout after a resize lands after this effect, so the bounds are read when a key needs them.
+    props.onPreviewWindow(() => ({
       viewportRows: box.viewport.height,
       maximumTop: Math.max(0, box.scrollHeight - box.viewport.height),
-    });
+    }));
   });
 
   return (
