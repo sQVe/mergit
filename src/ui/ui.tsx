@@ -5,7 +5,7 @@ import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings, useKeymap, usePendingSequence } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 import type { Command, ReaderContext, TerminalIntent } from '../commands.ts';
 import {
@@ -548,9 +548,6 @@ const paneWidthsOf = (
   return { listWidth: width - paneWidth, detailWidth: paneWidth };
 };
 
-const sameWindowOf = (first: ScrollWindow, second: ScrollWindow): boolean =>
-  first.viewportRows === second.viewportRows && first.maximumTop === second.maximumTop;
-
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -636,17 +633,10 @@ export const App = (props: AppProps): ReactNode => {
 
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
 
-  const [previewWindow, setPreviewWindow] = useState<ScrollWindow>({
-    viewportRows: 0,
-    maximumTop: 0,
-  });
-
-  const reportPreviewWindow = (next: ScrollWindow) => {
-    setPreviewWindow((current) => (sameWindowOf(current, next) ? current : next));
-  };
+  const uiState = useUiState(props.session, helpWindowFor, messageWindow);
 
   const { overlay, helpTop, helpInput, messagesTop, previewTop, reader, modal, runUiAction } =
-    useUiState(props.session, helpWindowFor, messageWindow, previewWindow);
+    uiState;
 
   const helpWindow = helpWindowFor(overlay);
 
@@ -707,7 +697,7 @@ export const App = (props: AppProps): ReactNode => {
           listHeight={listHeight}
           catalog={props.catalog}
           previewTop={previewTop}
-          onPreviewWindow={reportPreviewWindow}
+          onPreviewWindow={uiState.reportPreviewWindow}
         />
         <SearchLine
           session={props.session}

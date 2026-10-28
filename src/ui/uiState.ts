@@ -29,6 +29,7 @@ export interface UiState {
   helpInput: HelpSearchInput;
   messagesTop: number;
   previewTop: number;
+  reportPreviewWindow: (window: ScrollWindow) => void;
   reader: ReaderContext;
   modal: RefObject<ModalState>;
   runUiAction: (intent: UiIntent) => void;
@@ -44,21 +45,21 @@ const topAfter = (top: number, move: OverlayMove, window: ScrollWindow): number 
   const current = Math.min(top, maximumTop);
   const halfPage = Math.max(1, Math.floor(viewportRows / 2));
 
-  const target = {
-    lines: () => (move.kind === 'lines' ? current + move.lines : current),
-    page: () => {
-      if (move.kind !== 'page') {
-        return current;
-      }
+  const targetOf = (): number => {
+    if (move.kind === 'lines') {
+      return current + move.lines;
+    }
 
+    if (move.kind === 'page') {
       const size = move.size === 'half' ? halfPage : viewportRows;
 
       return current + (move.direction === 'down' ? size : -size);
-    },
-    edge: () => (move.kind === 'edge' && move.edge === 'bottom' ? maximumTop : 0),
-  }[move.kind]();
+    }
 
-  return Math.min(maximumTop, Math.max(0, target));
+    return move.edge === 'bottom' ? maximumTop : 0;
+  };
+
+  return Math.min(maximumTop, Math.max(0, targetOf()));
 };
 
 const helpSearchAfter = (overlay: Overlay, intent: UiIntent): Overlay | undefined => {
@@ -97,15 +98,20 @@ export const useUiState = (
   session: Session,
   helpWindow: (overlay: Overlay) => ScrollWindow,
   messageWindow: ScrollWindow,
-  previewWindow: ScrollWindow,
 ): UiState => {
   // Callers pass fresh window objects every render. Reading them here keeps runUiAction stable,
   // because a changed runUiAction re-registers the key layers and clears a pending count.
-  const windows = useRef({ helpWindow, messageWindow, previewWindow });
+  const windows = useRef({ helpWindow, messageWindow });
 
   useLayoutEffect(() => {
-    windows.current = { helpWindow, messageWindow, previewWindow };
+    windows.current = { helpWindow, messageWindow };
   });
+
+  const previewWindow = useRef<ScrollWindow>({ viewportRows: 0, maximumTop: 0 });
+
+  const reportPreviewWindow = useCallback((next: ScrollWindow) => {
+    previewWindow.current = next;
+  }, []);
 
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
@@ -156,7 +162,7 @@ export const useUiState = (
     setReaderState(next);
   }, []);
 
-  const runStateAction = useCallback(
+  const runUiAction = useCallback(
     (intent: UiIntent) => {
       const confirmOpen = () => {
         const { overlay: current } = modal.current;
@@ -205,7 +211,25 @@ export const useUiState = (
         }
       };
 
-      const { action } = intent;
+      const closeOverlay = () => {
+        setOverlay({ kind: 'none' });
+      };
+
+      const plainActions: Partial<Record<UiIntent['action'], () => void>> = {
+        confirmOpen,
+        cancelOpen: closeOverlay,
+        closeDetail: () => {
+          setReader({ kind: 'inbox' });
+        },
+        openMessages,
+        closeMessages: closeOverlay,
+        toggleHelp: () => {
+          toggleHelp(true);
+        },
+        closeHelp: () => {
+          toggleHelp(false);
+        },
+      };
 
       const helpSearch = helpSearchAfter(modal.current.overlay, intent);
 
@@ -214,43 +238,20 @@ export const useUiState = (
         setOverlay(helpSearch);
       } else if (intent.action === 'askOpen') {
         setOverlay({ kind: 'confirm', pages: intent.pages });
-      } else if (action === 'confirmOpen') {
-        confirmOpen();
-      } else if (action === 'cancelOpen') {
-        setOverlay({ kind: 'none' });
       } else if (intent.action === 'openDetail') {
         setReader({ kind: 'reader', row: intent.row });
         session.send({ kind: 'selectRow', rowKey: intent.row.key });
-      } else if (action === 'closeDetail') {
-        setReader({ kind: 'inbox' });
-      } else if (action === 'openMessages') {
-        openMessages();
-      } else if (action === 'closeMessages') {
-        setOverlay({ kind: 'none' });
       } else if (intent.action === 'scrollOverlay') {
         scrollOverlay(intent.move);
-      } else if (action === 'toggleHelp') {
-        toggleHelp(true);
-      } else if (action === 'closeHelp') {
-        toggleHelp(false);
+      } else if (intent.action === 'scrollPreview') {
+        const move = { kind: 'lines', lines: intent.lines } as const;
+
+        setPreviewTop((top) => topAfter(top, move, previewWindow.current));
+      } else {
+        plainActions[intent.action]?.();
       }
     },
     [session, setOverlay, setReader],
-  );
-
-  const scrollPreview = useCallback((lines: 1 | -1) => {
-    setPreviewTop((top) => topAfter(top, { kind: 'lines', lines }, windows.current.previewWindow));
-  }, []);
-
-  const runUiAction = useCallback(
-    (intent: UiIntent) => {
-      if (intent.action === 'scrollPreview') {
-        scrollPreview(intent.lines);
-      } else {
-        runStateAction(intent);
-      }
-    },
-    [runStateAction, scrollPreview],
   );
 
   const helpInput = { watch: watchHelpSearch, current: currentHelpSearch };
@@ -261,6 +262,7 @@ export const useUiState = (
     helpInput,
     messagesTop,
     previewTop,
+    reportPreviewWindow,
     reader,
     modal,
     runUiAction,
