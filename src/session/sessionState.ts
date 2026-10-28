@@ -10,6 +10,8 @@ import type {
 } from '../work/work.ts';
 import { treeRows } from '../work/work.ts';
 import type { CommandLineCompletion } from './commandLine.ts';
+import type { DetailState } from './detailTransitions.ts';
+import { initialDetail } from './detailTransitions.ts';
 import type { SearchCompletion } from './searchCompletion.ts';
 import { selectAfterRefresh } from './selectionRepair.ts';
 
@@ -67,6 +69,7 @@ export interface Snapshot {
   filterCursor: number;
   filterError: string | null;
   filterEditing: Filter | null;
+  detail: DetailState;
 }
 
 export const noticeMessageOf = (
@@ -124,6 +127,7 @@ export const initialSnapshot: Snapshot = {
   filterCursor: -1,
   filterError: null,
   filterEditing: null,
+  detail: initialDetail,
 };
 
 export const openThreads = (snapshot: Snapshot): NotificationThread[] =>

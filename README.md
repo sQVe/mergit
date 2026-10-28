@@ -122,6 +122,10 @@ rows marked "Yes" accept `aliases`.
 | `closeDetail`                   | `<Esc>`           | Close thread detail                   | No      |
 | `moveOtherPaneDown`             | `<A-j>`, `<C-n>`  | Move the other pane down              | Yes     |
 | `moveOtherPaneUp`               | `<A-k>`, `<C-p>`  | Move the other pane up                | Yes     |
+| `nextTab`                       | `l`, `<Right>`    | Next tab                              | No      |
+| `previousTab`                   | `h`, `<Left>`     | Previous tab                          | No      |
+| `scrollDown`                    | `j`, `<Down>`     | Scroll text down                      | No      |
+| `scrollUp`                      | `k`, `<Up>`       | Scroll text up                        | No      |
 | `openHelpSearch`                | `/`               | Search help                           | No      |
 | `keepHelpSearch`                | `<Enter>`         | Keep help search                      | No      |
 | `cancelHelpSearch`              | `<Esc>`           | Clear and close help search           | No      |
@@ -171,6 +175,7 @@ a name for the same command is allowed. `[]` adds no names and removes none.
   `halfPageDown`, `halfPageUp`, `pageDown`, and `pageUp` also scroll help and messages. Their remaps
   and conflicts apply in those layers too. Replacing a default in one layer leaves other layers
   unchanged.
+- `halfPageDown` and `halfPageUp` also scroll the text in the focused reader.
 - Keys in different layers can overlap. The active higher-priority layer wins. Overlay and dialog
   layers rank above input lines, then detail, list, and global layers. Global keys are inactive
   while an input line is open; fixed Ctrl+C bindings still quit.

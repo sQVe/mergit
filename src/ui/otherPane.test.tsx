@@ -121,8 +121,10 @@ test('opening the reader from a scrolled preview shows the thread from its top',
   await press('?');
   await press('escape');
 
-  expect(setup.captureCharFrame()).toContain('Thread a');
-  expect(setup.captureCharFrame()).toContain('Repo');
+  const lines = setup.captureCharFrame().split('\n');
+
+  expect(lines[0]).toContain('│ example/a / Pull request');
+  expect(lines[1]).toContain('│ Thread a');
 });
 
 test('moving the selection with j shows the next preview from its top', async () => {

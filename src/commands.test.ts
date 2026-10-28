@@ -36,6 +36,8 @@ const idleEffects = {
   verifyFeed: () =>
     Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
   lookUpSubjects: () => Promise.resolve({ lookups: [], failures: [] }),
+  readIssueDetail: () =>
+    Promise.resolve({ ok: false as const, failure: { kind: 'ghMissing' as const } }),
   now: () => new Date(0),
   setTimer: () => () => undefined,
 };

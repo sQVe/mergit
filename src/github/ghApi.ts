@@ -1,5 +1,7 @@
 import type { ReadableStreamDefaultReader } from 'node:stream/web';
 
+import { z } from 'zod';
+
 export type GhRun =
   | { kind: 'missing' }
   | { kind: 'exited'; exitCode: number; stdout: string; stderr: string }
@@ -39,6 +41,16 @@ interface ParsedHttp {
   bodyText: string;
 }
 
+export const globalNodeIdHeader = 'X-Github-Next-Global-ID: 1';
+
+export const graphqlErrorSchema = z.object({
+  type: z.string().optional(),
+  message: z.string(),
+  path: z.array(z.union([z.string(), z.number()])).optional(),
+});
+
+export type GraphqlError = z.infer<typeof graphqlErrorSchema>;
+
 const notSignedInExitCode = 4;
 const okStatusMin = 200;
 const okStatusMax = 300;
@@ -47,6 +59,7 @@ const forbiddenStatus = 403;
 const tooManyRequestsStatus = 429;
 const millisecondsPerSecond = 1000;
 const fallbackDelaySeconds = 60;
+const rateLimitedType = 'RATE_LIMITED';
 
 const ghOutputLimitBytes = 4_194_304;
 
@@ -138,6 +151,20 @@ const fail = (failure: GitHubFailure): { ok: false; failure: GitHubFailure } => 
   ok: false,
   failure,
 });
+
+export const readGraphqlFailure = (error: GraphqlError, response: GhResponse): GitHubFailure => {
+  const reset = Number(response.headers.get('x-ratelimit-reset'));
+
+  if (error.type === rateLimitedType && Number.isFinite(reset)) {
+    return { kind: 'rateLimited', resetAt: new Date(reset * millisecondsPerSecond) };
+  }
+
+  return {
+    kind: 'requestFailed',
+    status: response.status,
+    message: error.message,
+  };
+};
 
 const parseHttp = (stdout: string): ParsedHttp | null => {
   const separator = /\r?\n\r?\n/.exec(stdout);
@@ -330,6 +357,7 @@ export const requestGraphql = (
   query: string,
   variables: GraphqlVariables,
   signal: AbortSignal,
+  headers: readonly string[] = [],
 ): Promise<GitHubResult<GhResponse>> => {
   const strings = Object.entries(variables.strings).flatMap(([name, value]) => [
     '-f',
@@ -341,6 +369,8 @@ export const requestGraphql = (
     `${name}=${value}`,
   ]);
 
+  const extra = headers.flatMap((header) => ['-H', header]);
+
   return runApi(
     effects,
     [
@@ -349,6 +379,7 @@ export const requestGraphql = (
       '--hostname',
       effects.host,
       '--include',
+      ...extra,
       '-f',
       `query=${query}`,
       ...strings,

@@ -3,12 +3,14 @@ import { z } from 'zod';
 import type { NotificationThread, ThreadId, ViewerId, ViewerLogin } from '../work/work.ts';
 import { toViewerId, toViewerLogin } from '../work/work.ts';
 import type { GhResponse, GitHubEffects, GitHubFailure, GitHubResult } from './ghApi.ts';
-import { requestGh, requestGhDelete } from './ghApi.ts';
+import { globalNodeIdHeader, requestGh, requestGhDelete } from './ghApi.ts';
 import type { NotificationFeed, NotificationPage } from './notifications.ts';
 import { findNextPage, notificationPageSchema, readPollInterval } from './notifications.ts';
 
 export { createGhRunner } from './ghApi.ts';
 export type { GitHubEffects, GitHubFailure, GitHubResult } from './ghApi.ts';
+export { readIssueDetail } from './issueDetail.ts';
+export type { IssueDetailRequest } from './issueDetail.ts';
 export type { NotificationFeed, NotificationPage } from './notifications.ts';
 export { lookUpSubjects } from './subjects.ts';
 export type { SubjectLookup, SubjectLookupResult } from './subjects.ts';
@@ -55,8 +57,6 @@ export interface NotificationVerification {
 const notModifiedStatus = 304;
 
 const viewerSchema = z.object({ login: z.string().min(1), node_id: z.string().min(1) });
-
-const globalNodeIdHeader = 'X-Github-Next-Global-ID: 1';
 
 const firstNotificationsEndpoint = '/notifications?all=true&per_page=50';
 

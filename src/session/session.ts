@@ -1,5 +1,6 @@
 import type {
   GitHubResult,
+  IssueDetailRequest,
   NotificationFeed,
   NotificationFeedRead,
   NotificationFeedRequest,
@@ -8,7 +9,13 @@ import type {
   SubjectLookupResult,
   Viewer,
 } from '../github/github.ts';
-import type { BrowserPage, Grouping, NotificationThread, ThreadId } from '../work/work.ts';
+import type {
+  BrowserPage,
+  Grouping,
+  IssueDetailRead,
+  NotificationThread,
+  ThreadId,
+} from '../work/work.ts';
 import { createAccountSwitch } from './accountSwitch.ts';
 import { createAdmission } from './admission.ts';
 import { createBrowserOpen } from './browserOpen.ts';
@@ -19,6 +26,9 @@ import {
   openCommandLine,
   moveCommandLineCompletion,
 } from './commandLine.ts';
+import { createDetail } from './detail.ts';
+import type { DetailAnchor, DetailTab } from './detailTransitions.ts';
+import { setDetailAnchor, switchDetailTab } from './detailTransitions.ts';
 import { copyAccountRecords, createDoneActions, moveAccountRecords } from './doneActions.ts';
 import { createFeedRefresh } from './feedRefresh.ts';
 import type { SettledRefresh } from './feedRefresh.ts';
@@ -64,6 +74,15 @@ import {
 } from './treeTransitions.ts';
 
 export type { Snapshot } from './sessionState.ts';
+
+export type {
+  DetailAnchor,
+  DetailEntry,
+  DetailPosition,
+  DetailTab,
+  IssueEntry,
+} from './detailTransitions.ts';
+
 export { filterCursorOf } from './filterComposer.ts';
 export { filterRowsOf } from './filterRows.ts';
 export type { FilterRow } from './filterRows.ts';
@@ -126,7 +145,11 @@ export type ApplicationIntent =
   | { kind: 'undoDone' }
   | { kind: 'undoThreadDone'; threadId: ThreadId }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
-  | { kind: 'setListRows'; rows: number };
+  | { kind: 'setListRows'; rows: number }
+  | { kind: 'showDetail'; thread: NotificationThread }
+  | { kind: 'refreshDetail'; thread: NotificationThread }
+  | { kind: 'switchDetailTab'; direction: 1 | -1 }
+  | { kind: 'setDetailAnchor'; tab: DetailTab; anchor: DetailAnchor };
 
 export interface SavedState {
   grouping: Grouping;
@@ -170,6 +193,10 @@ export interface SessionEffects {
     threads: NotificationThread[],
     signal: AbortSignal,
   ) => Promise<SubjectLookupResult>;
+  readIssueDetail: (
+    request: IssueDetailRequest,
+    signal: AbortSignal,
+  ) => Promise<GitHubResult<IssueDetailRead>>;
   now: () => Date;
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
 }
@@ -196,6 +223,8 @@ type EditIntent = Extract<
   }
 >;
 
+type DetailIntent = Extract<ApplicationIntent, { kind: 'showDetail' | 'refreshDetail' }>;
+
 type StateIntent = Exclude<
   ApplicationIntent,
   | { kind: 'refresh' }
@@ -205,6 +234,7 @@ type StateIntent = Exclude<
   | { kind: 'undoThreadDone'; threadId: ThreadId }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
   | { kind: 'setListRows'; rows: number }
+  | DetailIntent
   | EditIntent
 >;
 
@@ -227,6 +257,9 @@ const editKinds = new Set<string>([
 
 const isEditIntent = (intent: ApplicationIntent): intent is EditIntent =>
   editKinds.has(intent.kind);
+
+const isDetailIntent = (intent: ApplicationIntent): intent is DetailIntent =>
+  intent.kind === 'showDetail' || intent.kind === 'refreshDetail';
 
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',
@@ -268,6 +301,8 @@ const transitions: Transitions = {
   closeFilters,
   leaveFilters,
   clearFilters,
+  switchDetailTab: (snapshot, intent) => switchDetailTab(snapshot, intent.direction),
+  setDetailAnchor: (snapshot, intent) => setDetailAnchor(snapshot, intent.tab, intent.anchor),
 };
 
 // Generic over the kind, so TypeScript pairs each intent with its own transition.
@@ -337,13 +372,29 @@ export const createSession = (effects: SessionEffects): Session => {
     update(candidate);
   };
 
+  const admission = createAdmission({
+    now: effects.now,
+    getSnapshot: () => snapshot,
+    update: publish,
+  });
+
   const subjectLookup = createSubjectLookup({
     saved: savedSnapshot,
     lookUpSubjects: effects.lookUpSubjects,
     getSnapshot: () => snapshot,
     update: publish,
     isStopped: () => stopped,
-    admission: createAdmission({ now: effects.now, getSnapshot: () => snapshot, update: publish }),
+    admission,
+  });
+
+  const detail = createDetail({
+    host: effects.host,
+    readIssueDetail: effects.readIssueDetail,
+    lastViewer: accountSwitch.lastViewer,
+    now: effects.now,
+    getSnapshot: () => snapshot,
+    update: publish,
+    admission,
   });
 
   const getSnapshot = () => snapshot;
@@ -525,6 +576,8 @@ export const createSession = (effects: SessionEffects): Session => {
       subjectLookup.releaseStartup();
       update(applyFailure(snapshot, outcome.failure, now));
     }
+
+    detail.resume();
   };
 
   const refresh = createFeedRefresh({
@@ -538,6 +591,7 @@ export const createSession = (effects: SessionEffects): Session => {
     accountSwitch,
     clearAccount: () => {
       subjectLookup.clear();
+      detail.clear();
       update(clearAccount(snapshot));
     },
     getSnapshot: () => snapshot,
@@ -580,6 +634,15 @@ export const createSession = (effects: SessionEffects): Session => {
     }
   };
 
+  const sendDetail = (intent: DetailIntent) => {
+    if (intent.kind === 'refreshDetail') {
+      refresh.request();
+      detail.revalidate(intent.thread);
+    } else {
+      detail.show(intent.thread);
+    }
+  };
+
   const send = (intent: ApplicationIntent) => {
     if (stopped) {
       return;
@@ -597,6 +660,8 @@ export const createSession = (effects: SessionEffects): Session => {
       doneActions.undoDone(intent.threadId);
     } else if (intent.kind === 'openInBrowser') {
       browserOpen.open(intent.pages);
+    } else if (isDetailIntent(intent)) {
+      sendDetail(intent);
     } else if (intent.kind === 'setListRows') {
       update(setListRows(snapshot, intent.rows));
     } else if (isEditIntent(intent)) {
@@ -617,6 +682,7 @@ export const createSession = (effects: SessionEffects): Session => {
     browserOpen.stop();
     refresh.abort();
     subjectLookup.abort();
+    detail.stop();
     refresh.cancelTimer();
     toaster.cancel();
     listeners.clear();

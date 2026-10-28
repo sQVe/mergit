@@ -10,6 +10,7 @@ import { catalog } from '../commands.ts';
 import { invariant } from '../invariant.ts';
 import type { Session, SessionEffects } from '../session/session.ts';
 import { createSession, visibleRows } from '../session/session.ts';
+import { toViewerId, toViewerLogin } from '../work/work.ts';
 import { App } from './ui.tsx';
 import type { Setup } from './uiHarness.tsx';
 import {
@@ -55,9 +56,9 @@ const mountFilters = track(cleanups, untrackedMountFilters);
 const mount = track(cleanups, untrackedMount);
 
 const readerColumnOf = (frame: string): number | undefined => {
-  const line = frame.split('\n').find((candidate) => /Repo\s+example\/repo/.test(candidate));
+  const line = frame.split('\n').find((candidate) => candidate.includes('example/repo /'));
 
-  return line?.search(/Repo/);
+  return line?.search(/example\/repo \//);
 };
 
 const longThreads = Array.from({ length: 60 }, (_, index) =>
@@ -597,7 +598,7 @@ test('Enter and j in one burst open the detail and leave the list selection alon
   await burst(setup, ['return', 'j']);
   await settle();
 
-  expect(setup.captureCharFrame()).toMatch(/Repo\s+example\/repo/);
+  expect(setup.captureCharFrame()).toMatch(/example\/repo \/ Pull request #1/);
   expect(session.getSnapshot().selectedRowKey).toBe(selected);
 });
 
@@ -1343,7 +1344,7 @@ test('d in the focused reader marks only the reader thread done', async () => {
   expect(sent.at(-1)).toEqual({ kind: 'markThreadsDone', threadIds: [readerThread.id] });
 });
 
-test('o and r in the focused reader send the reader thread pages and refresh', async () => {
+test('o and r in the focused reader send the reader thread pages and its refresh', async () => {
   const { press, sent, session } = await mount({
     themeMode: 'dark',
     effects: threadsEffects(fourRepoThreads),
@@ -1351,7 +1352,8 @@ test('o and r in the focused reader send the reader thread pages and refresh', a
 
   await openReaderOnFirstThread(press);
 
-  const { repository } = selectedThreadOf(session);
+  const readerThread = selectedThreadOf(session);
+  const { repository } = readerThread;
 
   await press('o');
 
@@ -1359,7 +1361,7 @@ test('o and r in the focused reader send the reader thread pages and refresh', a
 
   await press('r');
 
-  expect(sent.at(-1)).toEqual({ kind: 'refresh' });
+  expect(sent.at(-1)).toEqual({ kind: 'refreshDetail', thread: readerThread });
 });
 
 test('a refresh that drops the reader thread keeps the reader on a detached notice and sends no done', async () => {
@@ -1414,6 +1416,42 @@ test('a refresh that empties the inbox keeps the reader on a detached notice and
   await press('d');
 
   expect(sent.slice(before)).toEqual([]);
+});
+
+test('an account change closes the reader and shows no notification of the former account', async () => {
+  const aliceThread = { ...makeThread(1, 'Alice private plan'), repository: 'alice/private' };
+  const bobThread = { ...makeThread(2, 'Bob release notes'), repository: 'bob/public' };
+  let login = 'alice';
+
+  const { setup, press, sent } = await mount({
+    themeMode: 'dark',
+    effects: {
+      ...feedEffects(() => (login === 'alice' ? [aliceThread] : [bobThread])),
+      readViewer: () =>
+        Promise.resolve({
+          ok: true as const,
+          value: { id: toViewerId(`U_${login}`), login: toViewerLogin(login), etag: null },
+        }),
+    },
+  });
+
+  await pressAll(press, ['r', 'j', 'j', 'return']);
+
+  expect(setup.captureCharFrame()).toContain('Alice private plan');
+  expect(sent.at(-1)).toEqual({ kind: 'showDetail', thread: aliceThread });
+
+  login = 'bob';
+  await press('r');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).not.toContain('Alice private plan');
+  expect(frame).not.toContain('alice/private');
+  expect(frame).toContain('Bob release notes');
+
+  await pressAll(press, ['j', 'j', 'return']);
+
+  expect(sent.at(-1)).toEqual({ kind: 'showDetail', thread: bobThread });
 });
 
 test('u in the reader does not restore a thread that a done in the list hid', async () => {

@@ -4,6 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { Intent, OverlayMove, ReaderContext } from '../commands.ts';
 import type { Session } from '../session/session.ts';
 import type { BrowserPage } from '../work/work.ts';
+import type { DetailScroll } from './DetailReader.tsx';
 
 export type UiIntent = Extract<Intent, { kind: 'ui' }>;
 
@@ -100,13 +101,14 @@ export const useUiState = (
   session: Session,
   helpWindow: (overlay: Overlay) => ScrollWindow,
   messageWindow: ScrollWindow,
+  detailScroll: (reader: ReaderContext) => DetailScroll | null,
 ): UiState => {
   // Callers pass fresh window objects every render. Reading them here keeps runUiAction stable,
   // because a changed runUiAction re-registers the key layers and clears a pending count.
-  const windows = useRef({ helpWindow, messageWindow });
+  const windows = useRef({ helpWindow, messageWindow, detailScroll });
 
   useLayoutEffect(() => {
-    windows.current = { helpWindow, messageWindow };
+    windows.current = { helpWindow, messageWindow, detailScroll };
   });
 
   const previewWindow = useRef<() => ScrollWindow>(noPreviewWindow);
@@ -201,6 +203,20 @@ export const useUiState = (
         );
       };
 
+      const scrollDetail = (move: OverlayMove) => {
+        const scroll = windows.current.detailScroll(modal.current.reader);
+
+        if (scroll === null) {
+          return;
+        }
+
+        const target = scroll.anchorAt(topAfter(scroll.top, move, scroll.window));
+
+        if (target !== null) {
+          session.send({ kind: 'setDetailAnchor', ...target });
+        }
+      };
+
       const scrollOverlay = (move: OverlayMove) => {
         const { kind } = modal.current.overlay;
 
@@ -210,6 +226,8 @@ export const useUiState = (
           );
         } else if (kind === 'messages') {
           setMessagesTop((top) => topAfter(top, move, windows.current.messageWindow));
+        } else if (kind === 'none') {
+          scrollDetail(move);
         }
       };
 
@@ -243,6 +261,7 @@ export const useUiState = (
       } else if (intent.action === 'openDetail') {
         setReader({ kind: 'reader', row: intent.row });
         session.send({ kind: 'selectRow', rowKey: intent.row.key });
+        session.send({ kind: 'showDetail', thread: intent.row.thread });
       } else if (intent.action === 'scrollOverlay') {
         scrollOverlay(intent.move);
       } else if (intent.action === 'scrollPreview') {

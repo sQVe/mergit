@@ -6,6 +6,7 @@ import {
   lookUpSubjects,
   markThreadDone,
   pollNotificationFeed,
+  readIssueDetail,
   readNotificationFeed,
   readViewer,
   resolveGitHubHost,
@@ -150,6 +151,7 @@ const start = async (): Promise<void> => {
     readFeed: (request, signal) => readNotificationFeed(githubEffects, request, signal),
     verifyFeed: (feed, signal) => verifyNotificationFeed(githubEffects, feed, signal),
     lookUpSubjects: (threads, signal) => lookUpSubjects(githubEffects, threads, signal),
+    readIssueDetail: (request, signal) => readIssueDetail(githubEffects, request, signal),
     now,
     setTimer,
   });

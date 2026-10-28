@@ -1,5 +1,6 @@
 import type {
   GitHubResult,
+  IssueDetailRequest,
   NotificationFeed,
   NotificationFeedRead,
   NotificationFeedRequest,
@@ -11,6 +12,7 @@ import type {
 } from '../github/github.ts';
 import type {
   BrowserPage,
+  IssueDetailRead,
   NotificationThread,
   ThreadId,
   ViewerId,
@@ -59,6 +61,12 @@ interface SendCall {
   resolve: (result: GitHubResult<null>) => void;
 }
 
+interface DetailCall {
+  request: IssueDetailRequest;
+  resolve: (result: GitHubResult<IssueDetailRead>) => void;
+  signal: AbortSignal;
+}
+
 interface FakeTimer {
   delay: number;
   callback: () => void;
@@ -75,6 +83,7 @@ export interface Harness {
   history: Call[];
   lookups: LookupCall[];
   sends: SendCall[];
+  details: DetailCall[];
   opens: BrowserPage[];
   saves: SavedState[];
   timers: FakeTimer[];
@@ -185,6 +194,7 @@ export const makeHarness = (
   const lookups: LookupCall[] = [];
   const timers: FakeTimer[] = [];
   const sends: SendCall[] = [];
+  const details: DetailCall[] = [];
   const opens: BrowserPage[] = [];
   const saves: SavedState[] = [];
   const clock = { time: new Date('2026-02-01T12:00:00Z').getTime() };
@@ -256,6 +266,10 @@ export const makeHarness = (
           reject,
           signal,
         });
+      }),
+    readIssueDetail: (request, signal) =>
+      new Promise((resolve) => {
+        details.push({ request, resolve, signal });
       }),
     now: () => new Date(clock.time),
     setTimer: (delay, callback) => {
@@ -356,6 +370,7 @@ export const makeHarness = (
     history,
     lookups,
     sends,
+    details,
     opens,
     saves,
     now,

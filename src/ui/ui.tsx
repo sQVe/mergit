@@ -5,7 +5,7 @@ import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings, useKeymap, usePendingSequence } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 
 import type { Command, ReaderContext, TerminalIntent } from '../commands.ts';
 import {
@@ -20,6 +20,7 @@ import { filterRowsOf, visibleRows } from '../session/session.ts';
 import { CommandLine, commandLineRows, commandLineNamesOf } from './CommandLine.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
+import { detailScrollOf, readerInputOf, readerLayoutOf } from './DetailReader.tsx';
 import { FilterBar, filterBarRows } from './FilterBar.tsx';
 import { FilterComposer, composerLayoutOf } from './FilterComposer.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
@@ -31,6 +32,7 @@ import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
 import { SearchLine, searchLineRows } from './SearchLine.tsx';
 import { StatusLine } from './StatusLine.tsx';
+import { cellWidth } from './textLayout.ts';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
 import type { ModalState, Overlay, ScrollWindow, UiIntent } from './uiState.ts';
@@ -508,24 +510,42 @@ const Keys = (props: KeysProps): ReactNode => {
   return <CountPatterns />;
 };
 
+// Ordered by priority: a narrow pane drops whole hints from the end, so Esc and the reading keys stay.
 const readerHints: [string, string][] = [
+  ['closeDetail', 'close'],
+  ['nextTab', 'tab'],
+  ['scrollDown', 'scroll'],
+  ['readerNextThread', 'next'],
+  ['readerPreviousThread', 'previous'],
+  ['readerHalfPageDown', 'page'],
   ['readerMarkDone', 'done'],
   ['readerOpenInBrowser', 'open'],
   ['readerRefresh', 'refresh'],
   ['readerUndoDone', 'undo'],
-  ['readerNextThread', 'next'],
-  ['readerPreviousThread', 'previous'],
-  ['closeDetail', 'close'],
 ];
 
-const readerHintOf = (catalog: readonly Command[]): string => {
-  const parts = readerHints.map(([id, label]) => {
+const hintSeparator = '  ';
+
+const readerHintOf = (catalog: readonly Command[], columns: number): string => {
+  let hint = '';
+
+  for (const [id, label] of readerHints) {
     const key = keyHintOf(catalog, id);
 
-    return key === undefined ? undefined : `${key} ${label}`;
-  });
+    if (key === undefined) {
+      continue;
+    }
 
-  return parts.filter((part): part is string => part !== undefined).join('  ');
+    const next = hint === '' ? `${key} ${label}` : `${hint}${hintSeparator}${key} ${label}`;
+
+    if (cellWidth(next) > columns) {
+      break;
+    }
+
+    hint = next;
+  }
+
+  return hint;
 };
 
 const paneWidthsOf = (
@@ -548,8 +568,6 @@ const paneWidthsOf = (
   return { listWidth: width - paneWidth, detailWidth: paneWidth };
 };
 
-const ignorePreviewWindow = (): void => undefined;
-
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -565,6 +583,10 @@ const Body = (props: {
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
   const detailRow = props.reader.kind === 'reader' ? props.reader.row : selectedRow;
   const detached = isReaderDetached(snapshot, props.reader);
+
+  const readerPane = { width: detailWidth, height: listHeight };
+  const readerInput = readerInputOf(snapshot, props.reader, readerPane, props.catalog);
+  const readerLayout = readerInput === null ? null : readerLayoutOf(readerInput);
 
   const facts =
     detailRow?.kind === 'thread' ? snapshot.subjectFacts.get(detailRow.thread.id) : undefined;
@@ -593,8 +615,9 @@ const Body = (props: {
         now={now}
         width={detailWidth}
         detached={detached}
-        previewTop={readerFocused ? 0 : props.previewTop}
-        onPreviewWindow={readerFocused ? ignorePreviewWindow : props.onPreviewWindow}
+        previewTop={props.previewTop}
+        onPreviewWindow={props.onPreviewWindow}
+        readerLayout={readerLayout}
       />
     );
 
@@ -608,7 +631,7 @@ const Body = (props: {
           <box flexDirection="row" flexGrow={1}>
             {detailPane}
           </box>
-          <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
+          <text fg={palette.dim}>{readerHintOf(props.catalog, detailWidth)}</text>
         </box>
       ) : (
         detailPane
@@ -636,13 +659,6 @@ export const App = (props: AppProps): ReactNode => {
 
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
 
-  const uiState = useUiState(props.session, helpWindowFor, messageWindow);
-
-  const { overlay, helpTop, helpInput, messagesTop, previewTop, reader, modal, runUiAction } =
-    uiState;
-
-  const helpWindow = helpWindowFor(overlay);
-
   const composerRows = composerRowsOf(snapshot);
   const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
   const searchRoom = searchRoomOf(snapshot, height);
@@ -656,6 +672,28 @@ export const App = (props: AppProps): ReactNode => {
     filterBarRows(snapshot);
 
   const listHeight = Math.max(1, height - statusRows - reservedRows);
+
+  const detailScrollFor = (current: ReaderContext) => {
+    const pane = { width: paneWidthsOf(width, current).detailWidth, height: listHeight };
+    const input = readerInputOf(props.session.getSnapshot(), current, pane, props.catalog);
+
+    return input === null ? null : detailScrollOf(input);
+  };
+
+  const uiState = useUiState(props.session, helpWindowFor, messageWindow, detailScrollFor);
+
+  const { overlay, helpTop, helpInput, messagesTop, previewTop, reader, modal, runUiAction } =
+    uiState;
+
+  const helpWindow = helpWindowFor(overlay);
+
+  const heldByFormerAccount = reader.kind === 'reader' && !snapshot.hasLoaded;
+
+  useLayoutEffect(() => {
+    if (heldByFormerAccount) {
+      runUiAction({ kind: 'ui', action: 'closeDetail' });
+    }
+  }, [heldByFormerAccount, runUiAction]);
 
   useEffect(() => {
     props.session.send({ kind: 'setListRows', rows: listHeight });

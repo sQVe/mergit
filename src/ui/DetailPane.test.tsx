@@ -148,7 +148,7 @@ test('below 90 columns, Enter on a thread opens the full-width detail and Escape
   const detail = setup.captureCharFrame();
 
   expect(detail).toContain('Second');
-  expect(detail).toMatch(/Repo\s+example\/repo/);
+  expect(detail).toMatch(/example\/repo \/ Pull request #2/);
   expect(detail).not.toContain('First');
   expect(detail).not.toContain('Third');
 
@@ -169,8 +169,8 @@ test('the focused reader draws its divider down to the hint line', async () => {
   await pressAll(press, ['r', 'j', 'j', 'j', 'return']);
 
   const lines = setup.captureCharFrame().split('\n');
-  const dividerColumn = lines[0]?.indexOf('│ Second') ?? -1;
-  const hintIndex = lines.findIndex((line) => line.includes('d done'));
+  const dividerColumn = lines[0]?.indexOf('│ example/repo / Pull request #2') ?? -1;
+  const hintIndex = lines.findIndex((line) => line.includes('Esc close'));
   const paneLines = lines.slice(0, hintIndex);
 
   expect(dividerColumn).toBeGreaterThan(0);
@@ -261,6 +261,7 @@ const renderThreadPane = async (isNew: boolean): Promise<string> => {
         detached={false}
         previewTop={0}
         onPreviewWindow={() => undefined}
+        readerLayout={null}
       />,
       { width: 40, height: 12 },
     ),

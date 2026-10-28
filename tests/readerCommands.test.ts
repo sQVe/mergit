@@ -34,6 +34,8 @@ const idleEffects = {
   verifyFeed: () =>
     Promise.resolve({ ok: true as const, value: { kind: 'stable' as const, pollInterval: null } }),
   lookUpSubjects: () => Promise.resolve({ lookups: [], failures: [] }),
+  readIssueDetail: () =>
+    Promise.resolve({ ok: false as const, failure: { kind: 'ghMissing' as const } }),
   now: () => new Date(0),
   setTimer: () => () => undefined,
 };
@@ -110,7 +112,7 @@ test('reader Open sends the captured thread pages and stays available after the 
   });
 });
 
-test('reader Refresh sends its list intent and keeps its list keys', () => {
+test('reader Refresh revalidates the reader subject and keeps its list keys', () => {
   const loadedSnapshot = createLoadedSnapshot();
   const reader = readerRowOf(loadedSnapshot);
 
@@ -119,9 +121,11 @@ test('reader Refresh sends its list intent and keeps its list keys', () => {
   expect(refresh?.configId).toBe('refresh');
   expect(refresh?.keys).toEqual(['r']);
 
+  expect(reader.kind).toBe('reader');
+
   expect(refresh?.intent(loadedSnapshot, reader)).toEqual({
     kind: 'application',
-    intent: { kind: 'refresh' },
+    intent: { kind: 'refreshDetail', thread: loadedThread },
   });
 });
 

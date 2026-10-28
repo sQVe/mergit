@@ -144,7 +144,7 @@ for (const [scope, keys] of [
 }
 
 for (const [scope, keys, visible] of [
-  ['reader', ['r', 'j', 'j', 'return', 'x'], 'Repo'],
+  ['reader', ['r', 'j', 'j', 'return', 'x'], 'Mergit cannot show this content yet.'],
   ['confirmation', ['r', 'g', 'g', 'o', 'x'], 'Open 4 repos'],
 ] as const) {
   test(`fixed Ctrl+C quits once during a ${scope} prefix without another action`, async () => {
@@ -484,6 +484,7 @@ test('the reader hint shows a remapped markDone key and no default key', async (
   const { setup, press, settle } = await mount({
     catalog,
     effects: feedEffects(() => fourRepoThreads),
+    width: 200,
   });
 
   await press('r');
