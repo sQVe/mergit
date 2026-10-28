@@ -45,6 +45,8 @@ interface ReaderBody {
   order: string[];
 }
 
+type NoticeKind = 'mismatch' | 'unsupported' | 'loading' | 'empty';
+
 const borderAndPadding = 2;
 const hintRows = 1;
 const unsupportedNote = 'Mergit cannot show this content yet.';
@@ -53,10 +55,30 @@ const noComments = 'No comments.';
 
 const tabLabels: Record<DetailTab, string> = { overview: 'Overview', discussion: 'Discussion' };
 
-const noticeLines = (texts: readonly string[], columns: number): DetailLine[] =>
-  texts.length === 0
-    ? []
-    : layoutRecords([{ id: '', digest: '', heading: null, text: texts.join('\n') }], columns);
+// A digest fixed per kind keeps the position when notice text changes, such as its age, and a kind
+// never restores another kind's position.
+const noticeLines = (kind: NoticeKind, texts: readonly string[], columns: number): DetailLine[] => {
+  if (texts.length === 0) {
+    return [];
+  }
+
+  const id = `notice:${kind}`;
+
+  return layoutRecords([{ id, digest: id, heading: null, text: texts.join('\n') }], columns);
+};
+
+const noticeBodyOf = (
+  entry: DetailEntry | undefined,
+  header: string[],
+  notice: { kind: NoticeKind; texts: string[] },
+  columns: number,
+): ReaderBody => ({
+  header,
+  lines: noticeLines(notice.kind, notice.texts, columns),
+  tab: entry?.tab ?? null,
+  anchor: entry?.anchors[entry.tab],
+  order: [],
+});
 
 const nowOf = (snapshot: Snapshot): Date => snapshot.savedAt ?? snapshot.refreshedAt ?? new Date(0);
 
@@ -163,7 +185,7 @@ const issueBody = (entry: IssueEntry, input: ReaderInput, header: string[]): Rea
 
   const lines =
     records.length === 0
-      ? noticeLines(emptyTextOf(entry, entry.tab), columns)
+      ? noticeLines('empty', emptyTextOf(entry, entry.tab), columns)
       : layoutRecords(records, columns);
 
   return {
@@ -201,21 +223,23 @@ const bodyOf = (input: ReaderInput): ReaderBody => {
 
   const header = [identityOf(thread, entry), title, reasonLineOf(thread, entry, now)];
   const { mismatch } = snapshot.detail;
-  const empty = { header, tab: null, anchor: undefined, order: [] };
 
   if (mismatch !== null) {
     const notice = `This content was read as @${mismatch.login}, not the account that loaded the inbox. Mergit shows nothing from it.`;
 
-    return { ...empty, lines: noticeLines([notice], columns) };
+    return noticeBodyOf(entry, header, { kind: 'mismatch', texts: [notice] }, columns);
   }
 
   if (entry?.kind === 'issue') {
     return issueBody(entry, input, header);
   }
 
-  const texts = entry?.kind === 'unsupported' ? unsupportedTexts(input) : ['Loading'];
+  const notice: { kind: NoticeKind; texts: string[] } =
+    entry?.kind === 'unsupported'
+      ? { kind: 'unsupported', texts: unsupportedTexts(input) }
+      : { kind: 'loading', texts: ['Loading'] };
 
-  return { ...empty, lines: noticeLines(texts, columns) };
+  return noticeBodyOf(entry, header, notice, columns);
 };
 
 export const readerInputOf = (
@@ -262,7 +286,7 @@ export const detailScrollOf = (input: ReaderInput): DetailScroll => {
     const { tab, lines, order } = body;
     const line = lines[nextTop];
 
-    if (tab === null || line === undefined || line.recordId === '') {
+    if (tab === null || line === undefined) {
       return null;
     }
 

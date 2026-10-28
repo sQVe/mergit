@@ -153,7 +153,7 @@ const readerTextOf = (line: string): string => (line.split('│').at(-1) ?? '').
 
 const topBodyLine = (setup: Parameters<typeof frameLines>[0]): string => {
   const lines = setup.captureCharFrame().split('\n');
-  const tabRow = lines.findIndex((line) => line.includes('[Discussion*]'));
+  const tabRow = lines.findIndex((line) => line.includes('*]'));
 
   return readerTextOf(lines[tabRow + 1] ?? '');
 };
@@ -615,4 +615,114 @@ test('moving the other pane in the reader shows the next issue and returns to th
 
   expect(setup.captureCharFrame()).toContain(`Issue ${firstNumber}`);
   expect(topBodyLine(setup)).toBe(scrolled);
+});
+
+const pressUntil = async (
+  press: (key: string) => Promise<void>,
+  key: string,
+  isDone: () => boolean,
+) => {
+  for (let step = 0; step < 40 && !isDone(); step += 1) {
+    await press(key);
+  }
+};
+
+const openHint = 'Press o/gx to open it in the browser.';
+
+test('a release notice taller than the pane scrolls down to the open hint and back up', async () => {
+  const { setup, press } = await mount({
+    effects: detailEffects(
+      () => Promise.resolve({ ok: false as const, failure: { kind: 'ghMissing' as const } }),
+      [releaseThread],
+    ),
+    width: 40,
+    height: 8,
+  });
+
+  await openReader(press);
+
+  expect(frameOf(setup)).not.toContain(openHint);
+
+  await pressUntil(press, 'j', () => frameOf(setup).includes(openHint));
+
+  expect(frameOf(setup)).toContain(openHint);
+
+  await pressUntil(press, 'k', () => frameOf(setup).includes('Updated 3h ago'));
+
+  expect(frameOf(setup)).toContain('Updated 3h ago');
+});
+
+test('a viewer-mismatch notice in a short narrow pane scrolls to its last line', async () => {
+  const { setup, press } = await mount({ effects: issueEffects('someone'), width: 30, height: 8 });
+
+  await openReader(press);
+
+  const readerLines = () => frameOf(setup).split('\n').map(readerTextOf);
+
+  expect(frameOf(setup)).toContain('This content was read as');
+  expect(readerLines()).not.toContain('it.');
+
+  await pressUntil(press, 'j', () => readerLines().includes('it.'));
+
+  expect(readerLines()).toContain('it.');
+  expect(frameOf(setup)).not.toContain('This content was read as');
+});
+
+test('switching from a scrolled release to an issue shows the issue from its top', async () => {
+  const { setup, press } = await mount({
+    effects: detailEffects(
+      () => Promise.resolve({ ok: true as const, value: issueRead(twoComments) }),
+      [issueThread, releaseThread],
+    ),
+    width: 40,
+    height: 8,
+  });
+
+  await openReader(press);
+
+  await pressUntil(press, 'ctrl+n', () =>
+    frameOf(setup).includes('Mergit cannot show this content yet.'),
+  );
+
+  await pressUntil(press, 'j', () => frameOf(setup).includes(openHint));
+
+  expect(frameOf(setup)).toContain(openHint);
+
+  await press('ctrl+p');
+
+  const issue = frameOf(setup);
+
+  expect(issue).toContain('Issue #218');
+  expect(issue).toContain('[Overview*]');
+  expect(overviewBody.startsWith(topBodyLine(setup))).toBe(true);
+});
+
+test('a release scrolled during a viewer mismatch shows its own notice from the top after the mismatch clears', async () => {
+  let reads = 0;
+
+  const { setup, press } = await mount({
+    effects: detailEffects(() => {
+      reads += 1;
+
+      const login = reads === 1 ? 'someone' : 'octocat';
+
+      return Promise.resolve({
+        ok: true as const,
+        value: { kind: 'unavailable' as const, viewer: viewerOf(login) },
+      });
+    }, [issueThread, releaseThread]),
+    width: 30,
+    height: 8,
+  });
+
+  await openReader(press);
+  await press('ctrl+n');
+
+  const readerLines = () => frameOf(setup).split('\n').map(readerTextOf);
+
+  await pressUntil(press, 'j', () => readerLines().includes('it.'));
+  await press('ctrl+p');
+  await press('ctrl+n');
+
+  expect(frameOf(setup)).toContain('Updated 3h ago');
 });
