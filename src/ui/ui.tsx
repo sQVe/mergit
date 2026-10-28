@@ -548,6 +548,8 @@ const paneWidthsOf = (
   return { listWidth: width - paneWidth, detailWidth: paneWidth };
 };
 
+const ignorePreviewWindow = (): void => undefined;
+
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -592,7 +594,7 @@ const Body = (props: {
         width={detailWidth}
         detached={detached}
         previewTop={readerFocused ? 0 : props.previewTop}
-        onPreviewWindow={props.onPreviewWindow}
+        onPreviewWindow={readerFocused ? ignorePreviewWindow : props.onPreviewWindow}
       />
     );
 

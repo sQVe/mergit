@@ -40,6 +40,8 @@ export interface ScrollWindow {
   maximumTop: number;
 }
 
+export const noPreviewWindow = (): ScrollWindow => ({ viewportRows: 0, maximumTop: 0 });
+
 const topAfter = (top: number, move: OverlayMove, window: ScrollWindow): number => {
   const { viewportRows, maximumTop } = window;
   const current = Math.min(top, maximumTop);
@@ -107,7 +109,7 @@ export const useUiState = (
     windows.current = { helpWindow, messageWindow };
   });
 
-  const previewWindow = useRef<() => ScrollWindow>(() => ({ viewportRows: 0, maximumTop: 0 }));
+  const previewWindow = useRef<() => ScrollWindow>(noPreviewWindow);
 
   const reportPreviewWindow = useCallback((measure: () => ScrollWindow) => {
     previewWindow.current = measure;

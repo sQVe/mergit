@@ -14,6 +14,7 @@ import type {
 import type { Palette } from './palette.ts';
 import { formatAge, numberLabelFor, typeLabelFor, typeSummaryLabelFor } from './threadRow.ts';
 import type { ScrollWindow } from './uiState.ts';
+import { noPreviewWindow } from './uiState.ts';
 
 interface PaneProps {
   palette: Palette;
@@ -189,6 +190,10 @@ export const DetailPane = (
       viewportRows: box.viewport.height,
       maximumTop: Math.max(0, box.scrollHeight - box.viewport.height),
     }));
+
+    return () => {
+      props.onPreviewWindow(noPreviewWindow);
+    };
   });
 
   return (
