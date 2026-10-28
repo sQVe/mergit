@@ -52,17 +52,17 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
 
 ### Subject detail
 
-- The reader loads issue detail through GraphQL only for the subject it shows. A thread that is not
-  an issue shows unsupported coverage and sends no request.
+- The reader loads issue detail through GraphQL only for the subject it shows, so reads follow what
+  the user is looking at. A thread that is not an issue shows unsupported coverage and sends no
+  request. Other subject types stay unsupported until their own slices add them.
 - Refresh in the reader refreshes the feed and revalidates the shown subject, even when its
-  notification is unchanged, because an edited comment does not change the thread's `updated_at`.
-  Showing a subject again revalidates content fetched more than 5 minutes earlier. Cached subjects
-  get no background refresh.
-- Each source shows its coverage. A load stops at 8 requests or 500 comments with partial coverage,
-  and a failed page keeps the content already loaded. These starting limits are not measured.
-- Comments merge by ID. An older revision of a comment or of the Overview never replaces a newer
-  one. A traversal that completes replaces the comment set, so deleted comments leave.
-- A detail failure never changes the feed.
+  notification is unchanged, because an edited comment does not change the thread's `updated_at`. A
+  shown subject is revalidated again once its content goes stale. Cached subjects get no background
+  refresh.
+- Each source shows its own coverage. Partial or failed content never reads as complete. Content
+  loaded before a stop or failure stays, marked partial, so a truncated discussion never looks full.
+- A detail failure never changes the feed, so a failed subject read never hides or reorders threads
+  the feed returned.
 
 ## Consequences
 

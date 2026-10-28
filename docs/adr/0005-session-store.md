@@ -65,13 +65,12 @@ tests drive the same way production does.
   use the node ID it returned, and a page with another node ID never merges into that entry.
 - An account change and `stop` abort every detail load and clear all detail content, tabs, and
   anchors. Detail lives in memory only and is never saved.
-- Each subject keeps its tab and text anchor in memory across visits. The cache holds 20 subjects or
-  32 MiB of bodies and anchors, and evicts the subject shown longest ago. It never evicts the shown
-  subject. The shown subject keeps whole comments up to 32 MiB and drops the rest with partial
-  coverage.
-- Detail reads run at most two `gh` processes at a time. A process counts until it settles, even
-  after an abort. A read checks the pause when it gets its process, so a read that waited for a
-  process during a pause does not start.
+- Each subject keeps its tab and text anchor in memory across visits. The cache is bounded by
+  subject count and by size, and evicts the subject shown longest ago. It never evicts the shown
+  subject, so the reader keeps the content it is drawing.
+- Detail reads share a bounded pool of `gh` processes. A process counts until it settles, even after
+  an abort. A read checks the pause when it gets its process, so a read that waited during a pause
+  does not start.
 
 ### Actions
 
