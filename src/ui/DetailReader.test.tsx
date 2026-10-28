@@ -209,6 +209,7 @@ test('a release shows its metadata, the unsupported note, and the Open hint', as
   expect(frame).toContain('Version 2.0 shipped');
   expect(frame).toContain('subscribed');
   expect(frame).toContain('Updated 3h ago');
+  expect(frame).toContain('Unread yes');
   expect(frame).toContain('Mergit cannot show this content yet.');
   expect(frame).toContain('Press o/gx to open it in the browser.');
 });
@@ -462,6 +463,7 @@ test('a failed issue read shows the failure on both tabs', async () => {
 
   expect(setup.captureCharFrame()).toContain('Failed: ');
   expect(setup.captureCharFrame()).toContain('Response body is not JSON');
+  expect(setup.captureCharFrame()).not.toContain('Showing loaded content');
 
   await press('l');
 
