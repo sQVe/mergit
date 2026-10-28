@@ -527,3 +527,76 @@ test('the header shows the state, author, and title of the fetched issue over th
   expect(frame).toContain('Issue #218 / closed / @zed');
   expect(frame).toContain('Workspace lost after login');
 });
+
+test('moving the other pane in the reader shows the next issue and returns to the first tab and top line', async () => {
+  const otherThread: NotificationThread = {
+    ...issueThread,
+    ...makeThread(3, 'Session expiry ignores the workspace'),
+    subjectType: 'Issue',
+    subjectUrl: 'https://api.github.com/repos/harbor/console/issues/219',
+    repository: 'harbor/console',
+    reason: 'mention',
+  };
+
+  const otherBody = 'The session timer keeps running after the workspace switch.';
+
+  const readOf = (number: number) => {
+    const read = issueRead(twoComments);
+
+    if (number !== 219) {
+      return read;
+    }
+
+    const id = toIssueId('I_219');
+    const url = 'https://github.com/harbor/console/issues/219';
+
+    return {
+      ...read,
+      subject: { id, number, url },
+      overview: { ...read.overview, id, number, url, body: otherBody },
+    };
+  };
+
+  const { setup, press } = await mount({
+    effects: detailEffects(
+      (request) => {
+        const number = 'number' in request.coordinates ? request.coordinates.number : 218;
+
+        return Promise.resolve({ ok: true as const, value: readOf(number) });
+      },
+      [issueThread, otherThread],
+    ),
+    width: 80,
+    height: 24,
+  });
+
+  await openReader(press);
+
+  const firstIsOther = setup.captureCharFrame().includes('Issue #219');
+  const [firstNumber, secondNumber] = firstIsOther ? ['#219', '#218'] : ['#218', '#219'];
+  const secondBody = firstIsOther ? overviewBody : otherBody;
+
+  await press('l');
+
+  await pressAll(
+    press,
+    Array.from({ length: 9 }, () => 'j'),
+  );
+
+  const scrolled = topBodyLine(setup);
+
+  expect(longComment).toContain(scrolled);
+
+  await press('ctrl+n');
+
+  const second = setup.captureCharFrame();
+
+  expect(second).toContain(`Issue ${secondNumber}`);
+  expect(second).toContain('[Overview*]');
+  expect(second).toContain(secondBody.slice(0, 40));
+
+  await press('ctrl+p');
+
+  expect(setup.captureCharFrame()).toContain(`Issue ${firstNumber}`);
+  expect(topBodyLine(setup)).toBe(scrolled);
+});
