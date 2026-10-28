@@ -1,6 +1,6 @@
 import { invariant } from './invariant.ts';
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
-import { searchCandidatesOf, visibleRows } from './session/session.ts';
+import { adjacentThreadRowOf, searchCandidatesOf, visibleRows } from './session/session.ts';
 import type { BrowserPage, ThreadRow } from './work/work.ts';
 import { pagesOfRow } from './work/work.ts';
 
@@ -30,6 +30,7 @@ export type Intent =
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
   | { kind: 'ui'; action: 'scrollOverlay'; move: OverlayMove }
+  | { kind: 'ui'; action: 'scrollPreview'; lines: 1 | -1 }
   | { kind: 'terminal'; action: 'quit' };
 
 export type OverlayMove =
@@ -45,6 +46,7 @@ interface ParsedStroke {
   name: string;
   ctrl?: boolean;
   shift?: boolean;
+  meta?: boolean;
 }
 
 export interface Command {
@@ -183,6 +185,30 @@ const readerDoneReason = (snapshot: Snapshot, reader: ReaderContext): string | u
 
   return isReaderDetached(snapshot, reader) ? 'This thread is no longer in the list.' : undefined;
 };
+
+const readerAdjacentRowOf = (
+  snapshot: Snapshot,
+  reader: ReaderContext,
+  step: 1 | -1,
+): ThreadRow => {
+  const row = adjacentThreadRowOf(snapshot, readerRowOf(reader).thread.id, step);
+
+  invariant(row !== undefined, 'Reader moves run only when a thread lies that way.');
+
+  return row;
+};
+
+const readerAdjacentReason =
+  (step: 1 | -1) =>
+  (snapshot: Snapshot, reader: ReaderContext): string | undefined => {
+    if (reader.kind === 'inbox') {
+      return noReaderReason(reader);
+    }
+
+    return adjacentThreadRowOf(snapshot, reader.row.thread.id, step) === undefined
+      ? 'No thread lies that way.'
+      : undefined;
+  };
 
 const noCompletion = (snapshot: Snapshot) =>
   searchCandidatesOf(snapshot).length === 0 ? 'No completion for the last word.' : undefined;
@@ -742,6 +768,54 @@ export const catalog: readonly Command[] = [
     }),
   },
   {
+    id: 'readerNextThread',
+    configId: 'moveOtherPaneDown',
+    label: 'Move the other pane down',
+    scope: 'reader',
+    section: 'moving',
+    keys: ['meta+j', 'ctrl+n'],
+    disabledReason: readerAdjacentReason(1),
+    intent: (snapshot, reader) => ({
+      kind: 'ui',
+      action: 'openDetail',
+      row: readerAdjacentRowOf(snapshot, reader, 1),
+    }),
+  },
+  {
+    id: 'readerPreviousThread',
+    configId: 'moveOtherPaneUp',
+    label: 'Move the other pane up',
+    scope: 'reader',
+    section: 'moving',
+    keys: ['meta+k', 'ctrl+p'],
+    disabledReason: readerAdjacentReason(-1),
+    intent: (snapshot, reader) => ({
+      kind: 'ui',
+      action: 'openDetail',
+      row: readerAdjacentRowOf(snapshot, reader, -1),
+    }),
+  },
+  {
+    id: 'scrollPreviewDown',
+    configId: 'moveOtherPaneDown',
+    label: 'Move the other pane down',
+    scope: 'list',
+    section: 'moving',
+    keys: ['meta+j', 'ctrl+n'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollPreview', lines: 1 }),
+  },
+  {
+    id: 'scrollPreviewUp',
+    configId: 'moveOtherPaneUp',
+    label: 'Move the other pane up',
+    scope: 'list',
+    section: 'moving',
+    keys: ['meta+k', 'ctrl+p'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollPreview', lines: -1 }),
+  },
+  {
     id: 'openHelpSearch',
     label: 'Search help',
     scope: 'help',
@@ -954,6 +1028,10 @@ export const readableStrokeOf = (stroke: ParsedStroke): string => {
     return `Ctrl+${stroke.name.toUpperCase()}`;
   }
 
+  if (stroke.meta === true) {
+    return `Alt+${stroke.name}`;
+  }
+
   if (stroke.shift !== true) {
     return readableKeyNames.get(stroke.name) ?? stroke.name;
   }
@@ -967,7 +1045,7 @@ export const readableStrokeOf = (stroke: ParsedStroke): string => {
   return /^[a-z]$/.test(stroke.name) ? stroke.name.toUpperCase() : `shift+${stroke.name}`;
 };
 
-const modifiedStroke = /^(ctrl|shift)\+(.+)$/;
+const modifiedStroke = /^(ctrl|shift|meta)\+(.+)$/;
 
 const strokeOf = (key: string): string => {
   const modified = modifiedStroke.exec(key);
@@ -978,12 +1056,17 @@ const strokeOf = (key: string): string => {
     return readableStrokeOf({ name: key });
   }
 
-  return readableStrokeOf({ name, ctrl: modifier === 'ctrl', shift: modifier === 'shift' });
+  return readableStrokeOf({
+    name,
+    ctrl: modifier === 'ctrl',
+    shift: modifier === 'shift',
+    meta: modifier === 'meta',
+  });
 };
 
 // A known name or modifier form is one stroke, and any other character is one stroke.
 const strokePattern =
-  /shift\+tab|return|escape|space|tab|backspace|up|down|left|right|(?:shift|ctrl)\+[a-z]|./gu;
+  /shift\+tab|return|escape|space|tab|backspace|up|down|left|right|(?:shift|ctrl|meta)\+[a-z]|./gu;
 
 const strokesOf = (key: string): string[] =>
   Array.from(key.matchAll(strokePattern), (match) => match[0]);

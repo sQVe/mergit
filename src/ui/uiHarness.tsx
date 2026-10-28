@@ -277,6 +277,10 @@ export const mount = async (options: MountOptions = {}): Promise<MountedApp> => 
         setup.mockInput.pressTab();
       } else if (key === 'backspace') {
         setup.mockInput.pressBackspace();
+      } else if (key.startsWith('ctrl+')) {
+        setup.mockInput.pressKey(key.slice('ctrl+'.length), { ctrl: true });
+      } else if (key.startsWith('meta+')) {
+        setup.mockInput.pressKey(key.slice('meta+'.length), { meta: true });
       } else {
         setup.mockInput.pressKey(key);
       }

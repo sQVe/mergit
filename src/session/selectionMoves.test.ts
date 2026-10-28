@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { adjacentThreadRowOf } from './session.ts';
 import { flatHarness, makeHarness, makeThread } from './sessionHarness.ts';
 
 const reviewThread = makeThread('1');
@@ -148,4 +149,67 @@ test('a counted selectFirst selects that visible row and clamps at the last row'
   session.send({ kind: 'selectFirst', count: 9999 });
 
   expect(selected()).toBe('thread:2');
+});
+
+test('adjacentThreadRowOf crosses from one group onto the next group thread row and stops at the ends', async () => {
+  const { session, load } = makeHarness();
+
+  const [first, second, third] = [
+    makeThread('1'),
+    makeThread('2', { reason: 'mention' }),
+    makeThread('3', { reason: 'mention' }),
+  ] as const;
+
+  await load(first, second, third);
+
+  const snapshot = session.getSnapshot();
+
+  expect(adjacentThreadRowOf(snapshot, first.id, 1)?.thread.id).toBe(second.id);
+  expect(adjacentThreadRowOf(snapshot, second.id, -1)?.thread.id).toBe(first.id);
+  expect(adjacentThreadRowOf(snapshot, third.id, 1)).toBeUndefined();
+  expect(adjacentThreadRowOf(snapshot, first.id, -1)).toBeUndefined();
+});
+
+test('adjacentThreadRowOf skips the threads of a folded group', async () => {
+  const { session, load, selectThread } = makeHarness();
+
+  const [first, second, third, fourth] = [
+    makeThread('1'),
+    makeThread('2', { reason: 'mention' }),
+    makeThread('3', { reason: 'mention' }),
+    makeThread('4', { reason: 'assign' }),
+  ] as const;
+
+  await load(first, second, third, fourth);
+  selectThread(first);
+  session.send({ kind: 'selectNextGroup' });
+  session.send({ kind: 'closeFold' });
+
+  const snapshot = session.getSnapshot();
+
+  expect(adjacentThreadRowOf(snapshot, first.id, 1)?.thread.id).toBe(fourth.id);
+  expect(adjacentThreadRowOf(snapshot, fourth.id, -1)?.thread.id).toBe(first.id);
+  expect(adjacentThreadRowOf(snapshot, second.id, 1)).toBeUndefined();
+});
+
+test('adjacentThreadRowOf moves back onto a thread in the first row', async () => {
+  const { session } = await flatHarness(reviewThread, mentionThread);
+
+  const row = adjacentThreadRowOf(session.getSnapshot(), mentionThread.id, -1);
+
+  expect(row?.thread.id).toBe(reviewThread.id);
+});
+
+test('selectRow selects a visible row and ignores a row key that is not visible', async () => {
+  const { session, load, selected, selectThread } = makeHarness();
+
+  await load(reviewThread, mentionThread);
+  session.send({ kind: 'selectRow', rowKey: `thread:${mentionThread.id}` });
+
+  expect(selected()).toBe(`thread:${mentionThread.id}`);
+
+  selectThread(reviewThread);
+  session.send({ kind: 'selectRow', rowKey: 'thread:missing' });
+
+  expect(selected()).toBe(`thread:${reviewThread.id}`);
 });

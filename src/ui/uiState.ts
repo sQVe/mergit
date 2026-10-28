@@ -28,36 +28,40 @@ export interface UiState {
   helpTop: number;
   helpInput: HelpSearchInput;
   messagesTop: number;
+  previewTop: number;
+  reportPreviewWindow: (measure: () => ScrollWindow) => void;
   reader: ReaderContext;
   modal: RefObject<ModalState>;
   runUiAction: (intent: UiIntent) => void;
 }
 
-interface ScrollWindow {
+export interface ScrollWindow {
   viewportRows: number;
   maximumTop: number;
 }
+
+export const noPreviewWindow = (): ScrollWindow => ({ viewportRows: 0, maximumTop: 0 });
 
 const topAfter = (top: number, move: OverlayMove, window: ScrollWindow): number => {
   const { viewportRows, maximumTop } = window;
   const current = Math.min(top, maximumTop);
   const halfPage = Math.max(1, Math.floor(viewportRows / 2));
 
-  const target = {
-    lines: () => (move.kind === 'lines' ? current + move.lines : current),
-    page: () => {
-      if (move.kind !== 'page') {
-        return current;
-      }
+  const targetOf = (): number => {
+    if (move.kind === 'lines') {
+      return current + move.lines;
+    }
 
+    if (move.kind === 'page') {
       const size = move.size === 'half' ? halfPage : viewportRows;
 
       return current + (move.direction === 'down' ? size : -size);
-    },
-    edge: () => (move.kind === 'edge' && move.edge === 'bottom' ? maximumTop : 0),
-  }[move.kind]();
+    }
 
-  return Math.min(maximumTop, Math.max(0, target));
+    return move.edge === 'bottom' ? maximumTop : 0;
+  };
+
+  return Math.min(maximumTop, Math.max(0, targetOf()));
 };
 
 const helpSearchAfter = (overlay: Overlay, intent: UiIntent): Overlay | undefined => {
@@ -105,9 +109,22 @@ export const useUiState = (
     windows.current = { helpWindow, messageWindow };
   });
 
+  const previewWindow = useRef<() => ScrollWindow>(noPreviewWindow);
+
+  const reportPreviewWindow = useCallback((measure: () => ScrollWindow) => {
+    previewWindow.current = measure;
+  }, []);
+
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
   const [messagesTop, setMessagesTop] = useState(0);
+  const [previewTop, setPreviewTop] = useState(0);
+  const { selectedRowKey } = session.getSnapshot();
+
+  useLayoutEffect(() => {
+    setPreviewTop(0);
+  }, [selectedRowKey]);
+
   const [reader, setReaderState] = useState<ReaderContext>({ kind: 'inbox' });
 
   // Keys in one burst arrive before React renders, so key handling reads this copy, which each
@@ -196,7 +213,25 @@ export const useUiState = (
         }
       };
 
-      const { action } = intent;
+      const closeOverlay = () => {
+        setOverlay({ kind: 'none' });
+      };
+
+      const plainActions: Partial<Record<UiIntent['action'], () => void>> = {
+        confirmOpen,
+        cancelOpen: closeOverlay,
+        closeDetail: () => {
+          setReader({ kind: 'inbox' });
+        },
+        openMessages,
+        closeMessages: closeOverlay,
+        toggleHelp: () => {
+          toggleHelp(true);
+        },
+        closeHelp: () => {
+          toggleHelp(false);
+        },
+      };
 
       const helpSearch = helpSearchAfter(modal.current.overlay, intent);
 
@@ -205,24 +240,17 @@ export const useUiState = (
         setOverlay(helpSearch);
       } else if (intent.action === 'askOpen') {
         setOverlay({ kind: 'confirm', pages: intent.pages });
-      } else if (action === 'confirmOpen') {
-        confirmOpen();
-      } else if (action === 'cancelOpen') {
-        setOverlay({ kind: 'none' });
       } else if (intent.action === 'openDetail') {
         setReader({ kind: 'reader', row: intent.row });
-      } else if (action === 'closeDetail') {
-        setReader({ kind: 'inbox' });
-      } else if (action === 'openMessages') {
-        openMessages();
-      } else if (action === 'closeMessages') {
-        setOverlay({ kind: 'none' });
+        session.send({ kind: 'selectRow', rowKey: intent.row.key });
       } else if (intent.action === 'scrollOverlay') {
         scrollOverlay(intent.move);
-      } else if (action === 'toggleHelp') {
-        toggleHelp(true);
-      } else if (action === 'closeHelp') {
-        toggleHelp(false);
+      } else if (intent.action === 'scrollPreview') {
+        const move = { kind: 'lines', lines: intent.lines } as const;
+
+        setPreviewTop((top) => topAfter(top, move, previewWindow.current()));
+      } else {
+        plainActions[intent.action]?.();
       }
     },
     [session, setOverlay, setReader],
@@ -230,5 +258,15 @@ export const useUiState = (
 
   const helpInput = { watch: watchHelpSearch, current: currentHelpSearch };
 
-  return { overlay, helpTop, helpInput, messagesTop, reader, modal, runUiAction };
+  return {
+    overlay,
+    helpTop,
+    helpInput,
+    messagesTop,
+    previewTop,
+    reportPreviewWindow,
+    reader,
+    modal,
+    runUiAction,
+  };
 };

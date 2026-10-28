@@ -33,7 +33,7 @@ import { SearchLine, searchLineRows } from './SearchLine.tsx';
 import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
-import type { ModalState, Overlay, UiIntent } from './uiState.ts';
+import type { ModalState, Overlay, ScrollWindow, UiIntent } from './uiState.ts';
 import { useUiState } from './uiState.ts';
 
 type ThemeMode = 'light' | 'dark' | null;
@@ -513,6 +513,8 @@ const readerHints: [string, string][] = [
   ['readerOpenInBrowser', 'open'],
   ['readerRefresh', 'refresh'],
   ['readerUndoDone', 'undo'],
+  ['readerNextThread', 'next'],
+  ['readerPreviousThread', 'previous'],
   ['closeDetail', 'close'],
 ];
 
@@ -546,6 +548,8 @@ const paneWidthsOf = (
   return { listWidth: width - paneWidth, detailWidth: paneWidth };
 };
 
+const ignorePreviewWindow = (): void => undefined;
+
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -554,6 +558,8 @@ const Body = (props: {
   reader: ReaderContext;
   listHeight: number;
   catalog: readonly Command[];
+  previewTop: number;
+  onPreviewWindow: (measure: () => ScrollWindow) => void;
 }): ReactNode => {
   const { snapshot, palette, listWidth, detailWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
@@ -587,6 +593,8 @@ const Body = (props: {
         now={now}
         width={detailWidth}
         detached={detached}
+        previewTop={readerFocused ? 0 : props.previewTop}
+        onPreviewWindow={readerFocused ? ignorePreviewWindow : props.onPreviewWindow}
       />
     );
 
@@ -597,8 +605,9 @@ const Body = (props: {
       )}
       {readerFocused ? (
         <box flexDirection="column" flexGrow={1}>
-          {detailPane}
-          <box flexGrow={1} />
+          <box flexDirection="row" flexGrow={1}>
+            {detailPane}
+          </box>
           <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
         </box>
       ) : (
@@ -627,11 +636,10 @@ export const App = (props: AppProps): ReactNode => {
 
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
 
-  const { overlay, helpTop, helpInput, messagesTop, reader, modal, runUiAction } = useUiState(
-    props.session,
-    helpWindowFor,
-    messageWindow,
-  );
+  const uiState = useUiState(props.session, helpWindowFor, messageWindow);
+
+  const { overlay, helpTop, helpInput, messagesTop, previewTop, reader, modal, runUiAction } =
+    uiState;
 
   const helpWindow = helpWindowFor(overlay);
 
@@ -691,6 +699,8 @@ export const App = (props: AppProps): ReactNode => {
           reader={reader}
           listHeight={listHeight}
           catalog={props.catalog}
+          previewTop={previewTop}
+          onPreviewWindow={uiState.reportPreviewWindow}
         />
         <SearchLine
           session={props.session}

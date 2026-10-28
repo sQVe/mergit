@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { catalog } from '../commands.ts';
+import { catalog, readableKeyOf } from '../commands.ts';
 import { loadConfig } from './config.ts';
 
 const path = '/test-config/mergit/config.json';
@@ -30,6 +30,39 @@ test('Escape after a prefix is refused with the entry and cancellation rule', ()
   expect(message).toContain('Escape cancels a pending sequence');
   expect(message).toContain('first stroke');
   expect(catalog.map((command) => command.keys)).toEqual(before);
+});
+
+test('an Alt bracket key loads as the meta stroke and reads as Alt', () => {
+  const result = loadText('{"version":1,"keys":{"refresh":["<A-r>"]}}');
+
+  expect(result.ok).toBe(true);
+
+  if (result.ok) {
+    const keys = result.catalog.find((command) => command.id === 'refresh')?.keys ?? [];
+
+    expect(keys).toEqual(['meta+r']);
+    expect(keys.map((key) => readableKeyOf(key))).toEqual(['Alt+r']);
+  }
+});
+
+test.each([
+  ['<A-j>', 'meta+j'],
+  ['<M-j>', 'meta+j'],
+])('config key %s loads as %s', (notation, key) => {
+  const result = loadText(JSON.stringify({ version: 1, keys: { refresh: [notation] } }));
+
+  expect(result.ok).toBe(true);
+
+  if (result.ok) {
+    expect(result.catalog.find((command) => command.id === 'refresh')?.keys).toEqual([key]);
+  }
+});
+
+test.each(['<A-jk>', '<A->'])('config key %s is refused with the Alt names', (notation) => {
+  const message = failureOf(JSON.stringify({ version: 1, keys: { refresh: [notation] } }));
+
+  expect(message).toContain(`keys.refresh "${notation}" has the unknown name ${notation}.`);
+  expect(message).toContain('<A-a> to <A-z>');
 });
 
 test('standalone Escape remains a usable config key', () => {
@@ -255,6 +288,7 @@ test('removing the last portable default refuses a required command with a nonpo
 test.each([
   ['enter', 'Write <CR> in brackets instead.'],
   ['ctrl+x', 'Write <C-x> in brackets instead.'],
+  ['meta+j', 'Write <A-j> in brackets instead.'],
 ])('ambiguous key %s suggests the usable bracket notation', (key, suggestion) => {
   const text = JSON.stringify({ version: 1, keys: { refresh: [key] } });
   const message = failureOf(text);
