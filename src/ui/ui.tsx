@@ -20,6 +20,7 @@ import { filterRowsOf, visibleRows } from '../session/session.ts';
 import { CommandLine, commandLineRows, commandLineNamesOf } from './CommandLine.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { DetailPane } from './DetailPane.tsx';
+import { detailScrollOf, readerInputOf, readerLayoutOf } from './DetailReader.tsx';
 import { FilterBar, filterBarRows } from './FilterBar.tsx';
 import { FilterComposer, composerLayoutOf } from './FilterComposer.tsx';
 import { HelpOverlay } from './HelpOverlay.tsx';
@@ -31,6 +32,7 @@ import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
 import { SearchLine, searchLineRows } from './SearchLine.tsx';
 import { StatusLine } from './StatusLine.tsx';
+import { fitText } from './textLayout.ts';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
 import type { ModalState, Overlay, ScrollWindow, UiIntent } from './uiState.ts';
@@ -516,6 +518,9 @@ const readerHints: [string, string][] = [
   ['readerNextThread', 'next'],
   ['readerPreviousThread', 'previous'],
   ['closeDetail', 'close'],
+  ['nextTab', 'tab'],
+  ['scrollDown', 'scroll'],
+  ['readerHalfPageDown', 'page'],
 ];
 
 const readerHintOf = (catalog: readonly Command[]): string => {
@@ -548,8 +553,6 @@ const paneWidthsOf = (
   return { listWidth: width - paneWidth, detailWidth: paneWidth };
 };
 
-const ignorePreviewWindow = (): void => undefined;
-
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -565,6 +568,10 @@ const Body = (props: {
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
   const detailRow = props.reader.kind === 'reader' ? props.reader.row : selectedRow;
   const detached = isReaderDetached(snapshot, props.reader);
+
+  const readerPane = { width: detailWidth, height: listHeight };
+  const readerInput = readerInputOf(snapshot, props.reader, readerPane, props.catalog);
+  const readerLayout = readerInput === null ? null : readerLayoutOf(readerInput);
 
   const facts =
     detailRow?.kind === 'thread' ? snapshot.subjectFacts.get(detailRow.thread.id) : undefined;
@@ -593,8 +600,9 @@ const Body = (props: {
         now={now}
         width={detailWidth}
         detached={detached}
-        previewTop={readerFocused ? 0 : props.previewTop}
-        onPreviewWindow={readerFocused ? ignorePreviewWindow : props.onPreviewWindow}
+        previewTop={props.previewTop}
+        onPreviewWindow={props.onPreviewWindow}
+        readerLayout={readerLayout}
       />
     );
 
@@ -608,7 +616,7 @@ const Body = (props: {
           <box flexDirection="row" flexGrow={1}>
             {detailPane}
           </box>
-          <text fg={palette.dim}>{readerHintOf(props.catalog)}</text>
+          <text fg={palette.dim}>{fitText(readerHintOf(props.catalog), detailWidth)}</text>
         </box>
       ) : (
         detailPane
@@ -636,13 +644,6 @@ export const App = (props: AppProps): ReactNode => {
 
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
 
-  const uiState = useUiState(props.session, helpWindowFor, messageWindow);
-
-  const { overlay, helpTop, helpInput, messagesTop, previewTop, reader, modal, runUiAction } =
-    uiState;
-
-  const helpWindow = helpWindowFor(overlay);
-
   const composerRows = composerRowsOf(snapshot);
   const composerLayout = composerLayoutFor(snapshot, composerRows, { width, height });
   const searchRoom = searchRoomOf(snapshot, height);
@@ -656,6 +657,20 @@ export const App = (props: AppProps): ReactNode => {
     filterBarRows(snapshot);
 
   const listHeight = Math.max(1, height - statusRows - reservedRows);
+
+  const detailScrollFor = (current: ReaderContext) => {
+    const pane = { width: paneWidthsOf(width, current).detailWidth, height: listHeight };
+    const input = readerInputOf(props.session.getSnapshot(), current, pane, props.catalog);
+
+    return input === null ? null : detailScrollOf(input);
+  };
+
+  const uiState = useUiState(props.session, helpWindowFor, messageWindow, detailScrollFor);
+
+  const { overlay, helpTop, helpInput, messagesTop, previewTop, reader, modal, runUiAction } =
+    uiState;
+
+  const helpWindow = helpWindowFor(overlay);
 
   useEffect(() => {
     props.session.send({ kind: 'setListRows', rows: listHeight });

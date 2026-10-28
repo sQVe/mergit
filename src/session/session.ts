@@ -74,6 +74,15 @@ import {
 } from './treeTransitions.ts';
 
 export type { Snapshot } from './sessionState.ts';
+
+export type {
+  DetailAnchor,
+  DetailEntry,
+  DetailPosition,
+  DetailTab,
+  IssueEntry,
+} from './detailTransitions.ts';
+
 export { filterCursorOf } from './filterComposer.ts';
 export { filterRowsOf } from './filterRows.ts';
 export type { FilterRow } from './filterRows.ts';

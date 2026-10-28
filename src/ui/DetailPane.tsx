@@ -11,6 +11,8 @@ import type {
   ThreadRow,
   TreeRow,
 } from '../work/work.ts';
+import type { ReaderLayout } from './DetailReader.tsx';
+import { DetailReader } from './DetailReader.tsx';
 import type { Palette } from './palette.ts';
 import { formatAge, numberLabelFor, typeLabelFor, typeSummaryLabelFor } from './threadRow.ts';
 import type { ScrollWindow } from './uiState.ts';
@@ -162,6 +164,39 @@ const RowDetail = (
   );
 };
 
+const PreviewScroll = (props: {
+  top: number;
+  onWindow: (measure: () => ScrollWindow) => void;
+  children: ReactNode;
+}): ReactNode => {
+  const scrollbox = useRef<ScrollBoxRenderable | null>(null);
+
+  useLayoutEffect(() => {
+    const box = scrollbox.current;
+
+    invariant(box !== null, 'The preview scrollbox is mounted with its pane.');
+
+    box.scrollTop = props.top;
+
+    props.onWindow(() => ({
+      viewportRows: box.viewport.height,
+      maximumTop: Math.max(0, box.scrollHeight - box.viewport.height),
+    }));
+
+    return () => {
+      props.onWindow(noPreviewWindow);
+    };
+  });
+
+  return (
+    <scrollbox ref={scrollbox} contentOptions={{ minHeight: 0 }}>
+      <box flexDirection="column" flexShrink={0}>
+        {props.children}
+      </box>
+    </scrollbox>
+  );
+};
+
 const detachedNotice = 'This thread is no longer in the list. Done is off.';
 
 export const DetailPane = (
@@ -174,27 +209,10 @@ export const DetailPane = (
     detached: boolean;
     previewTop: number;
     onPreviewWindow: (measure: () => ScrollWindow) => void;
+    readerLayout: ReaderLayout | null;
   },
 ): ReactNode => {
-  const { row } = props;
-  const scrollbox = useRef<ScrollBoxRenderable | null>(null);
-
-  useLayoutEffect(() => {
-    const box = scrollbox.current;
-
-    invariant(box !== null, 'The detail scrollbox is mounted with its pane.');
-
-    box.scrollTop = props.previewTop;
-
-    props.onPreviewWindow(() => ({
-      viewportRows: box.viewport.height,
-      maximumTop: Math.max(0, box.scrollHeight - box.viewport.height),
-    }));
-
-    return () => {
-      props.onPreviewWindow(noPreviewWindow);
-    };
-  });
+  const { row, readerLayout } = props;
 
   return (
     <box
@@ -205,8 +223,8 @@ export const DetailPane = (
       border={['left']}
       borderColor={props.palette.dim}
     >
-      <scrollbox ref={scrollbox} contentOptions={{ minHeight: 0 }}>
-        <box flexDirection="column" flexShrink={0}>
+      {readerLayout === null ? (
+        <PreviewScroll top={props.previewTop} onWindow={props.onPreviewWindow}>
           {props.detached ? <text fg={props.palette.dim}>{detachedNotice}</text> : null}
           {row === undefined ? null : (
             <RowDetail
@@ -217,8 +235,13 @@ export const DetailPane = (
               newThreadIds={props.newThreadIds}
             />
           )}
-        </box>
-      </scrollbox>
+        </PreviewScroll>
+      ) : (
+        <>
+          {props.detached ? <text fg={props.palette.dim}>{detachedNotice}</text> : null}
+          <DetailReader layout={readerLayout} palette={props.palette} />
+        </>
+      )}
     </box>
   );
 };

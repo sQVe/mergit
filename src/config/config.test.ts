@@ -87,6 +87,10 @@ const configIds = [
   'closeDetail',
   'moveOtherPaneDown',
   'moveOtherPaneUp',
+  'nextTab',
+  'previousTab',
+  'scrollDown',
+  'scrollUp',
   'openHelpSearch',
   'keepHelpSearch',
   'cancelHelpSearch',
@@ -149,6 +153,10 @@ const defaultKeysInVim: Record<string, string[]> = {
   closeDetail: ['<Esc>'],
   moveOtherPaneDown: ['<A-j>', '<C-n>'],
   moveOtherPaneUp: ['<A-k>', '<C-p>'],
+  nextTab: ['l', '<Right>'],
+  previousTab: ['h', '<Left>'],
+  scrollDown: ['j', '<Down>'],
+  scrollUp: ['k', '<Up>'],
   openHelpSearch: ['/'],
   keepHelpSearch: ['<CR>'],
   cancelHelpSearch: ['<Esc>'],
@@ -318,7 +326,8 @@ test('a list key lost to a user key stays on the overlay layers', () => {
   expect(layerKeysOf('list')).toEqual(['down']);
   expect(layerKeysOf('help')).toEqual(['j', 'down']);
   expect(layerKeysOf('messages')).toEqual(['j', 'down']);
-  expect(result.notices).toHaveLength(1);
+  expect(result.notices).toHaveLength(2);
+  expect(result.notices.some((notice) => notice.includes('scrollDown'))).toBe(true);
 });
 
 test('a hidden quit copy has no config id', () => {
@@ -581,9 +590,9 @@ test('default removals remain independent across list and overlay layers', () =>
   expect(keysIn('list')).toEqual(['down']);
   expect(keysIn('help')).toEqual(['j']);
   expect(keysIn('messages')).toEqual(['j', 'down']);
-  expect(result.notices).toHaveLength(2);
+  expect(result.notices).toHaveLength(3);
   expect(result.notices[0]).toContain('in the list layers');
-  expect(result.notices[1]).toContain('in the help layers');
+  expect(result.notices.some((notice) => notice.includes('in the help layers'))).toBe(true);
 });
 
 test('one replacement notice groups movement layers in traversal order', () => {

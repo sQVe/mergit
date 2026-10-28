@@ -12,10 +12,18 @@ import type { Snapshot } from './sessionState.ts';
 
 export type DetailTab = 'overview' | 'discussion';
 
+// `offset` is the UTF-16 index in the record's text where a text line starts.
+export type DetailPosition =
+  | { kind: 'separator' }
+  | { kind: 'heading' }
+  | { kind: 'text'; offset: number };
+
 export interface DetailAnchor {
   recordId: string;
   digest: string;
-  offset: number;
+  position: DetailPosition;
+  // The tab's record IDs before this one, nearest last.
+  earlierRecordIds: readonly string[];
 }
 
 interface SourceState {

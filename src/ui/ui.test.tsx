@@ -55,9 +55,9 @@ const mountFilters = track(cleanups, untrackedMountFilters);
 const mount = track(cleanups, untrackedMount);
 
 const readerColumnOf = (frame: string): number | undefined => {
-  const line = frame.split('\n').find((candidate) => /Repo\s+example\/repo/.test(candidate));
+  const line = frame.split('\n').find((candidate) => candidate.includes('example/repo /'));
 
-  return line?.search(/Repo/);
+  return line?.search(/example\/repo \//);
 };
 
 const longThreads = Array.from({ length: 60 }, (_, index) =>
@@ -597,7 +597,7 @@ test('Enter and j in one burst open the detail and leave the list selection alon
   await burst(setup, ['return', 'j']);
   await settle();
 
-  expect(setup.captureCharFrame()).toMatch(/Repo\s+example\/repo/);
+  expect(setup.captureCharFrame()).toMatch(/example\/repo \/ Pull request #1/);
   expect(session.getSnapshot().selectedRowKey).toBe(selected);
 });
 

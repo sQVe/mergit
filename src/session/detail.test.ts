@@ -144,7 +144,12 @@ test('a late read of a subject shown again never reaches the snapshot', async ()
   expect(titleOf(harness)).toBe('Latest load');
 });
 
-const anchorOf = (recordId: string) => ({ recordId, digest: `digest-${recordId}`, offset: 4 });
+const anchorOf = (recordId: string) => ({
+  recordId,
+  digest: `digest-${recordId}`,
+  position: { kind: 'text' as const, offset: 4 },
+  earlierRecordIds: [],
+});
 
 const readNumber = (thread: NotificationThread): number => Number(thread.id.replace('issue-', ''));
 
