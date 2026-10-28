@@ -120,8 +120,8 @@ rows marked "Yes" accept `aliases`.
 | `runCommandLine`                | `<CR>`            | Run the command                       | No      |
 | `closeCommandLine`              | `<Esc>`           | Close the command line                | No      |
 | `closeDetail`                   | `<Esc>`           | Close thread detail                   | No      |
-| `moveOtherPaneDown`             | `<A-j>`, `<C-n>`  | Move the other pane down              | No      |
-| `moveOtherPaneUp`               | `<A-k>`, `<C-p>`  | Move the other pane up                | No      |
+| `moveOtherPaneDown`             | `<A-j>`, `<C-n>`  | Move the other pane down              | Yes     |
+| `moveOtherPaneUp`               | `<A-k>`, `<C-p>`  | Move the other pane up                | Yes     |
 | `openHelpSearch`                | `/`               | Search help                           | No      |
 | `keepHelpSearch`                | `<Enter>`         | Keep help search                      | No      |
 | `cancelHelpSearch`              | `<Esc>`           | Clear and close help search           | No      |
