@@ -30,7 +30,7 @@ const bracketStrokes = new Map([
 ]);
 
 const knownNames =
-  '<CR>, <Enter>, <Return>, <Esc>, <Space>, <Tab>, <S-Tab>, <BS>, <Up>, <Down>, <Left>, <Right>, <lt>, <C-a> to <C-z>';
+  '<CR>, <Enter>, <Return>, <Esc>, <Space>, <Tab>, <S-Tab>, <BS>, <Up>, <Down>, <Left>, <Right>, <lt>, <C-a> to <C-z>, <A-a> to <A-z>';
 
 const bracketSuggestions = new Map([
   ['enter', '<CR>'],
@@ -47,7 +47,9 @@ const bracketSuggestions = new Map([
 ]);
 
 const controlName = /^c-([a-z])$/;
+const altName = /^[am]-([a-z])$/;
 const controlStroke = /^ctrl\+([a-z])$/;
+const altStroke = /^meta\+([a-z])$/;
 const upperCase = /^[A-Z]$/;
 const notationPattern = /<[^>]*>|./gsu;
 
@@ -57,6 +59,12 @@ const strokeOfBracket = (name: string): string | undefined => {
 
   if (control?.[1] !== undefined) {
     return `ctrl+${control[1]}`;
+  }
+
+  const alt = altName.exec(lower);
+
+  if (alt?.[1] !== undefined) {
+    return `meta+${alt[1]}`;
   }
 
   return bracketStrokes.get(lower);
@@ -114,6 +122,12 @@ const suggestionFor = (strokes: readonly string[]): string => {
 
     if (control?.[1] !== undefined) {
       return [`<C-${control[1]}>`];
+    }
+
+    const alt = altStroke.exec(stroke);
+
+    if (alt?.[1] !== undefined) {
+      return [`<A-${alt[1]}>`];
     }
 
     const bracket = bracketSuggestions.get(stroke);

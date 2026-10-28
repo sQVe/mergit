@@ -45,6 +45,7 @@ interface ParsedStroke {
   name: string;
   ctrl?: boolean;
   shift?: boolean;
+  meta?: boolean;
 }
 
 export interface Command {
@@ -954,6 +955,10 @@ export const readableStrokeOf = (stroke: ParsedStroke): string => {
     return `Ctrl+${stroke.name.toUpperCase()}`;
   }
 
+  if (stroke.meta === true) {
+    return `Alt+${stroke.name}`;
+  }
+
   if (stroke.shift !== true) {
     return readableKeyNames.get(stroke.name) ?? stroke.name;
   }
@@ -967,7 +972,7 @@ export const readableStrokeOf = (stroke: ParsedStroke): string => {
   return /^[a-z]$/.test(stroke.name) ? stroke.name.toUpperCase() : `shift+${stroke.name}`;
 };
 
-const modifiedStroke = /^(ctrl|shift)\+(.+)$/;
+const modifiedStroke = /^(ctrl|shift|meta)\+(.+)$/;
 
 const strokeOf = (key: string): string => {
   const modified = modifiedStroke.exec(key);
@@ -978,12 +983,17 @@ const strokeOf = (key: string): string => {
     return readableStrokeOf({ name: key });
   }
 
-  return readableStrokeOf({ name, ctrl: modifier === 'ctrl', shift: modifier === 'shift' });
+  return readableStrokeOf({
+    name,
+    ctrl: modifier === 'ctrl',
+    shift: modifier === 'shift',
+    meta: modifier === 'meta',
+  });
 };
 
 // A known name or modifier form is one stroke, and any other character is one stroke.
 const strokePattern =
-  /shift\+tab|return|escape|space|tab|backspace|up|down|left|right|(?:shift|ctrl)\+[a-z]|./gu;
+  /shift\+tab|return|escape|space|tab|backspace|up|down|left|right|(?:shift|ctrl|meta)\+[a-z]|./gu;
 
 const strokesOf = (key: string): string[] =>
   Array.from(key.matchAll(strokePattern), (match) => match[0]);

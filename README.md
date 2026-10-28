@@ -53,6 +53,8 @@ These are all accepted bracket names. Names inside brackets are case-insensitive
 | `<Up>`, `<Down>`, `<Left>`, `<Right>` | Arrow keys            |
 | `<lt>`                                | Literal `<`           |
 | `<C-a>` through `<C-z>`               | Ctrl+A through Ctrl+Z |
+| `<A-a>` through `<A-z>`               | Alt+a through Alt+z   |
+| `<M-a>` through `<M-z>`               | Alt+a through Alt+z   |
 
 Use bracket names, not `enter`, `escape`, or `ctrl+x`. Sequences whose letters spell a built-in key
 name are rejected when the keymap would read them as a different binding. For example, `enter`

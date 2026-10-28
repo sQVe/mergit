@@ -448,6 +448,8 @@ test('readableKeyOf gives each raw key its readable name', () => {
     ['zshift+r', 'zR'],
     ['gg', 'gg'],
     ['ctrl+d', 'Ctrl+D'],
+    ['meta+j', 'Alt+j'],
+    ['gmeta+j', 'gAlt+j'],
     ['up', '↑'],
     ['down', '↓'],
     ['q', 'q'],
