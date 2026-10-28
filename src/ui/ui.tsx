@@ -5,7 +5,7 @@ import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings, useKeymap, usePendingSequence } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 
 import type { Command, ReaderContext, TerminalIntent } from '../commands.ts';
 import {
@@ -671,6 +671,15 @@ export const App = (props: AppProps): ReactNode => {
     uiState;
 
   const helpWindow = helpWindowFor(overlay);
+
+  // Only an account change empties a loaded feed, so the reader then holds the former account's row.
+  const heldByFormerAccount = reader.kind === 'reader' && !snapshot.hasLoaded;
+
+  useLayoutEffect(() => {
+    if (heldByFormerAccount) {
+      runUiAction({ kind: 'ui', action: 'closeDetail' });
+    }
+  }, [heldByFormerAccount, runUiAction]);
 
   useEffect(() => {
     props.session.send({ kind: 'setListRows', rows: listHeight });

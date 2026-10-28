@@ -10,6 +10,7 @@ import { catalog } from '../commands.ts';
 import { invariant } from '../invariant.ts';
 import type { Session, SessionEffects } from '../session/session.ts';
 import { createSession, visibleRows } from '../session/session.ts';
+import { toViewerId, toViewerLogin } from '../work/work.ts';
 import { App } from './ui.tsx';
 import type { Setup } from './uiHarness.tsx';
 import {
@@ -1415,6 +1416,42 @@ test('a refresh that empties the inbox keeps the reader on a detached notice and
   await press('d');
 
   expect(sent.slice(before)).toEqual([]);
+});
+
+test('an account change closes the reader and shows no notification of the former account', async () => {
+  const aliceThread = { ...makeThread(1, 'Alice private plan'), repository: 'alice/private' };
+  const bobThread = { ...makeThread(2, 'Bob release notes'), repository: 'bob/public' };
+  let login = 'alice';
+
+  const { setup, press, sent } = await mount({
+    themeMode: 'dark',
+    effects: {
+      ...feedEffects(() => (login === 'alice' ? [aliceThread] : [bobThread])),
+      readViewer: () =>
+        Promise.resolve({
+          ok: true as const,
+          value: { id: toViewerId(`U_${login}`), login: toViewerLogin(login), etag: null },
+        }),
+    },
+  });
+
+  await pressAll(press, ['r', 'j', 'j', 'return']);
+
+  expect(setup.captureCharFrame()).toContain('Alice private plan');
+  expect(sent.at(-1)).toEqual({ kind: 'showDetail', thread: aliceThread });
+
+  login = 'bob';
+  await press('r');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).not.toContain('Alice private plan');
+  expect(frame).not.toContain('alice/private');
+  expect(frame).toContain('Bob release notes');
+
+  await pressAll(press, ['j', 'j', 'return']);
+
+  expect(sent.at(-1)).toEqual({ kind: 'showDetail', thread: bobThread });
 });
 
 test('u in the reader does not restore a thread that a done in the list hid', async () => {
