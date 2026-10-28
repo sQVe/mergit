@@ -413,12 +413,21 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     }
   };
 
+  const feedHasThread = (key: DetailSubjectKey): boolean =>
+    host.getSnapshot().threads.some((thread) => toDetailSubjectKey(host.host, thread.id) === key);
+
   const resume = () => {
     const entry = shownIssue === null ? undefined : detail().entries.get(shownIssue.key);
     const waiting = current === null && entry !== undefined && isInterrupted(entry);
 
-    if (shownIssue !== null && waiting) {
+    if (shownIssue === null || !waiting) {
+      return;
+    }
+
+    if (feedHasThread(shownIssue.key)) {
       startLoad(shownIssue);
+    } else {
+      shownIssue = null;
     }
   };
 

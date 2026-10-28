@@ -237,6 +237,26 @@ test('an account change drops a read that started before it and loads for the ne
   expect(titleOf(harness)).toBe('Hubot read');
 });
 
+test('an account change does not read a shown issue that the new feed lacks', async () => {
+  const issue = issueOf(1);
+  const other = issueOf(2);
+  const harness = makeHarness({}, { holdViewer: true });
+
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerViewer(viewerOf(octocat));
+  await harness.answerRead(readOf('feed', [issue]));
+  await harness.answerVerify(stable);
+  await showLoaded(harness, issue, pageOf(1, { title: 'Cached' }));
+  harness.session.send({ kind: 'refresh' });
+  await settle();
+  await harness.answerViewer(viewerOf(hubot));
+  await harness.answerRead(readOf('feed', [other]));
+  await harness.answerVerify(stable);
+
+  expect(harness.details).toHaveLength(1);
+});
+
 test('stop aborts a read, clears detail content, and drops the late result', async () => {
   const [first, second] = [issueOf(1), issueOf(2)];
   const harness = await loadedHarness(first, second);
