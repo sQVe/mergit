@@ -53,6 +53,8 @@ interface ShownIssue {
 // Each load is its own generation: only the load in `current` may publish.
 interface Load extends ShownIssue {
   controller: AbortController;
+  // A subject learned earlier is read by its node ID, because its coordinates can name another.
+  subjectId: IssueId | null;
 }
 
 interface Traversal {
@@ -79,9 +81,6 @@ const partialOrFailed = (hasContent: boolean) => (hasContent ? 'partial' : 'fail
 
 const partialOrNotRequested = (hasContent: boolean) => (hasContent ? 'partial' : 'notRequested');
 
-const keyOf = (host: string, thread: NotificationThread): DetailSubjectKey =>
-  toDetailSubjectKey(host, thread.repository, readSubjectNumber(thread.subjectUrl) ?? thread.id);
-
 const coordinatesOf = (thread: NotificationThread): IssueDetailRequest['coordinates'] | null => {
   const number = readSubjectNumber(thread.subjectUrl);
 
@@ -97,6 +96,9 @@ const coordinatesOf = (thread: NotificationThread): IssueDetailRequest['coordina
     number,
   };
 };
+
+// Only a page after the first carries a cursor, and the first page brings the Overview.
+const pastFirstPage = (traversal: Traversal): boolean => traversal.cursor !== null;
 
 const reachedLimit = (traversal: Traversal): boolean =>
   traversal.requests >= maximumRequests || traversal.records.size >= maximumRecords;
@@ -233,7 +235,7 @@ export const createDetail = (host: DetailHost): DetailOwner => {
         message: 'The issue changed while loading',
       } as const;
 
-      applyFailure(entry, failure, true);
+      applyFailure(entry, failure, pastFirstPage(traversal));
 
       return false;
     }
@@ -263,7 +265,7 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     traversal: Traversal,
   ): boolean => {
     if (!result.ok) {
-      applyFailure(entry, result.failure, traversal.subjectId !== null);
+      applyFailure(entry, result.failure, pastFirstPage(traversal));
 
       return false;
     }
@@ -281,7 +283,7 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     }
 
     if (read.kind !== 'issue') {
-      const emptied = emptyIssueEntry(entry.key, entry.threadId);
+      const emptied = { ...emptyIssueEntry(entry.key, entry.threadId), subjectId: entry.subjectId };
 
       replaceEntry(setCoverage(emptied, bothSources, () => read.kind, null));
 
@@ -301,7 +303,13 @@ export const createDetail = (host: DetailHost): DetailOwner => {
   };
 
   const traverse = async (load: Load) => {
-    const traversal: Traversal = { records: new Map(), requests: 0, cursor: null, subjectId: null };
+    const traversal: Traversal = {
+      records: new Map(),
+      requests: 0,
+      cursor: null,
+      subjectId: load.subjectId,
+    };
+
     let goesOn = true;
 
     while (goesOn) {
@@ -316,7 +324,7 @@ export const createDetail = (host: DetailHost): DetailOwner => {
       }
 
       if (result === 'paused') {
-        stopForPause(entry, traversal.subjectId === null ? bothSources : discussionOnly);
+        stopForPause(entry, pastFirstPage(traversal) ? discussionOnly : bothSources);
 
         return;
       }
@@ -347,7 +355,12 @@ export const createDetail = (host: DetailHost): DetailOwner => {
       return;
     }
 
-    const load: Load = { key, coordinates, controller: new AbortController() };
+    const load: Load = {
+      key,
+      coordinates,
+      controller: new AbortController(),
+      subjectId: entry.subjectId,
+    };
 
     current = load;
 
@@ -373,7 +386,7 @@ export const createDetail = (host: DetailHost): DetailOwner => {
   };
 
   const activate = (thread: NotificationThread): DetailEntry => {
-    const key = keyOf(host.host, thread);
+    const key = toDetailSubjectKey(host.host, thread.id);
     const coordinates = coordinatesOf(thread);
 
     if (current?.key !== key) {

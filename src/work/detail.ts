@@ -77,16 +77,9 @@ const isIssueCommentId = (value: string): value is IssueCommentId => value !== '
 
 const isDetailSubjectKey = (value: string): value is DetailSubjectKey => value !== '';
 
-// A subject without a number, such as a release, is keyed by its notification thread.
-export const toDetailSubjectKey = (
-  host: string,
-  repository: string,
-  subject: number | ThreadId,
-): DetailSubjectKey => {
-  const key =
-    typeof subject === 'number'
-      ? `${host}/${repository}#${subject}`
-      : `${host}/${repository}@${subject}`;
+// Repository and number can name another subject after a rename, so detail is keyed by thread.
+export const toDetailSubjectKey = (host: string, threadId: ThreadId): DetailSubjectKey => {
+  const key = `${host}@${threadId}`;
 
   invariant(isDetailSubjectKey(key), 'A detail subject key must not be empty.');
 

@@ -130,6 +130,28 @@ test('sends the host, the global ID header, and the viewer on a node continuatio
   expect(readQuery(args)).toContain('node(id: $id)');
 });
 
+test('a first page declares and sends no comments cursor', async () => {
+  const { effects, calls } = makeEffects(issueAnswer(issueNode([commentNode()])));
+
+  await readIssueDetail(effects, firstPage, signal);
+
+  const args = calls[0] ?? [];
+
+  expect(readQuery(args)).not.toContain('$after');
+  expect(args.some((argument) => argument.startsWith('after='))).toBe(false);
+});
+
+test('a continuation page declares the comments cursor and passes it to comments', async () => {
+  const { effects, calls } = makeEffects(issueAnswer(issueNode([commentNode()])));
+
+  await readIssueDetail(effects, continuationPage, signal);
+
+  const query = readQuery(calls[0] ?? []);
+
+  expect(query).toContain('$after: String!');
+  expect(query).toMatch(/comments\([^)]*after: \$after/);
+});
+
 test('returns the subject, overview, and one comment page of the first page', async () => {
   const { effects } = makeEffects(issueAnswer(issueNode([commentNode(), null])));
 

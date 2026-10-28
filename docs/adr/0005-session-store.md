@@ -60,6 +60,9 @@ tests drive the same way production does.
   no account change happened since the load started, and when its viewer ID equals the feed's
   viewer. Showing another subject aborts the loads of every other subject.
 - A page from another viewer clears all detail content and names that account in the snapshot.
+- Detail is cached per notification thread, because a renamed repository's name and number can later
+  name another subject. The first read looks the subject up by repository and number. Later reads
+  use the node ID it returned, and a page with another node ID never merges into that entry.
 - An account change and `stop` abort every detail load and clear all detail content, tabs, and
   anchors. Detail lives in memory only and is never saved.
 - Each subject keeps its tab and text anchor in memory across visits. The cache holds 20 subjects or

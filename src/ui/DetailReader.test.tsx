@@ -448,3 +448,80 @@ test('a separator anchor whose earlier records all disappear shows its record at
   expect(readerTextOf(lines[tabRow + 1] ?? '')).toStartWith('@ben');
   expect(readerTextOf(lines[tabRow + 2] ?? '')).toBe('Second short comment.');
 });
+
+test('a failed issue read shows the failure on both tabs', async () => {
+  const failure = { kind: 'invalidResponse' as const, message: 'Response body is not JSON' };
+
+  const { setup, press } = await mount({
+    effects: detailEffects(() => Promise.resolve({ ok: false as const, failure })),
+    width: 80,
+    height: 24,
+  });
+
+  await openReader(press);
+
+  expect(setup.captureCharFrame()).toContain('Failed: ');
+  expect(setup.captureCharFrame()).toContain('Response body is not JSON');
+
+  await press('l');
+
+  expect(setup.captureCharFrame()).toContain('Failed: ');
+});
+
+test('an issue that is gone shows Unavailable and no content', async () => {
+  const unavailable = { kind: 'unavailable' as const, viewer: viewerOf('octocat') };
+
+  const { setup, press } = await mount({
+    effects: detailEffects(() => Promise.resolve({ ok: true as const, value: unavailable })),
+    width: 80,
+    height: 24,
+  });
+
+  await openReader(press);
+
+  expect(setup.captureCharFrame()).toContain('Unavailable');
+  expect(setup.captureCharFrame()).not.toContain('Loading');
+});
+
+test('an issue without comments shows the empty Discussion notice', async () => {
+  const { setup, press } = await mount({
+    effects: detailEffects(() => Promise.resolve({ ok: true as const, value: issueRead([]) })),
+    width: 80,
+    height: 24,
+  });
+
+  await openReader(press);
+  await press('l');
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Overview [Discussion*] 0');
+  expect(frame).toContain('No comments.');
+});
+
+test('the header shows the state, author, and title of the fetched issue over the notification', async () => {
+  const fetched = issueRead(twoComments);
+
+  const changed = {
+    ...fetched,
+    overview: {
+      ...fetched.overview,
+      title: 'Workspace lost after login',
+      state: 'closed' as const,
+      author: 'zed',
+    },
+  };
+
+  const { setup, press } = await mount({
+    effects: detailEffects(() => Promise.resolve({ ok: true as const, value: changed })),
+    width: 80,
+    height: 24,
+  });
+
+  await openReader(press);
+
+  const frame = setup.captureCharFrame();
+
+  expect(frame).toContain('Issue #218 / closed / @zed');
+  expect(frame).toContain('Workspace lost after login');
+});

@@ -28,6 +28,7 @@ interface PageOptions {
   viewer?: ViewerLogin;
   totalCount?: number;
   overviewUpdatedAt?: string;
+  subjectId?: string;
 }
 
 const hubot = toViewerLogin('hubot');
@@ -47,10 +48,11 @@ const pageOf = (
     viewer = octocat,
     totalCount = comments.length,
     overviewUpdatedAt = '2026-01-01T10:00:00Z',
+    subjectId = `I_${number}`,
   }: PageOptions = {},
 ): GitHubResult<IssueDetailRead> => {
   const url = `https://github.com/acme/app/issues/${number}`;
-  const id = toIssueId(`I_${number}`);
+  const id = toIssueId(subjectId);
 
   return {
     ok: true,
@@ -720,4 +722,82 @@ test('an account change leaves no anchor on an unsupported subject', async () =>
 
   expect(activeEntryOf(harness)?.kind).toBe('unsupported');
   expect(activeEntryOf(harness)?.anchors).toEqual({});
+});
+
+test('a new thread at the coordinates of a cached issue loads its own subject', async () => {
+  const old = issueOf(1);
+  const reused = makeThread('reused-1', { subjectType: 'Issue', subjectUrl: old.subjectUrl });
+  const harness = await loadedHarness(old, reused);
+
+  await showLoaded(harness, old, pageOf(1, { title: 'Old subject', subjectId: 'I_old' }));
+  await showLoaded(harness, reused, pageOf(1, { title: 'New subject', subjectId: 'I_new' }));
+
+  expect(harness.details[1]?.request.coordinates).toEqual({
+    owner: 'acme',
+    name: 'app',
+    number: 1,
+  });
+
+  expect(activeEntryOf(harness)?.threadId).toBe(reused.id);
+  expect(titleOf(harness)).toBe('New subject');
+  expect(titleFor(harness, old)).toBe('Old subject');
+});
+
+test('a refresh reads a learned subject by its node ID and never merges another subject into it', async () => {
+  const issue = issueOf(1);
+  const harness = await loadedHarness(issue);
+  const old = { title: 'Old subject', subjectId: 'I_old', comments: [commentOf('X')] };
+
+  await showLoaded(harness, issue, pageOf(1, old));
+  harness.session.send({ kind: 'refreshDetail', thread: issue });
+  await settle();
+
+  const other = { title: 'Other subject', subjectId: 'I_other', comments: [commentOf('Z')] };
+
+  await answerDetail(
+    harness,
+    1,
+    pageOf(1, { ...other, overviewUpdatedAt: '2026-01-05T10:00:00Z' }),
+  );
+
+  expect(harness.details[1]?.request.coordinates).toEqual({ subjectId: toIssueId('I_old') });
+  expect(issueEntryOf(harness)?.subjectId).toBe(toIssueId('I_old'));
+  expect(titleOf(harness)).toBe('Old subject');
+  expect(commentIdsOf(harness)).toEqual(['X']);
+});
+
+test('a failed refresh gives each source the coverage of its own content', async () => {
+  const issue = issueOf(1);
+  const harness = await loadedHarness(issue);
+
+  await showLoaded(harness, issue, pageOf(1));
+  harness.session.send({ kind: 'refreshDetail', thread: issue });
+  await settle();
+  await answerDetail(harness, 1, failedPage('Bad gateway'));
+
+  const sources = issueEntryOf(harness)?.sources;
+
+  expect(sources?.overview.coverage).toBe('partial');
+  expect(sources?.discussion.coverage).toBe('failed');
+});
+
+test('a learned subject that becomes unavailable is read again by its node ID', async () => {
+  const issue = issueOf(1);
+  const harness = await loadedHarness(issue);
+
+  const unavailable: GitHubResult<IssueDetailRead> = {
+    ok: true,
+    value: { kind: 'unavailable', viewer: { id: viewerIdOf(octocat), login: octocat } },
+  };
+
+  await showLoaded(harness, issue, pageOf(1, { subjectId: 'I_old' }));
+
+  for (const index of [1, 2]) {
+    harness.session.send({ kind: 'refreshDetail', thread: issue });
+    await settle();
+    await answerDetail(harness, index, unavailable);
+  }
+
+  expect(harness.details[2]?.request.coordinates).toEqual({ subjectId: toIssueId('I_old') });
+  expect(issueEntryOf(harness)?.sources.overview.coverage).toBe('unavailable');
 });
