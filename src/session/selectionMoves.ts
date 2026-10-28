@@ -1,4 +1,4 @@
-import type { NotificationThread, TreeRow } from '../work/work.ts';
+import type { NotificationThread, ThreadId, ThreadRow, TreeRow } from '../work/work.ts';
 import { topLevelRowOf } from './selectionRepair.ts';
 import type { Snapshot } from './sessionState.ts';
 import { visibleRows } from './sessionState.ts';
@@ -45,6 +45,35 @@ export const jumpTopLevel = (snapshot: Snapshot, step: 1 | -1): Snapshot => {
   }
 
   return snapshot;
+};
+
+export const selectRowKey = (snapshot: Snapshot, rowKey: string): Snapshot => {
+  const isVisible = visibleRows(snapshot).some((row) => row.key === rowKey);
+
+  return isVisible ? select(snapshot, rowKey) : snapshot;
+};
+
+export const adjacentThreadRowOf = (
+  snapshot: Snapshot,
+  threadId: ThreadId,
+  step: 1 | -1,
+): ThreadRow | undefined => {
+  const rows = visibleRows(snapshot);
+  const current = rows.findIndex((row) => row.kind === 'thread' && row.thread.id === threadId);
+
+  if (current === -1) {
+    return undefined;
+  }
+
+  for (let index = current + step; index >= 0 && index < rows.length; index += step) {
+    const row = rows[index];
+
+    if (row?.kind === 'thread') {
+      return row;
+    }
+  }
+
+  return undefined;
 };
 
 export const selectedThreadOf = (snapshot: Snapshot): NotificationThread | undefined => {

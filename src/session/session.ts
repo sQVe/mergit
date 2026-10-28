@@ -50,7 +50,7 @@ import {
   openSearch,
   restoreSearch,
 } from './searchTransitions.ts';
-import { jumpTopLevel, moveSelection, selectRowNumber } from './selectionMoves.ts';
+import { jumpTopLevel, moveSelection, selectRowKey, selectRowNumber } from './selectionMoves.ts';
 import type { Snapshot, UnsavedChange } from './sessionState.ts';
 import { initialSnapshot, noticeMessageOf, visibleRows } from './sessionState.ts';
 import { createSubjectLookup } from './subjectLookup.ts';
@@ -73,6 +73,7 @@ export type { Filter } from '../query.ts';
 export { commandLineCandidatesOf } from './commandLine.ts';
 export { chosenCandidateIndexOf, searchCandidatesOf } from './searchCompletion.ts';
 export { matchCountOf, noticeMessageOf, openThreads, visibleRows } from './sessionState.ts';
+export { adjacentThreadRowOf } from './selectionMoves.ts';
 
 export type ApplicationIntent =
   | { kind: 'refresh' }
@@ -80,6 +81,7 @@ export type ApplicationIntent =
   | { kind: 'selectPrevious'; count?: number | undefined }
   | { kind: 'selectFirst'; count?: number | undefined }
   | { kind: 'selectLast'; count?: number | undefined }
+  | { kind: 'selectRow'; rowKey: string }
   | { kind: 'selectNextGroup' }
   | { kind: 'selectPreviousGroup' }
   | { kind: 'toggleFold' }
@@ -238,6 +240,7 @@ const transitions: Transitions = {
   selectFirst: (snapshot, intent) => selectRowNumber(snapshot, intent.count ?? 1),
   selectLast: (snapshot, intent) =>
     selectRowNumber(snapshot, intent.count ?? Number.POSITIVE_INFINITY),
+  selectRow: (snapshot, intent) => selectRowKey(snapshot, intent.rowKey),
   selectNextGroup: (snapshot) => jumpTopLevel(snapshot, 1),
   selectPreviousGroup: (snapshot) => jumpTopLevel(snapshot, -1),
   toggleFold,

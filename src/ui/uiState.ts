@@ -211,6 +211,7 @@ export const useUiState = (
         setOverlay({ kind: 'none' });
       } else if (intent.action === 'openDetail') {
         setReader({ kind: 'reader', row: intent.row });
+        session.send({ kind: 'selectRow', rowKey: intent.row.key });
       } else if (action === 'closeDetail') {
         setReader({ kind: 'inbox' });
       } else if (action === 'openMessages') {

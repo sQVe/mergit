@@ -513,6 +513,8 @@ const readerHints: [string, string][] = [
   ['readerOpenInBrowser', 'open'],
   ['readerRefresh', 'refresh'],
   ['readerUndoDone', 'undo'],
+  ['readerNextThread', 'next'],
+  ['readerPreviousThread', 'previous'],
   ['closeDetail', 'close'],
 ];
 

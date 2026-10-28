@@ -1,6 +1,6 @@
 import { invariant } from './invariant.ts';
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
-import { searchCandidatesOf, visibleRows } from './session/session.ts';
+import { adjacentThreadRowOf, searchCandidatesOf, visibleRows } from './session/session.ts';
 import type { BrowserPage, ThreadRow } from './work/work.ts';
 import { pagesOfRow } from './work/work.ts';
 
@@ -184,6 +184,34 @@ const readerDoneReason = (snapshot: Snapshot, reader: ReaderContext): string | u
 
   return isReaderDetached(snapshot, reader) ? 'This thread is no longer in the list.' : undefined;
 };
+
+const readerAdjacentRowOf = (
+  snapshot: Snapshot,
+  reader: ReaderContext,
+  step: 1 | -1,
+): ThreadRow => {
+  const row = adjacentThreadRowOf(snapshot, readerRowOf(reader).thread.id, step);
+
+  invariant(row !== undefined, 'Reader moves run only when a thread lies that way.');
+
+  return row;
+};
+
+const readerAdjacentReason =
+  (step: 1 | -1) =>
+  (snapshot: Snapshot, reader: ReaderContext): string | undefined => {
+    if (reader.kind === 'inbox') {
+      return noReaderReason(reader);
+    }
+
+    if (isReaderDetached(snapshot, reader)) {
+      return 'This thread is no longer in the list.';
+    }
+
+    return adjacentThreadRowOf(snapshot, reader.row.thread.id, step) === undefined
+      ? 'No thread lies that way.'
+      : undefined;
+  };
 
 const noCompletion = (snapshot: Snapshot) =>
   searchCandidatesOf(snapshot).length === 0 ? 'No completion for the last word.' : undefined;
@@ -740,6 +768,34 @@ export const catalog: readonly Command[] = [
     intent: (_snapshot, reader) => ({
       kind: 'application',
       intent: { kind: 'undoThreadDone', threadId: readerRowOf(reader).thread.id },
+    }),
+  },
+  {
+    id: 'readerNextThread',
+    configId: 'moveOtherPaneDown',
+    label: 'Move the other pane down',
+    scope: 'reader',
+    section: 'moving',
+    keys: ['meta+j', 'ctrl+n'],
+    disabledReason: readerAdjacentReason(1),
+    intent: (snapshot, reader) => ({
+      kind: 'ui',
+      action: 'openDetail',
+      row: readerAdjacentRowOf(snapshot, reader, 1),
+    }),
+  },
+  {
+    id: 'readerPreviousThread',
+    configId: 'moveOtherPaneUp',
+    label: 'Move the other pane up',
+    scope: 'reader',
+    section: 'moving',
+    keys: ['meta+k', 'ctrl+p'],
+    disabledReason: readerAdjacentReason(-1),
+    intent: (snapshot, reader) => ({
+      kind: 'ui',
+      action: 'openDetail',
+      row: readerAdjacentRowOf(snapshot, reader, -1),
     }),
   },
   {

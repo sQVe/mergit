@@ -62,8 +62,9 @@ cannot mean five letter strokes; use `<CR>` for Enter. A sequence such as `esc` 
 strokes, not Escape. Empty strings, literal whitespace, an unclosed `<`, unknown bracket names, and
 keys the keymap cannot read are invalid. Write `<Space>` for a space and `<lt>` for `<`. Escape
 cancels a pending sequence, so `<Esc>` is allowed only alone or as the first stroke. The reader also
-uses `markDone`, `openInBrowser`, `refresh`, and `undoDone`. While `closeDetail` keeps its default
-Escape, those ids refuse any key that starts with `<Esc>`, because the reader must keep a close key.
+uses `markDone`, `openInBrowser`, `refresh`, `undoDone`, `moveOtherPaneDown`, and `moveOtherPaneUp`.
+While `closeDetail` keeps its default Escape, those ids refuse any key that starts with `<Esc>`,
+because the reader must keep a close key.
 
 `<C-i>`, `<C-m>`, `<C-h>`, and `<C-j>` require Kitty keyboard reporting. Legacy terminals report
 Tab, Enter, Backspace, and Linefeed instead. These control-letter forms remain accepted and distinct
@@ -119,6 +120,8 @@ rows marked "Yes" accept `aliases`.
 | `runCommandLine`                | `<CR>`            | Run the command                       | No      |
 | `closeCommandLine`              | `<Esc>`           | Close the command line                | No      |
 | `closeDetail`                   | `<Esc>`           | Close thread detail                   | No      |
+| `moveOtherPaneDown`             | `<A-j>`, `<C-n>`  | Move the other pane down              | No      |
+| `moveOtherPaneUp`               | `<A-k>`, `<C-p>`  | Move the other pane up                | No      |
 | `openHelpSearch`                | `/`               | Search help                           | No      |
 | `keepHelpSearch`                | `<Enter>`         | Keep help search                      | No      |
 | `cancelHelpSearch`              | `<Esc>`           | Clear and close help search           | No      |
