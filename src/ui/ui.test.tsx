@@ -1343,7 +1343,7 @@ test('d in the focused reader marks only the reader thread done', async () => {
   expect(sent.at(-1)).toEqual({ kind: 'markThreadsDone', threadIds: [readerThread.id] });
 });
 
-test('o and r in the focused reader send the reader thread pages and refresh', async () => {
+test('o and r in the focused reader send the reader thread pages and its refresh', async () => {
   const { press, sent, session } = await mount({
     themeMode: 'dark',
     effects: threadsEffects(fourRepoThreads),
@@ -1351,7 +1351,8 @@ test('o and r in the focused reader send the reader thread pages and refresh', a
 
   await openReaderOnFirstThread(press);
 
-  const { repository } = selectedThreadOf(session);
+  const readerThread = selectedThreadOf(session);
+  const { repository } = readerThread;
 
   await press('o');
 
@@ -1359,7 +1360,7 @@ test('o and r in the focused reader send the reader thread pages and refresh', a
 
   await press('r');
 
-  expect(sent.at(-1)).toEqual({ kind: 'refresh' });
+  expect(sent.at(-1)).toEqual({ kind: 'refreshDetail', thread: readerThread });
 });
 
 test('a refresh that drops the reader thread keeps the reader on a detached notice and sends no done', async () => {

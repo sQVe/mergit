@@ -5,9 +5,11 @@ import { listedRepositories } from './workTree.ts';
 export { groupings, treeRows } from './workTree.ts';
 export type { Grouping, NodeRow, ThreadRow, TreeRow } from './workTree.ts';
 
-export { toIssueCommentId, toIssueId } from './detail.ts';
+export { toDetailSubjectKey, toIssueCommentId, toIssueId } from './detail.ts';
 
 export type {
+  DetailCoverage,
+  DetailSubjectKey,
   IssueComment,
   IssueCommentPage,
   IssueDetailRead,

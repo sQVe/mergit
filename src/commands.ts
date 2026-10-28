@@ -752,7 +752,10 @@ export const catalog: readonly Command[] = [
     section: 'app',
     keys: ['r'],
     disabledReason: (_snapshot, reader) => noReaderReason(reader),
-    intent: () => ({ kind: 'application', intent: { kind: 'refresh' } }),
+    intent: (_snapshot, reader) => ({
+      kind: 'application',
+      intent: { kind: 'refreshDetail', thread: readerRowOf(reader).thread },
+    }),
   },
   {
     id: 'readerUndoDone',

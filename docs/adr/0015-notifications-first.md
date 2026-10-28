@@ -50,6 +50,20 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
   never hides a thread.
 - `work` owns the facts type, and only `github` sees GitHub's response shapes.
 
+### Subject detail
+
+- The reader loads issue detail through GraphQL only for the subject it shows. A thread that is not
+  an issue shows unsupported coverage and sends no request.
+- Refresh in the reader refreshes the feed and revalidates the shown subject, even when its
+  notification is unchanged, because an edited comment does not change the thread's `updated_at`.
+  Showing a subject again revalidates content fetched more than 5 minutes earlier. Cached subjects
+  get no background refresh.
+- Each source shows its coverage. A load stops at 8 requests or 500 comments with partial coverage,
+  and a failed page keeps the content already loaded. These starting limits are not measured.
+- Comments merge by ID. An older revision of a comment or of the Overview never replaces a newer
+  one. A traversal that completes replaces the comment set, so deleted comments leave.
+- A detail failure never changes the feed.
+
 ## Consequences
 
 ### Positive
@@ -64,6 +78,7 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
 - Done detection relies on undocumented fields.
 - A thread read and then marked done outside Mergit stays until it is marked done in Mergit.
 - `all=true` is larger than the unread feed: 362 threads against 81 in the sampled account.
+- A long discussion shows partial coverage once a load reaches its limits.
 
 ## Alternatives considered
 

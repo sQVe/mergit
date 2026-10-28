@@ -46,12 +46,29 @@ tests drive the same way production does.
   overlap.
 - Each refresh carries a generation. A result from an older generation, or after `stop`, is dropped.
 - A failed refresh keeps the previous items and shows the error.
-- One pause covers every GitHub read. A rate limit from the feed or from a subject lookup, including
-  a GraphQL limit reported with HTTP 200, pauses feed refreshes and subject lookups until the reset
-  time. The pause gates the start of a read. A refresh that already started finishes. Manual refresh
-  does not bypass the pause.
+- One pause covers every GitHub read. A rate limit from the feed, a subject lookup, or a detail
+  read, including a GraphQL limit reported with HTTP 200, pauses feed refreshes, subject lookups,
+  and detail reads until the reset time. The pause gates the start of a read. A refresh that already
+  started finishes. Manual refresh does not bypass the pause.
 - Cached data and its sync follow [ADR 0016](./0016-snapshot-and-full-refresh.md). A manual refresh
   skips the stored feed ETags.
+
+### Detail
+
+- The session owns the detail of the subject the reader shows. Each load carries a generation for
+  its host, account, and subject. A page is accepted only from the latest load of its subject, when
+  no account change happened since the load started, and when its viewer ID equals the feed's
+  viewer. Showing another subject aborts the loads of every other subject.
+- A page from another viewer clears all detail content and names that account in the snapshot.
+- An account change and `stop` abort every detail load and clear all detail content, tabs, and
+  anchors. Detail lives in memory only and is never saved.
+- Each subject keeps its tab and text anchor in memory across visits. The cache holds 20 subjects or
+  32 MiB of bodies and anchors, and evicts the subject shown longest ago. It never evicts the shown
+  subject. The shown subject keeps whole comments up to 32 MiB and drops the rest with partial
+  coverage.
+- Detail reads run at most two `gh` processes at a time. A process counts until it settles, even
+  after an abort. A read checks the pause when it gets its process, so a read that waited for a
+  process during a pause does not start.
 
 ### Actions
 
