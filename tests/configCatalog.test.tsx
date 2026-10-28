@@ -484,6 +484,7 @@ test('the reader hint shows a remapped markDone key and no default key', async (
   const { setup, press, settle } = await mount({
     catalog,
     effects: feedEffects(() => fourRepoThreads),
+    width: 200,
   });
 
   await press('r');

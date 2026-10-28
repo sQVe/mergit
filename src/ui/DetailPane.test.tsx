@@ -170,7 +170,7 @@ test('the focused reader draws its divider down to the hint line', async () => {
 
   const lines = setup.captureCharFrame().split('\n');
   const dividerColumn = lines[0]?.indexOf('│ example/repo / Pull request #2') ?? -1;
-  const hintIndex = lines.findIndex((line) => line.includes('d done'));
+  const hintIndex = lines.findIndex((line) => line.includes('Esc close'));
   const paneLines = lines.slice(0, hintIndex);
 
   expect(dividerColumn).toBeGreaterThan(0);

@@ -32,7 +32,7 @@ import type { Palette } from './palette.ts';
 import { pickPalette } from './palette.ts';
 import { SearchLine, searchLineRows } from './SearchLine.tsx';
 import { StatusLine } from './StatusLine.tsx';
-import { fitText } from './textLayout.ts';
+import { cellWidth } from './textLayout.ts';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
 import type { ModalState, Overlay, ScrollWindow, UiIntent } from './uiState.ts';
@@ -510,27 +510,42 @@ const Keys = (props: KeysProps): ReactNode => {
   return <CountPatterns />;
 };
 
+// Ordered by priority: a narrow pane drops whole hints from the end, so Esc and the reading keys stay.
 const readerHints: [string, string][] = [
+  ['closeDetail', 'close'],
+  ['nextTab', 'tab'],
+  ['scrollDown', 'scroll'],
+  ['readerNextThread', 'next'],
+  ['readerPreviousThread', 'previous'],
+  ['readerHalfPageDown', 'page'],
   ['readerMarkDone', 'done'],
   ['readerOpenInBrowser', 'open'],
   ['readerRefresh', 'refresh'],
   ['readerUndoDone', 'undo'],
-  ['readerNextThread', 'next'],
-  ['readerPreviousThread', 'previous'],
-  ['closeDetail', 'close'],
-  ['nextTab', 'tab'],
-  ['scrollDown', 'scroll'],
-  ['readerHalfPageDown', 'page'],
 ];
 
-const readerHintOf = (catalog: readonly Command[]): string => {
-  const parts = readerHints.map(([id, label]) => {
+const hintSeparator = '  ';
+
+const readerHintOf = (catalog: readonly Command[], columns: number): string => {
+  let hint = '';
+
+  for (const [id, label] of readerHints) {
     const key = keyHintOf(catalog, id);
 
-    return key === undefined ? undefined : `${key} ${label}`;
-  });
+    if (key === undefined) {
+      continue;
+    }
 
-  return parts.filter((part): part is string => part !== undefined).join('  ');
+    const next = hint === '' ? `${key} ${label}` : `${hint}${hintSeparator}${key} ${label}`;
+
+    if (cellWidth(next) > columns) {
+      break;
+    }
+
+    hint = next;
+  }
+
+  return hint;
 };
 
 const paneWidthsOf = (
@@ -616,7 +631,7 @@ const Body = (props: {
           <box flexDirection="row" flexGrow={1}>
             {detailPane}
           </box>
-          <text fg={palette.dim}>{fitText(readerHintOf(props.catalog), detailWidth)}</text>
+          <text fg={palette.dim}>{readerHintOf(props.catalog, detailWidth)}</text>
         </box>
       ) : (
         detailPane

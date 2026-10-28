@@ -131,6 +131,22 @@ for (const [width, height] of [
     expect(discussion).toContain('Can you check whether the callback');
     expect(discussion).toContain('@sam');
   });
+
+  test(`at ${width}x${height}, the reader hint line keeps whole close, tab, and scroll hints`, async () => {
+    const { setup, press } = await mount({ effects: issueEffects(), width, height });
+
+    await openReader(press);
+
+    const hint = frameOf(setup)
+      .split('\n')
+      .find((line) => line.includes(' close'));
+
+    expect(hint).toBeDefined();
+    expect(hint).toContain('Esc close');
+    expect(hint).toContain(' tab');
+    expect(hint).toContain(' scroll');
+    expect(hint).not.toContain('…');
+  });
 }
 
 const readerTextOf = (line: string): string => (line.split('│').at(-1) ?? '').trim();
