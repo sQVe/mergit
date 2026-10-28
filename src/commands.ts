@@ -205,10 +205,6 @@ const readerAdjacentReason =
       return noReaderReason(reader);
     }
 
-    if (isReaderDetached(snapshot, reader)) {
-      return 'This thread is no longer in the list.';
-    }
-
     return adjacentThreadRowOf(snapshot, reader.row.thread.id, step) === undefined
       ? 'No thread lies that way.'
       : undefined;

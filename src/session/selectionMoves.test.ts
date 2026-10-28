@@ -192,6 +192,14 @@ test('adjacentThreadRowOf skips the threads of a folded group', async () => {
   expect(adjacentThreadRowOf(snapshot, second.id, 1)).toBeUndefined();
 });
 
+test('adjacentThreadRowOf moves back onto a thread in the first row', async () => {
+  const { session } = await flatHarness(reviewThread, mentionThread);
+
+  const row = adjacentThreadRowOf(session.getSnapshot(), mentionThread.id, -1);
+
+  expect(row?.thread.id).toBe(reviewThread.id);
+});
+
 test('selectRow selects a visible row and ignores a row key that is not visible', async () => {
   const { session, load, selected, selectThread } = makeHarness();
 

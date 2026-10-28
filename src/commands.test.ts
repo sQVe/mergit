@@ -190,6 +190,22 @@ test('closeDetail has the escape key, the reader scope, and a ui intent', () => 
   expect(close?.disabledReason(loadedSnapshot, reader)).toBeUndefined();
 });
 
+test('reader moves are off without a reader, for a detached thread, and past the ends', () => {
+  const threads = [loadedThread, { ...loadedThread, id: toThreadId('2') }];
+  const snapshot = { ...createSnapshot(), threads };
+  const next = catalog.find((command) => command.id === 'readerNextThread');
+
+  const [onFirst = inbox, onSecond = inbox] = visibleRows(snapshot).flatMap(
+    (row): ReaderContext[] => (row.kind === 'thread' ? [{ kind: 'reader', row }] : []),
+  );
+
+  expect(next?.disabledReason(snapshot, inbox)).toBeDefined();
+  expect(next?.disabledReason(snapshot, onFirst)).toBeUndefined();
+  expect(next?.disabledReason(snapshot, onSecond)).toBeDefined();
+  expect(next?.disabledReason({ ...snapshot, threads: threads.slice(1) }, onFirst)).toBeDefined();
+  expect(next?.intent(snapshot, onFirst)).toMatchObject({ row: { key: 'thread:2' } });
+});
+
 test('markDone marks one thread on a thread row and every shown thread on a node row', () => {
   const loadedSnapshot = createLoadedSnapshot();
 
