@@ -25,7 +25,6 @@ const mountWithGroup = track(cleanups, untrackedMountWithGroup);
 
 const paneWidth = 100;
 
-// A short terminal makes the thread preview taller than the pane, so it can scroll.
 const mountWithShortPreview = track(cleanups, async () => {
   const mounted = await untrackedMount({
     effects: threadsEffects(fourRepoThreads),
