@@ -28,12 +28,13 @@ export interface UiState {
   helpTop: number;
   helpInput: HelpSearchInput;
   messagesTop: number;
+  previewTop: number;
   reader: ReaderContext;
   modal: RefObject<ModalState>;
   runUiAction: (intent: UiIntent) => void;
 }
 
-interface ScrollWindow {
+export interface ScrollWindow {
   viewportRows: number;
   maximumTop: number;
 }
@@ -96,18 +97,26 @@ export const useUiState = (
   session: Session,
   helpWindow: (overlay: Overlay) => ScrollWindow,
   messageWindow: ScrollWindow,
+  previewWindow: ScrollWindow,
 ): UiState => {
   // Callers pass fresh window objects every render. Reading them here keeps runUiAction stable,
   // because a changed runUiAction re-registers the key layers and clears a pending count.
-  const windows = useRef({ helpWindow, messageWindow });
+  const windows = useRef({ helpWindow, messageWindow, previewWindow });
 
   useLayoutEffect(() => {
-    windows.current = { helpWindow, messageWindow };
+    windows.current = { helpWindow, messageWindow, previewWindow };
   });
 
   const [overlay, setOverlayState] = useState<Overlay>({ kind: 'none' });
   const [helpTop, setHelpTop] = useState(0);
   const [messagesTop, setMessagesTop] = useState(0);
+  const [previewTop, setPreviewTop] = useState(0);
+  const { selectedRowKey } = session.getSnapshot();
+
+  useLayoutEffect(() => {
+    setPreviewTop(0);
+  }, [selectedRowKey]);
+
   const [reader, setReaderState] = useState<ReaderContext>({ kind: 'inbox' });
 
   // Keys in one burst arrive before React renders, so key handling reads this copy, which each
@@ -147,7 +156,7 @@ export const useUiState = (
     setReaderState(next);
   }, []);
 
-  const runUiAction = useCallback(
+  const runStateAction = useCallback(
     (intent: UiIntent) => {
       const confirmOpen = () => {
         const { overlay: current } = modal.current;
@@ -229,7 +238,31 @@ export const useUiState = (
     [session, setOverlay, setReader],
   );
 
+  const scrollPreview = useCallback((lines: 1 | -1) => {
+    setPreviewTop((top) => topAfter(top, { kind: 'lines', lines }, windows.current.previewWindow));
+  }, []);
+
+  const runUiAction = useCallback(
+    (intent: UiIntent) => {
+      if (intent.action === 'scrollPreview') {
+        scrollPreview(intent.lines);
+      } else {
+        runStateAction(intent);
+      }
+    },
+    [runStateAction, scrollPreview],
+  );
+
   const helpInput = { watch: watchHelpSearch, current: currentHelpSearch };
 
-  return { overlay, helpTop, helpInput, messagesTop, reader, modal, runUiAction };
+  return {
+    overlay,
+    helpTop,
+    helpInput,
+    messagesTop,
+    previewTop,
+    reader,
+    modal,
+    runUiAction,
+  };
 };

@@ -245,6 +245,8 @@ const renderThreadPane = async (isNew: boolean): Promise<string> => {
         now={new Date(3 * 3_600_000)}
         width={40}
         detached={false}
+        previewTop={0}
+        onPreviewWindow={() => undefined}
       />,
       { width: 40, height: 12 },
     ),

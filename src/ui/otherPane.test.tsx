@@ -3,7 +3,15 @@ import { afterEach, expect, test } from 'bun:test';
 import { invariant } from '../invariant.ts';
 import type { Session } from '../session/session.ts';
 import { visibleRows } from '../session/session.ts';
-import { mountWithGroup as untrackedMountWithGroup, pressAll, track } from './uiHarness.tsx';
+import {
+  fourRepoThreads,
+  mount as untrackedMount,
+  mountWithGroup as untrackedMountWithGroup,
+  paneText,
+  pressAll,
+  threadsEffects,
+  track,
+} from './uiHarness.tsx';
 
 const cleanups: (() => void)[] = [];
 
@@ -14,6 +22,86 @@ afterEach(() => {
 });
 
 const mountWithGroup = track(cleanups, untrackedMountWithGroup);
+
+const paneWidth = 100;
+
+// A short terminal makes the thread preview taller than the pane, so it can scroll.
+const mountWithShortPreview = track(cleanups, async () => {
+  const mounted = await untrackedMount({
+    effects: threadsEffects(fourRepoThreads),
+    width: paneWidth,
+    height: 6,
+  });
+
+  await pressAll(mounted.press, ['r', 'g', 'g', 'j', 'j']);
+
+  return mounted;
+});
+
+const paneTopLineOf = (setup: Parameters<typeof paneText>[0]): string =>
+  (paneText(setup, paneWidth).split('\n')[0] ?? '').replace(/^│|[█░]$/g, '').trim();
+
+test('Ctrl+n, Alt+j, Ctrl+p, and Alt+k scroll the list preview and stop at both ends', async () => {
+  const { setup, press, session } = await mountWithShortPreview();
+  const rowKey = session.getSnapshot().selectedRowKey;
+
+  expect(paneTopLineOf(setup)).toBe('Thread a');
+
+  await press('ctrl+n');
+
+  expect(paneTopLineOf(setup)).toBe('');
+  expect(paneText(setup, paneWidth)).toContain('Repo');
+
+  await pressAll(press, ['meta+j', 'ctrl+n']);
+
+  expect(paneText(setup, paneWidth)).toContain('Unread');
+  expect(paneText(setup, paneWidth)).not.toContain('Repo');
+
+  const bottom = setup.captureCharFrame();
+
+  await pressAll(press, ['ctrl+n', 'meta+j']);
+
+  expect(setup.captureCharFrame()).toBe(bottom);
+
+  await pressAll(press, ['meta+k', 'ctrl+p', 'meta+k']);
+
+  expect(paneTopLineOf(setup)).toBe('Thread a');
+
+  const top = setup.captureCharFrame();
+
+  await pressAll(press, ['ctrl+p', 'meta+k']);
+
+  expect(setup.captureCharFrame()).toBe(top);
+  expect(session.getSnapshot().selectedRowKey).toBe(rowKey);
+  expect(setup.captureCharFrame()).not.toContain('Alt+j/Ctrl+N next');
+});
+
+test('opening the reader from a scrolled preview shows the thread from its top', async () => {
+  const { setup, press } = await mountWithShortPreview();
+
+  await pressAll(press, ['ctrl+n', 'ctrl+n']);
+
+  expect(paneText(setup, paneWidth)).not.toContain('Thread a');
+
+  await press('return');
+  await press('?');
+  await press('escape');
+
+  expect(setup.captureCharFrame()).toContain('Thread a');
+  expect(setup.captureCharFrame()).toContain('Repo');
+});
+
+test('moving the selection with j shows the next preview from its top', async () => {
+  const { setup, press } = await mountWithShortPreview();
+
+  await pressAll(press, ['ctrl+n', 'ctrl+n']);
+
+  expect(paneText(setup, paneWidth)).not.toContain('Thread a');
+
+  await press('j');
+
+  expect(paneTopLineOf(setup)).toBe('example/b');
+});
 
 const selectedThreadOf = (session: Session) => {
   const snapshot = session.getSnapshot();

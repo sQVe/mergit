@@ -1,5 +1,8 @@
+import type { ScrollBoxRenderable } from '@opentui/core';
 import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
+import { invariant } from '../invariant.ts';
 import type {
   NodeRow,
   NotificationThread,
@@ -10,6 +13,7 @@ import type {
 } from '../work/work.ts';
 import type { Palette } from './palette.ts';
 import { formatAge, numberLabelFor, typeLabelFor, typeSummaryLabelFor } from './threadRow.ts';
+import type { ScrollWindow } from './uiState.ts';
 
 interface PaneProps {
   palette: Palette;
@@ -167,9 +171,25 @@ export const DetailPane = (
     now: Date;
     width: number;
     detached: boolean;
+    previewTop: number;
+    onPreviewWindow: (window: ScrollWindow) => void;
   },
 ): ReactNode => {
   const { row } = props;
+  const scrollbox = useRef<ScrollBoxRenderable | null>(null);
+
+  useLayoutEffect(() => {
+    const box = scrollbox.current;
+
+    invariant(box !== null, 'The detail scrollbox is mounted with its pane.');
+
+    box.scrollTop = props.previewTop;
+
+    props.onPreviewWindow({
+      viewportRows: box.viewport.height,
+      maximumTop: Math.max(0, box.scrollHeight - box.viewport.height),
+    });
+  });
 
   return (
     <box
@@ -180,16 +200,20 @@ export const DetailPane = (
       border={['left']}
       borderColor={props.palette.dim}
     >
-      {props.detached ? <text fg={props.palette.dim}>{detachedNotice}</text> : null}
-      {row === undefined ? null : (
-        <RowDetail
-          palette={props.palette}
-          row={row}
-          now={props.now}
-          facts={props.facts}
-          newThreadIds={props.newThreadIds}
-        />
-      )}
+      <scrollbox ref={scrollbox} contentOptions={{ minHeight: 0 }}>
+        <box flexDirection="column" flexShrink={0}>
+          {props.detached ? <text fg={props.palette.dim}>{detachedNotice}</text> : null}
+          {row === undefined ? null : (
+            <RowDetail
+              palette={props.palette}
+              row={row}
+              now={props.now}
+              facts={props.facts}
+              newThreadIds={props.newThreadIds}
+            />
+          )}
+        </box>
+      </scrollbox>
     </box>
   );
 };

@@ -123,3 +123,14 @@ test('the help footer keeps every part when the text exactly fills the inner wid
   expect(footerOf(catalog, '1-5 of 99', text.length)).toBe(text);
   expect(footerOf(catalog, '1-5 of 99', text.length - 1)).toBe('1-5 of 99');
 });
+
+test('help shows the other-pane pair once each, for the list preview and the reader', () => {
+  const rows = helpWindowOf(catalog, 200, 80).lines.filter(
+    (line) => line.kind === 'row' && line.label.startsWith('Move the other pane'),
+  );
+
+  expect(rows).toEqual([
+    { kind: 'row', keys: 'Alt+j/Ctrl+N', label: 'Move the other pane down' },
+    { kind: 'row', keys: 'Alt+k/Ctrl+P', label: 'Move the other pane up' },
+  ]);
+});

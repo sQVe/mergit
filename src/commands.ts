@@ -30,6 +30,7 @@ export type Intent =
   | { kind: 'ui'; action: 'askOpen'; pages: readonly BrowserPage[] }
   | { kind: 'ui'; action: 'confirmOpen' | 'cancelOpen' }
   | { kind: 'ui'; action: 'scrollOverlay'; move: OverlayMove }
+  | { kind: 'ui'; action: 'scrollPreview'; lines: 1 | -1 }
   | { kind: 'terminal'; action: 'quit' };
 
 export type OverlayMove =
@@ -797,6 +798,26 @@ export const catalog: readonly Command[] = [
       action: 'openDetail',
       row: readerAdjacentRowOf(snapshot, reader, -1),
     }),
+  },
+  {
+    id: 'scrollPreviewDown',
+    configId: 'moveOtherPaneDown',
+    label: 'Move the other pane down',
+    scope: 'list',
+    section: 'moving',
+    keys: ['meta+j', 'ctrl+n'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollPreview', lines: 1 }),
+  },
+  {
+    id: 'scrollPreviewUp',
+    configId: 'moveOtherPaneUp',
+    label: 'Move the other pane up',
+    scope: 'list',
+    section: 'moving',
+    keys: ['meta+k', 'ctrl+p'],
+    disabledReason: () => undefined,
+    intent: () => ({ kind: 'ui', action: 'scrollPreview', lines: -1 }),
   },
   {
     id: 'openHelpSearch',

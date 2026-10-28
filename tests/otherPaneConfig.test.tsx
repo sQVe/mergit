@@ -5,10 +5,11 @@ import type { Session } from '../src/session/session.ts';
 import { visibleRows } from '../src/session/session.ts';
 import {
   fourRepoThreads,
+  mount as untrackedMount,
+  paneText,
   pressAll,
   threadsEffects,
   track,
-  mount as untrackedMount,
 } from '../src/ui/uiHarness.tsx';
 
 const cleanups: (() => void)[] = [];
@@ -77,4 +78,38 @@ test('remapped Alt+n and Alt+p move the open reader, show in help, and Esc still
 
   expect(setup.captureCharFrame()).not.toContain('Alt+n next');
   expect(selectedTitleOf(session)).toBe('Thread a');
+});
+
+test('a remapped Alt+n scrolls the list preview, and Ctrl+n no longer does', async () => {
+  const { catalog } = configured({
+    version: 1,
+    keys: { moveOtherPaneDown: ['<A-n>'] },
+  });
+
+  const { setup, press, session } = await mount({
+    catalog,
+    effects: threadsEffects(fourRepoThreads),
+    width: 100,
+    height: 6,
+  });
+
+  await pressAll(press, ['r', 'g', 'g', 'j', 'j']);
+
+  const rowKey = session.getSnapshot().selectedRowKey;
+
+  const previewTitleOf = () =>
+    (paneText(setup, 100).split('\n')[0] ?? '').replace(/^│|[█░]$/g, '').trim();
+
+  expect(previewTitleOf()).toBe('Thread a');
+
+  await press('meta+n');
+
+  expect(previewTitleOf()).toBe('');
+  expect(session.getSnapshot().selectedRowKey).toBe(rowKey);
+
+  const scrolled = setup.captureCharFrame();
+
+  await press('ctrl+n');
+
+  expect(setup.captureCharFrame()).toBe(scrolled);
 });

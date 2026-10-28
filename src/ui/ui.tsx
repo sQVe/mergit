@@ -5,7 +5,7 @@ import type { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import { KeymapProvider, useBindings, useKeymap, usePendingSequence } from '@opentui/keymap/react';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { Command, ReaderContext, TerminalIntent } from '../commands.ts';
 import {
@@ -33,7 +33,7 @@ import { SearchLine, searchLineRows } from './SearchLine.tsx';
 import { StatusLine } from './StatusLine.tsx';
 import { ThreadList } from './ThreadList.tsx';
 import { Toast } from './Toast.tsx';
-import type { ModalState, Overlay, UiIntent } from './uiState.ts';
+import type { ModalState, Overlay, ScrollWindow, UiIntent } from './uiState.ts';
 import { useUiState } from './uiState.ts';
 
 type ThemeMode = 'light' | 'dark' | null;
@@ -548,6 +548,9 @@ const paneWidthsOf = (
   return { listWidth: width - paneWidth, detailWidth: paneWidth };
 };
 
+const sameWindowOf = (first: ScrollWindow, second: ScrollWindow): boolean =>
+  first.viewportRows === second.viewportRows && first.maximumTop === second.maximumTop;
+
 const Body = (props: {
   snapshot: Snapshot;
   palette: Palette;
@@ -556,6 +559,8 @@ const Body = (props: {
   reader: ReaderContext;
   listHeight: number;
   catalog: readonly Command[];
+  previewTop: number;
+  onPreviewWindow: (window: ScrollWindow) => void;
 }): ReactNode => {
   const { snapshot, palette, listWidth, detailWidth, listHeight } = props;
   const selectedRow = visibleRows(snapshot).find((row) => row.key === snapshot.selectedRowKey);
@@ -589,6 +594,8 @@ const Body = (props: {
         now={now}
         width={detailWidth}
         detached={detached}
+        previewTop={readerFocused ? 0 : props.previewTop}
+        onPreviewWindow={props.onPreviewWindow}
       />
     );
 
@@ -629,11 +636,17 @@ export const App = (props: AppProps): ReactNode => {
 
   const messageWindow = messageWindowOf(snapshot.messages, width, height);
 
-  const { overlay, helpTop, helpInput, messagesTop, reader, modal, runUiAction } = useUiState(
-    props.session,
-    helpWindowFor,
-    messageWindow,
-  );
+  const [previewWindow, setPreviewWindow] = useState<ScrollWindow>({
+    viewportRows: 0,
+    maximumTop: 0,
+  });
+
+  const reportPreviewWindow = (next: ScrollWindow) => {
+    setPreviewWindow((current) => (sameWindowOf(current, next) ? current : next));
+  };
+
+  const { overlay, helpTop, helpInput, messagesTop, previewTop, reader, modal, runUiAction } =
+    useUiState(props.session, helpWindowFor, messageWindow, previewWindow);
 
   const helpWindow = helpWindowFor(overlay);
 
@@ -693,6 +706,8 @@ export const App = (props: AppProps): ReactNode => {
           reader={reader}
           listHeight={listHeight}
           catalog={props.catalog}
+          previewTop={previewTop}
+          onPreviewWindow={reportPreviewWindow}
         />
         <SearchLine
           session={props.session}
