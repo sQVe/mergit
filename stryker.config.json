@@ -14,10 +14,13 @@
   "tsconfigFile": "stryker-no-tsconfig.json",
   "checkers": [],
   "plugins": ["@hughescr/stryker-bun-runner"],
-  "concurrency": 4,
+  "concurrency": "50%",
   "timeoutMS": 10000,
+  "timeoutFactor": 4,
   "fileLogLevel": "info",
   "ignorePatterns": [".tau", "docs", "tests/*.test.ts", "dist", "CHANGELOG.md"],
   "tempDirName": ".stryker-tmp",
-  "cleanTempDir": true
+  "cleanTempDir": true,
+  "incremental": true,
+  "incrementalFile": ".tau/stryker-incremental.json"
 }

@@ -52,9 +52,26 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # Stryker reuses a result while the mutated code and the tests that covered it are unchanged.
+      # It does not see helpers, dependencies, or config, so their hash is part of the key. A change
+      # to unmutated production code can still leave a stale result.
+      - id: restore-incremental
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tau/stryker-incremental.json
+          key: mutation-incremental-${{ github.event.pull_request.number }}-${{ hashFiles('src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/*.test.tsx', 'src/**/*Harness.ts', 'src/**/*Harness.tsx', 'bun.lock', 'package.json', 'tsconfig.json', 'stryker.config.json') }}-${{ github.sha }}
+          restore-keys: |
+            mutation-incremental-${{ github.event.pull_request.number }}-${{ hashFiles('src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/*.test.tsx', 'src/**/*Harness.ts', 'src/**/*Harness.tsx', 'bun.lock', 'package.json', 'tsconfig.json', 'stryker.config.json') }}-
       - name: Run mutation testing on changed lines
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          jq '.concurrency = "100%"' stryker.config.json > "${RUNNER_TEMP}/stryker.config.json"
           mapfile -t command < <(jq --raw-output '.mutation.argv[]' .pi/tau.json)
-          "${command[@]}" changed "$BASE_SHA"
+          "${command[@]}" --config "${RUNNER_TEMP}/stryker.config.json" changed "$BASE_SHA"
+      # Surviving mutants fail the step above, and their results are still worth reusing.
+      - if: ${{ !cancelled() && hashFiles('.tau/stryker-incremental.json') != '' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tau/stryker-incremental.json
+          key: ${{ steps.restore-incremental.outputs.cache-primary-key }}
