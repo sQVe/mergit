@@ -56,5 +56,6 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          jq '.concurrency = "100%"' stryker.config.json > "${RUNNER_TEMP}/stryker.config.json"
           mapfile -t command < <(jq --raw-output '.mutation.argv[]' .pi/tau.json)
-          "${command[@]}" changed "$BASE_SHA"
+          "${command[@]}" --config "${RUNNER_TEMP}/stryker.config.json" changed "$BASE_SHA"
