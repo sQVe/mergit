@@ -1,5 +1,8 @@
 {
   "mutation": {
     "argv": ["bunx", "--bun", "mutation"]
+  },
+  "fullCheck": {
+    "argv": ["bun", "run", "--bun", "check"]
   }
 }
