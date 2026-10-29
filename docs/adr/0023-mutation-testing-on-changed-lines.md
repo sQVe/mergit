@@ -39,14 +39,12 @@ dependency, and keeps no copy of the script. The package owns the shared parts, 
 Mergit through a version bump.
 
 `stryker.config.json` holds only Mergit's policy: the `mutate` globs, the left-out modules, the
-timeouts, incremental results, and the Bun runner. `mutation.argv` in `.pi/tau.json` names the
-package's `mutation` command, and the CI job `Mutation` runs that argv with a copy of the config
-that uses every core. The package's `--same-folder-tests` switch stays off for the reason in the
-tuning note.
+timeouts, and the Bun runner. `mutation.argv` in `.pi/tau.json` names the package's `mutation`
+command, and the CI job `Mutation` runs that argv with a copy of the config that uses every core.
+The package's `--same-folder-tests` switch stays off for the reason in the tuning note.
 
-Stryker reuses a mutant result while the mutated code and the tests that covered it are unchanged.
-The CI job caches the incremental file per pull request. The cache key hashes what Stryker does not
-track: test helpers, dependencies, and config.
+Stryker's incremental mode stays off. Stryker keeps old results for mutants outside the current
+diff, and the package reports them, so a run could fail on survivors in code it did not change.
 
 The package has no mutant cap by default, so a change of any size runs every mutant on its changed
 lines. The job's `timeout-minutes` is the only bound.
@@ -88,8 +86,6 @@ Stryker core skips its `tsconfig` rewrite.
 - A very large refactor can exceed the job's `timeout-minutes`. The job then fails and a reviewer
   reads the failure as advisory.
 - The peer warning stays until the runner allows TypeScript 7.
-- A change to production code outside the mutated lines can leave a stale reused result, because
-  Stryker does not see it and the cache key does not hash production code.
 - Equivalent survivors stay in the list, so a reader must tell them from real gaps.
 - A change to the script needs a package release before Mergit can use it. Mergit cannot patch the
   script locally.

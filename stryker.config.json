@@ -20,7 +20,5 @@
   "fileLogLevel": "info",
   "ignorePatterns": [".tau", "docs", "tests/*.test.ts", "dist", "CHANGELOG.md"],
   "tempDirName": ".stryker-tmp",
-  "cleanTempDir": true,
-  "incremental": true,
-  "incrementalFile": ".tau/stryker-incremental.json"
+  "cleanTempDir": true
 }
