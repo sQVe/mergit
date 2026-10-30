@@ -167,6 +167,122 @@ const discussionAnchorOf = (session: { getSnapshot: () => Snapshot }) => {
 const anchorOffset = (anchor: DetailAnchor | undefined): number | undefined =>
   anchor?.position.kind === 'text' ? anchor.position.offset : undefined;
 
+test('closing an issue stops stale resume and preserves its anchor for re-entry', async () => {
+  let milliseconds = 0;
+  let reads = 0;
+
+  const effects = {
+    ...detailEffects(async () => {
+      reads += 1;
+
+      return { ok: true, value: issueRead(twoComments) };
+    }),
+    now: () => new Date(milliseconds),
+  };
+
+  const { setup, press, session } = await mount({ effects, width: 80, height: 24 });
+
+  await openReader(press);
+  await press('l');
+
+  await pressAll(
+    press,
+    Array.from({ length: 9 }, () => 'j'),
+  );
+
+  const anchor = discussionAnchorOf(session);
+  const top = topBodyLine(setup);
+
+  expect(anchor).toBeDefined();
+  expect(reads).toBe(1);
+  await press('escape');
+  milliseconds = 6 * 60_000;
+  await press('r');
+  expect(reads).toBe(1);
+  expect(discussionAnchorOf(session)).toEqual(anchor);
+  await press('return');
+  expect(reads).toBe(2);
+  expect(discussionAnchorOf(session)).toEqual(anchor);
+  expect(topBodyLine(setup)).toBe(top);
+});
+
+test('closing pending issue detail stops pagination and late publication', async () => {
+  type Reply = Awaited<ReturnType<SessionEffects['readIssueDetail']>>;
+  const pending: { signal: AbortSignal; resolve: (reply: Reply) => void }[] = [];
+
+  const effects = detailEffects(
+    (_request, signal) =>
+      new Promise((resolve) => {
+        pending.push({ signal, resolve });
+      }),
+  );
+
+  const { press, settle, session } = await mount({ effects, width: 60, height: 24 });
+
+  await openReader(press);
+  expect(pending).toHaveLength(1);
+  await press('escape');
+  const before = session.getSnapshot().detail;
+  const value = issueRead(twoComments);
+
+  pending[0]?.resolve({
+    ok: true,
+    value: {
+      ...value,
+      comments: {
+        ...value.comments,
+        hasNextPage: true,
+        endCursor: 'next',
+      },
+    },
+  });
+
+  await settle();
+  expect(pending).toHaveLength(1);
+  expect(pending[0]?.signal.aborted).toBe(true);
+  expect(session.getSnapshot().detail).toBe(before);
+  await press('return');
+  expect(pending).toHaveLength(2);
+  expect(pending[1]?.signal.aborted).toBe(false);
+});
+
+test('closing the reader cancels a queued detail read before its process starts', async () => {
+  type Reply = Awaited<ReturnType<SessionEffects['readIssueDetail']>>;
+  const pending: { signal: AbortSignal; resolve: (reply: Reply) => void }[] = [];
+
+  const threads = [218, 219, 220].map((number) =>
+    Object.assign({}, issueThread, {
+      id: makeThread(number, `Issue ${number}`).id,
+      title: `Issue ${number}`,
+      subjectUrl: `https://api.github.com/repos/harbor/console/issues/${number}`,
+    }),
+  );
+
+  const effects = detailEffects(
+    (_request, signal) =>
+      new Promise((resolve) => {
+        pending.push({ signal, resolve });
+      }),
+    threads,
+  );
+
+  const { press, settle, session } = await mount({ effects, width: 60, height: 24 });
+
+  await openReader(press);
+  await pressAll(press, ['ctrl+n', 'ctrl+n']);
+  expect(pending).toHaveLength(2);
+  await press('escape');
+  const before = session.getSnapshot().detail;
+
+  pending[0]?.resolve({ ok: true, value: issueRead(twoComments) });
+  await settle();
+  expect(pending).toHaveLength(2);
+  expect(session.getSnapshot().detail).toBe(before);
+  await press('return');
+  expect(pending).toHaveLength(3);
+  expect(pending[2]?.signal.aborted).toBe(false);
+});
+
 test('Discussion keeps its top line across tab switches and holds the anchor offset after a resize', async () => {
   const { setup, press, resize, session } = await mount({
     effects: issueEffects(),

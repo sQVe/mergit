@@ -240,6 +240,7 @@ export const useUiState = (
         cancelOpen: closeOverlay,
         closeDetail: () => {
           setReader({ kind: 'inbox' });
+          session.send({ kind: 'hideDetail' });
         },
         openMessages,
         closeMessages: closeOverlay,

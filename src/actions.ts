@@ -12,13 +12,25 @@ export interface ActionEffects {
 
 export type OpenResult = { ok: true } | { ok: false; message: string };
 
-const browseArguments = (page: BrowserPage): string[] => {
+const handoffArguments = (page: BrowserPage): string[] => {
   if (page.kind === 'item') {
     return ['browse', String(page.number)];
   }
 
   if (page.kind === 'commit') {
     return ['browse', page.sha];
+  }
+
+  if (page.kind === 'pullRequestFiles') {
+    return ['pr', 'diff', String(page.number), '--web'];
+  }
+
+  if (page.kind === 'pullRequestChecks') {
+    return ['pr', 'checks', String(page.number), '--web'];
+  }
+
+  if (page.kind === 'checkJob') {
+    return ['run', 'view', '--job', page.jobId, '--web'];
   }
 
   if (page.kind === 'releases') {
@@ -34,7 +46,7 @@ export const openInBrowser = async (
   signal: AbortSignal,
 ): Promise<OpenResult> => {
   const repository = `${effects.host}/${page.repository}`;
-  const run = await effects.runGh([...browseArguments(page), '--repo', repository], signal);
+  const run = await effects.runGh([...handoffArguments(page), '--repo', repository], signal);
 
   if (run.kind === 'missing') {
     return { ok: false, message: 'gh is not installed' };

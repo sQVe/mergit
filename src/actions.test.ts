@@ -47,6 +47,32 @@ test('each page kind runs gh browse with its own arguments', async () => {
   }
 });
 
+test('each pull request and check page runs its gh web command with the session host', async () => {
+  const pages: [BrowserPage, string[]][] = [
+    [
+      { kind: 'pullRequestFiles', repository, number: 7 },
+      ['pr', 'diff', '7', '--web', '--repo', hostRepository],
+    ],
+    [
+      { kind: 'pullRequestChecks', repository, number: 7 },
+      ['pr', 'checks', '7', '--web', '--repo', hostRepository],
+    ],
+    [
+      { kind: 'checkJob', repository, jobId: '123' },
+      ['run', 'view', '--job', '123', '--web', '--repo', hostRepository],
+    ],
+  ];
+
+  for (const [page, expected] of pages) {
+    const { effects, calls } = makeEffects();
+
+    const result = await openInBrowser(effects, page, signal);
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([expected]);
+  }
+});
+
 test('a missing gh returns a failure with a message', async () => {
   const { effects } = makeEffects({ kind: 'missing' });
 

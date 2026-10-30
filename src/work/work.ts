@@ -5,17 +5,28 @@ import { listedRepositories } from './workTree.ts';
 export { groupings, treeRows } from './workTree.ts';
 export type { Grouping, NodeRow, ThreadRow, TreeRow } from './workTree.ts';
 
-export { toDetailSubjectKey, toIssueCommentId, toIssueId } from './detail.ts';
+export { toDetailSubjectKey, toIssueCommentId, toIssueId, toPullRequestId } from './detail.ts';
 
 export type {
   DetailCoverage,
   DetailSubjectKey,
+  DetailViewer,
   IssueComment,
   IssueCommentPage,
   IssueDetailRead,
   IssueId,
   IssueOverview,
   IssueSubject,
+  PullRequestCheck,
+  PullRequestCheckRollup,
+  PullRequestCommit,
+  PullRequestDetailRead,
+  PullRequestFile,
+  PullRequestId,
+  PullRequestOverview,
+  PullRequestPage,
+  PullRequestRef,
+  PullRequestReviewer,
 } from './detail.ts';
 
 export type ThreadId = string & { readonly brand: 'ThreadId' };
@@ -47,6 +58,9 @@ export interface SubjectFacts {
 export type BrowserPage = { repository: string } & (
   | { kind: 'item'; number: number }
   | { kind: 'commit'; sha: string }
+  | { kind: 'pullRequestFiles'; number: number }
+  | { kind: 'pullRequestChecks'; number: number }
+  | { kind: 'checkJob'; jobId: string }
   | { kind: 'releases' }
   | { kind: 'actions' }
   | { kind: 'repo' }

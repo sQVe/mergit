@@ -1,6 +1,12 @@
 import { invariant } from './invariant.ts';
 import type { ApplicationIntent, Snapshot } from './session/session.ts';
-import { adjacentThreadRowOf, searchCandidatesOf, visibleRows } from './session/session.ts';
+import {
+  activePullRequestEntry,
+  adjacentThreadRowOf,
+  pullRequestPagesOf,
+  searchCandidatesOf,
+  visibleRows,
+} from './session/session.ts';
 import type { BrowserPage, ThreadRow } from './work/work.ts';
 import { pagesOfRow } from './work/work.ts';
 
@@ -157,6 +163,13 @@ const readerRowOf = (reader: ReaderContext): ThreadRow => {
   invariant(reader.kind === 'reader', 'Reader commands run only while a thread detail is open.');
 
   return reader.row;
+};
+
+const readerPagesOf = (snapshot: Snapshot, reader: ReaderContext): BrowserPage[] => {
+  const row = readerRowOf(reader);
+  const pullRequest = activePullRequestEntry(snapshot);
+
+  return pullRequest === null ? pagesOfRow(row) : pullRequestPagesOf(row.thread, pullRequest);
 };
 
 const noReaderReason = (reader: ReaderContext): string | undefined =>
@@ -742,7 +755,7 @@ export const catalog: readonly Command[] = [
     section: 'threads',
     keys: ['o', 'gx'],
     disabledReason: (_snapshot, reader) => noReaderReason(reader),
-    intent: (_snapshot, reader) => openIntentOf(pagesOfRow(readerRowOf(reader))),
+    intent: (snapshot, reader) => openIntentOf(readerPagesOf(snapshot, reader)),
   },
   {
     id: 'readerRefresh',

@@ -166,6 +166,47 @@ export const readGraphqlFailure = (error: GraphqlError, response: GhResponse): G
   };
 };
 
+export const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
+  ok: false,
+  failure: { kind: 'invalidResponse', message },
+});
+
+export const presentNodes = <T>(nodes: (T | null)[]): T[] =>
+  nodes.filter((node): node is T => node !== null);
+
+export const viewerSchema = z.object({ id: z.string().min(1), login: z.string().min(1) });
+
+const graphqlEnvelopeSchema = z.object({
+  data: z.unknown().optional(),
+  errors: z.array(graphqlErrorSchema).optional(),
+});
+
+const notFoundType = 'NOT_FOUND';
+
+const isFailedError = (error: GraphqlError): boolean => error.type !== notFoundType;
+
+const readErrorsFailure = (errors: GraphqlError[], response: GhResponse): GitHubFailure | null => {
+  const failures = errors.filter(isFailedError).map((error) => readGraphqlFailure(error, response));
+
+  return failures.find((failure) => failure.kind === 'rateLimited') ?? failures[0] ?? null;
+};
+
+export const readGraphqlData = (response: GhResponse): GitHubResult<unknown> => {
+  const envelope = graphqlEnvelopeSchema.safeParse(response.body);
+
+  if (!envelope.success) {
+    return invalid(envelope.error.message);
+  }
+
+  const errorsFailure = readErrorsFailure(envelope.data.errors ?? [], response);
+
+  if (errorsFailure !== null) {
+    return { ok: false, failure: errorsFailure };
+  }
+
+  return { ok: true, value: envelope.data.data };
+};
+
 const parseHttp = (stdout: string): ParsedHttp | null => {
   const separator = /\r?\n\r?\n/.exec(stdout);
   const head = separator === null ? stdout : stdout.slice(0, separator.index);

@@ -7,11 +7,19 @@ import type {
   DetailEntry,
   DetailTab,
   IssueEntry,
+  PullRequestEntry,
   Snapshot,
 } from '../session/session.ts';
 import type { NotificationThread } from '../work/work.ts';
 import type { DetailLine, DetailRecord } from './detailLayout.ts';
-import { anchorOfLine, layoutRecords, topOfAnchor } from './detailLayout.ts';
+import {
+  anchorOfLine,
+  coverageTextOf,
+  layoutRecords,
+  noDescription,
+  topOfAnchor,
+} from './detailLayout.ts';
+import { pullRequestTabContentOf, pullRequestTabRowOf } from './detailPullRequest.ts';
 import type { Palette } from './palette.ts';
 import { fitText, visibleText } from './textLayout.ts';
 import { formatAge, numberLabelFor } from './threadRow.ts';
@@ -50,10 +58,12 @@ type NoticeKind = 'mismatch' | 'unsupported' | 'loading' | 'empty';
 const borderAndPadding = 2;
 const hintRows = 1;
 const unsupportedNote = 'Mergit cannot show this content yet.';
-const noDescription = 'No description provided.';
 const noComments = 'No comments.';
 
-const tabLabels: Record<DetailTab, string> = { overview: 'Overview', discussion: 'Discussion' };
+const tabLabels: Record<IssueEntry['tab'], string> = {
+  overview: 'Overview',
+  discussion: 'Discussion',
+};
 
 // A digest fixed per kind keeps the position when notice text changes, such as its age, and a kind
 // never restores another kind's position.
@@ -89,8 +99,11 @@ const activeEntryOf = (snapshot: Snapshot, thread: NotificationThread): DetailEn
   return entry?.threadId === thread.id ? entry : undefined;
 };
 
+const overviewOf = (entry: DetailEntry | undefined) =>
+  entry?.kind === 'issue' || entry?.kind === 'pullRequest' ? entry.sources.overview.record : null;
+
 const identityOf = (thread: NotificationThread, entry: DetailEntry | undefined): string => {
-  const record = entry?.kind === 'issue' ? entry.sources.overview.record : null;
+  const record = overviewOf(entry);
   const kind = thread.subjectType === 'PullRequest' ? 'Pull request' : thread.subjectType;
   const parts = [thread.repository, `${kind} ${numberLabelFor(thread)}`.trim()];
 
@@ -123,34 +136,18 @@ const tabRowOf = (entry: IssueEntry): string =>
     })
     .join(' ');
 
-const loadedCountOf = (entry: IssueEntry, tab: DetailTab): number =>
+const loadedCountOf = (entry: IssueEntry, tab: IssueEntry['tab']): number =>
   tab === 'discussion'
     ? entry.sources.discussion.records.length
     : Number(entry.sources.overview.record !== null);
 
-const coverageLineOf = (entry: IssueEntry, tab: DetailTab): string | null => {
+const coverageLineOf = (entry: IssueEntry, tab: IssueEntry['tab']): string | null => {
   const { coverage, message } = entry.sources[tab];
-  const loaded = loadedCountOf(entry, tab);
-  const reason = message === null ? '' : `. ${message}`;
 
-  if (coverage === 'loaded') {
-    return null;
-  }
-
-  if (coverage === 'partial') {
-    return `Partial: ${loaded} loaded, more may exist${reason}`;
-  }
-
-  if (coverage === 'failed') {
-    const shown = loaded > 0 ? '. Showing loaded content' : '';
-
-    return `Failed: ${message ?? 'the read did not finish'}${shown}`;
-  }
-
-  return coverage === 'unavailable' ? 'Unavailable' : 'Loading';
+  return coverageTextOf(coverage, message, loadedCountOf(entry, tab));
 };
 
-const recordsOf = (entry: IssueEntry, tab: DetailTab, now: Date): DetailRecord[] => {
+const recordsOf = (entry: IssueEntry, tab: IssueEntry['tab'], now: Date): DetailRecord[] => {
   if (tab === 'overview') {
     const { record } = entry.sources.overview;
     const text = record?.body.trim() === '' ? noDescription : (record?.body ?? '');
@@ -166,7 +163,7 @@ const recordsOf = (entry: IssueEntry, tab: DetailTab, now: Date): DetailRecord[]
   }));
 };
 
-const emptyTextOf = (entry: IssueEntry, tab: DetailTab): string[] => {
+const emptyTextOf = (entry: IssueEntry, tab: IssueEntry['tab']): string[] => {
   const settled = entry.sources[tab].coverage === 'loaded';
 
   return tab === 'discussion' && settled ? [noComments] : [];
@@ -197,6 +194,22 @@ const issueBody = (entry: IssueEntry, input: ReaderInput, header: string[]): Rea
   };
 };
 
+const pullRequestBody = (
+  entry: PullRequestEntry,
+  input: ReaderInput,
+  header: string[],
+): ReaderBody => {
+  const content = pullRequestTabContentOf(entry, nowOf(input.snapshot), input.openKey);
+
+  return {
+    header: [...header, pullRequestTabRowOf(entry), ...content.notices],
+    lines: layoutRecords(content.records, input.columns),
+    tab: entry.tab,
+    anchor: entry.anchors[entry.tab],
+    order: content.records.map((record) => record.id),
+  };
+};
+
 const unsupportedTexts = (input: ReaderInput): string[] => {
   const { thread } = input;
   const now = nowOf(input.snapshot);
@@ -218,8 +231,7 @@ const bodyOf = (input: ReaderInput): ReaderBody => {
   const entry = activeEntryOf(snapshot, thread);
   const now = nowOf(snapshot);
 
-  const title =
-    entry?.kind === 'issue' ? (entry.sources.overview.record?.title ?? thread.title) : thread.title;
+  const title = overviewOf(entry)?.title ?? thread.title;
 
   const header = [identityOf(thread, entry), title, reasonLineOf(thread, entry, now)];
   const { mismatch } = snapshot.detail;
@@ -232,6 +244,10 @@ const bodyOf = (input: ReaderInput): ReaderBody => {
 
   if (entry?.kind === 'issue') {
     return issueBody(entry, input, header);
+  }
+
+  if (entry?.kind === 'pullRequest') {
+    return pullRequestBody(entry, input, header);
   }
 
   const notice: { kind: NoticeKind; texts: string[] } =

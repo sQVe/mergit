@@ -37,9 +37,11 @@ authentication and the active account, and Mergit adds no dependency.
   `gh auth switch` work as they do for `gh`.
 - `gh` is a required tool. Mergit reports a clear error when `gh` is missing or not signed in.
 - Each request starts a new `gh` process, so it uses the account that is active at that time.
-- Every `gh api` call passes `--hostname HOST`, and every `gh browse` call passes
-  `--repo HOST/OWNER/REPO`. The host selects a server, never an account. `gh` still picks the
-  account and token for that host.
+- Every `gh api` call passes `--hostname HOST`. Every browser handoff passes
+  `--repo HOST/OWNER/REPO`: `gh browse`, `gh pr diff --web`, `gh pr checks --web`, and
+  `gh run view --web`. `gh browse` cannot open the PR files or checks pages, so those use the other
+  commands. The host selects a server, never an account. `gh` still picks the account and token for
+  that host.
 - Mergit picks the host once at startup, by the rule `gh` follows without `--hostname`. It uses
   `GH_HOST` when it is set and not empty. Otherwise it uses the only host that
   `gh auth status --json hosts` lists. In every other case it uses `github.com`: no host, several

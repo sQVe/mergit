@@ -1,4 +1,5 @@
 import type { DetailAnchor, DetailPosition } from '../session/session.ts';
+import type { DetailCoverage } from '../work/work.ts';
 import { cellWidth, fitText, visibleText } from './textLayout.ts';
 
 export interface DetailRecord {
@@ -14,6 +15,32 @@ export interface DetailLine {
   position: DetailPosition;
   text: string;
 }
+
+export const noDescription = 'No description provided.';
+
+const reasonOf = (message: string | null): string => (message === null ? '' : `. ${message}`);
+
+export const coverageTextOf = (
+  coverage: DetailCoverage,
+  message: string | null,
+  loaded: number,
+): string | null => {
+  if (coverage === 'loaded') {
+    return null;
+  }
+
+  if (coverage === 'partial') {
+    return `Partial: ${loaded} loaded, more may exist${reasonOf(message)}`;
+  }
+
+  if (coverage === 'failed') {
+    const shown = loaded > 0 ? '. Showing loaded content' : '';
+
+    return `Failed: ${message ?? 'the read did not finish'}${shown}`;
+  }
+
+  return coverage === 'unavailable' ? 'Unavailable' : 'Loading';
+};
 
 const segmenter = new Intl.Segmenter();
 
