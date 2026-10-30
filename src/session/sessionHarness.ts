@@ -1,6 +1,7 @@
 import type {
   GitHubResult,
   IssueDetailRequest,
+  PullRequestDetailRequest,
   NotificationFeed,
   NotificationFeedRead,
   NotificationFeedRequest,
@@ -13,6 +14,7 @@ import type {
 import type {
   BrowserPage,
   IssueDetailRead,
+  PullRequestDetailRead,
   NotificationThread,
   ThreadId,
   ViewerId,
@@ -67,6 +69,12 @@ interface DetailCall {
   signal: AbortSignal;
 }
 
+interface PullRequestDetailCall {
+  request: PullRequestDetailRequest;
+  resolve: (result: GitHubResult<PullRequestDetailRead>) => void;
+  signal: AbortSignal;
+}
+
 interface FakeTimer {
   delay: number;
   callback: () => void;
@@ -84,6 +92,7 @@ export interface Harness {
   lookups: LookupCall[];
   sends: SendCall[];
   details: DetailCall[];
+  pullRequestDetails: PullRequestDetailCall[];
   opens: BrowserPage[];
   saves: SavedState[];
   timers: FakeTimer[];
@@ -195,6 +204,7 @@ export const makeHarness = (
   const timers: FakeTimer[] = [];
   const sends: SendCall[] = [];
   const details: DetailCall[] = [];
+  const pullRequestDetails: PullRequestDetailCall[] = [];
   const opens: BrowserPage[] = [];
   const saves: SavedState[] = [];
   const clock = { time: new Date('2026-02-01T12:00:00Z').getTime() };
@@ -266,6 +276,10 @@ export const makeHarness = (
           reject,
           signal,
         });
+      }),
+    readPullRequestDetail: (request, signal) =>
+      new Promise((resolve) => {
+        pullRequestDetails.push({ request, resolve, signal });
       }),
     readIssueDetail: (request, signal) =>
       new Promise((resolve) => {
@@ -371,6 +385,7 @@ export const makeHarness = (
     lookups,
     sends,
     details,
+    pullRequestDetails,
     opens,
     saves,
     now,

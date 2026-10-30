@@ -11,6 +11,8 @@ export { createGhRunner } from './ghApi.ts';
 export type { GitHubEffects, GitHubFailure, GitHubResult } from './ghApi.ts';
 export { readIssueDetail } from './issueDetail.ts';
 export type { IssueDetailRequest } from './issueDetail.ts';
+export { readPullRequestDetail } from './pullRequestDetail.ts';
+export type { PullRequestDetailRequest } from './pullRequestDetail.ts';
 export type { NotificationFeed, NotificationPage } from './notifications.ts';
 export { lookUpSubjects } from './subjects.ts';
 export type { SubjectLookup, SubjectLookupResult } from './subjects.ts';

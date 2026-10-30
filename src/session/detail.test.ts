@@ -195,6 +195,58 @@ const titleFor = (harness: Harness, thread: NotificationThread): string | undefi
 const commentsOver = (count: number): IssueComment[] =>
   Array.from({ length: count }, (_, index) => commentOf(`C${index}`));
 
+for (const minutes of [0, 5, 6]) {
+  test(`feed completion revalidates only the shown stale issue after ${minutes} minutes`, async () => {
+    const cached = issueOf(1);
+    const shown = issueOf(2);
+    const harness = await loadedHarness(cached, shown);
+
+    await showLoaded(harness, cached, pageOf(1));
+    await showLoaded(harness, shown, pageOf(2));
+    const cachedBefore = entryFor(harness, cached);
+
+    harness.advance(minutes * 60_000);
+    await harness.loadWith('same-notifications', [cached, shown]);
+    expect(entryFor(harness, cached)).toBe(cachedBefore);
+
+    if (minutes > 5) {
+      expect(harness.details).toHaveLength(3);
+      await answerDetail(harness, 2, pageOf(2, { title: 'Updated shown issue' }));
+      expect(titleOf(harness)).toBe('Updated shown issue');
+    } else {
+      expect(harness.details).toHaveLength(2);
+      expect(titleOf(harness)).toBe('Issue 2');
+    }
+  });
+}
+
+test('feed completion does not revalidate a stale issue absent from the new feed', async () => {
+  const shown = issueOf(1);
+  const other = issueOf(2);
+  const harness = await loadedHarness(shown, other);
+
+  await showLoaded(harness, shown, pageOf(1));
+  harness.advance(6 * 60_000);
+  await harness.loadWith('removed-shown', [other]);
+  expect(harness.details).toHaveLength(1);
+  expect(titleOf(harness)).toBe('Issue 1');
+});
+
+test('feed completion does not replace an in-flight stale issue load', async () => {
+  const shown = issueOf(1);
+  const harness = await loadedHarness(shown);
+
+  await showLoaded(harness, shown, pageOf(1));
+  harness.advance(6 * 60_000);
+  harness.session.send({ kind: 'showDetail', thread: shown });
+  await settle();
+  await harness.loadWith('same-notifications', [shown]);
+  expect(harness.details).toHaveLength(2);
+  expect(harness.details[1]?.signal.aborted).toBe(false);
+  await answerDetail(harness, 1, pageOf(1, { title: 'In-flight result' }));
+  expect(titleOf(harness)).toBe('In-flight result');
+});
+
 test('a read of a subject the reader left never reaches the snapshot', async () => {
   const [first, second] = [issueOf(1), issueOf(2)];
   const harness = await loadedHarness(first, second);

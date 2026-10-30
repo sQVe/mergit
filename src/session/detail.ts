@@ -1,24 +1,34 @@
-import type { GitHubFailure, GitHubResult, IssueDetailRequest, Viewer } from '../github/github.ts';
+import type {
+  GitHubResult,
+  IssueDetailRequest,
+  PullRequestDetailRequest,
+  Viewer,
+} from '../github/github.ts';
 import type {
   DetailSubjectKey,
-  IssueComment,
+  DetailViewer,
+  PullRequestDetailRead,
   IssueDetailRead,
-  IssueId,
   NotificationThread,
 } from '../work/work.ts';
-import { readSubjectNumber, toDetailSubjectKey } from '../work/work.ts';
+import { toDetailSubjectKey } from '../work/work.ts';
 import type { Admission } from './admission.ts';
-import type { DetailEntry, DetailSource, DetailState, IssueEntry } from './detailTransitions.ts';
+import { issueEntryOf, loadingIssueEntry, pauseIssueEntry, traverseIssue } from './detailIssue.ts';
 import {
-  applyIssuePage,
-  emptyIssueEntry,
+  pausePullRequest,
+  pullRequestEntryOf,
+  setPullRequestCoverage,
+  traversePullRequest,
+} from './detailPullRequest.ts';
+import type { DetailEntry, DetailState, PullRequestTab } from './detailTransitions.ts';
+import {
+  clearedDetail,
+  detailNeedsLoad,
+  emptyDetailEntry,
+  newDetailEntry,
+  detailCoordinatesOf,
   evictDetail,
-  fitCacheBudget,
   initialDetail,
-  isInterrupted,
-  keepNewer,
-  setCoverage,
-  unsupportedEntry,
 } from './detailTransitions.ts';
 import { guardEffect, requestFailed } from './effectGuard.ts';
 import { failureMessage } from './feedTransitions.ts';
@@ -28,6 +38,8 @@ export interface DetailOwner {
   show: (thread: NotificationThread) => void;
   revalidate: (thread: NotificationThread) => void;
   resume: () => void;
+  visitTab: () => void;
+  hide: () => void;
   clear: () => void;
   stop: () => void;
 }
@@ -38,6 +50,10 @@ export interface DetailHost {
     request: IssueDetailRequest,
     signal: AbortSignal,
   ) => Promise<GitHubResult<IssueDetailRead>>;
+  readPullRequestDetail: (
+    request: PullRequestDetailRequest,
+    signal: AbortSignal,
+  ) => Promise<GitHubResult<PullRequestDetailRead>>;
   lastViewer: () => Viewer | null;
   now: () => Date;
   getSnapshot: () => Snapshot;
@@ -45,69 +61,24 @@ export interface DetailHost {
   admission: Admission;
 }
 
-interface ShownIssue {
+interface ShownSubject {
   key: DetailSubjectKey;
-  coordinates: IssueDetailRequest['coordinates'];
+  coordinates: NonNullable<ReturnType<typeof detailCoordinatesOf>>;
 }
 
-interface Load extends ShownIssue {
+interface Load {
+  key: DetailSubjectKey;
   controller: AbortController;
-  subjectId: IssueId | null;
+  source: 'issue' | PullRequestTab;
 }
-
-interface Traversal {
-  records: Map<string, IssueComment>;
-  requests: number;
-  cursor: string | null;
-  subjectId: IssueId | null;
-}
-
-type IssueRead = Extract<IssueDetailRead, { kind: 'issue' }>;
 
 const maximumProcesses = 2;
-const maximumRequests = 8;
-const maximumRecords = 500;
-const commentsPerPage = 50;
-const staleAfterMinutes = 5;
-const millisecondsPerMinute = 60_000;
-const staleAfterMilliseconds = staleAfterMinutes * millisecondsPerMinute;
-
-const bothSources: ReadonlySet<DetailSource> = new Set(['overview', 'discussion']);
-const discussionOnly: ReadonlySet<DetailSource> = new Set(['discussion']);
-
-const partialOrFailed = (hasContent: boolean) => (hasContent ? 'partial' : 'failed');
-
-const partialOrNotRequested = (hasContent: boolean) => (hasContent ? 'partial' : 'notRequested');
-
-const coordinatesOf = (thread: NotificationThread): IssueDetailRequest['coordinates'] | null => {
-  const number = readSubjectNumber(thread.subjectUrl);
-
-  if (thread.subjectType !== 'Issue' || number === null) {
-    return null;
-  }
-
-  const slash = thread.repository.indexOf('/');
-
-  return {
-    owner: thread.repository.slice(0, slash),
-    name: thread.repository.slice(slash + 1),
-    number,
-  };
-};
-
-const pastFirstPage = (traversal: Traversal): boolean => traversal.cursor !== null;
-
-const reachedLimit = (traversal: Traversal): boolean =>
-  traversal.requests >= maximumRequests || traversal.records.size >= maximumRecords;
-
-const loadingEntry = (entry: IssueEntry): IssueEntry =>
-  setCoverage(entry, bothSources, () => 'loading', null);
 
 export const createDetail = (host: DetailHost): DetailOwner => {
   const queue: (() => void)[] = [];
   let running = 0;
   let current: Load | null = null;
-  let shownIssue: ShownIssue | null = null;
+  let shownSubject: ShownSubject | null = null;
 
   const detail = () => host.getSnapshot().detail;
 
@@ -129,12 +100,6 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     const state = detail();
 
     publish({ ...state, entries: new Map(state.entries).set(entry.key, entry) });
-  };
-
-  const issueEntryOf = (key: DetailSubjectKey): IssueEntry | null => {
-    const entry = detail().entries.get(key);
-
-    return entry?.kind === 'issue' ? entry : null;
   };
 
   const abortCurrent = () => {
@@ -164,7 +129,7 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     }
   };
 
-  const request = async (load: Load, traversal: Traversal) => {
+  const request = async <Read>(load: Load, effect: () => Promise<GitHubResult<Read>>) => {
     await takeSlot();
 
     if (load.controller.signal.aborted) {
@@ -179,167 +144,102 @@ export const createDetail = (host: DetailHost): DetailOwner => {
       return 'paused';
     }
 
-    const coordinates =
-      traversal.subjectId === null ? load.coordinates : { subjectId: traversal.subjectId };
-
-    const issueRequest = {
-      coordinates,
-      commentsAfter: traversal.cursor,
-      pageSize: commentsPerPage,
-    };
-
     try {
-      return await guardEffect(
-        () => host.readIssueDetail(issueRequest, load.controller.signal),
-        requestFailed,
-      );
+      return await guardEffect(effect, requestFailed);
     } finally {
       releaseSlot();
     }
   };
 
-  const clearForMismatch = (entry: IssueEntry, read: IssueDetailRead) => {
-    const entries = new Map([[entry.key, emptyIssueEntry(entry.key, entry.threadId)]]);
+  const acceptViewer = (entry: DetailEntry, viewer: DetailViewer): boolean => {
+    if (viewer.id === host.lastViewer()?.id) {
+      if (detail().mismatch !== null) {
+        publish({ ...detail(), mismatch: null });
+      }
 
-    publish({ activeKey: entry.key, entries, mismatch: { login: read.viewer.login } });
+      return true;
+    }
+
+    const empty = emptyDetailEntry(entry);
+    const entries = new Map([[entry.key, empty]]);
+
+    publish({ activeKey: entry.key, entries, mismatch: { login: viewer.login } });
+
+    return false;
   };
 
-  const applyFailure = (entry: IssueEntry, failure: GitHubFailure, overviewDone: boolean) => {
-    if (failure.kind === 'rateLimited') {
-      host.admission.pause(failure.resetAt);
-    }
-
-    const sources = overviewDone ? discussionOnly : bothSources;
-
-    const coverageOf =
-      failure.kind === 'responseTooLarge' ? () => 'partial' as const : partialOrFailed;
-
-    replaceEntry(setCoverage(entry, sources, coverageOf, failureMessage(failure)));
-  };
-
-  const acceptIssue = (entry: IssueEntry, read: IssueRead, traversal: Traversal): boolean => {
-    const continuedAnother =
-      traversal.subjectId !== null && read.subject.id !== traversal.subjectId;
-
-    if (continuedAnother) {
-      const failure = {
-        kind: 'invalidResponse',
-        message: 'The issue changed while loading',
-      } as const;
-
-      applyFailure(entry, failure, pastFirstPage(traversal));
-
-      return false;
-    }
-
-    keepNewer(traversal.records, read.comments.records);
-    traversal.cursor = read.comments.endCursor;
-    traversal.subjectId = read.subject.id;
-
-    const fitted = fitCacheBudget(applyIssuePage(entry, read, traversal.records, host.now()));
-    const cannotContinue = traversal.cursor === null || reachedLimit(traversal);
-    const pagesLeft = read.comments.hasNextPage && cannotContinue;
-    const partial = fitted.trimmed || pagesLeft;
-
-    const next = partial
-      ? setCoverage(fitted.entry, discussionOnly, () => 'partial', null)
-      : fitted.entry;
-
-    replaceEntry(next);
-
-    return read.comments.hasNextPage && !partial;
-  };
-
-  const acceptPage = (
-    entry: IssueEntry,
-    result: GitHubResult<IssueDetailRead>,
-    traversal: Traversal,
-  ): boolean => {
-    if (!result.ok) {
-      applyFailure(entry, result.failure, pastFirstPage(traversal));
-
-      return false;
-    }
-
-    const read = result.value;
-
-    if (read.viewer.id !== host.lastViewer()?.id) {
-      clearForMismatch(entry, read);
-
-      return false;
-    }
-
-    if (detail().mismatch !== null) {
-      publish({ ...detail(), mismatch: null });
-    }
-
-    if (read.kind !== 'issue') {
-      const emptied = { ...emptyIssueEntry(entry.key, entry.threadId), subjectId: entry.subjectId };
-
-      replaceEntry(setCoverage(emptied, bothSources, () => read.kind, null));
-
-      return false;
-    }
-
-    return acceptIssue(entry, read, traversal);
-  };
-
-  const stopForPause = (entry: IssueEntry, sources: ReadonlySet<DetailSource>) => {
+  const pausedMessage = () => {
     const { pausedUntil } = host.getSnapshot();
 
-    const message =
-      pausedUntil === null ? null : failureMessage({ kind: 'rateLimited', resetAt: pausedUntil });
-
-    replaceEntry(setCoverage(entry, sources, partialOrNotRequested, message));
+    return pausedUntil === null
+      ? null
+      : failureMessage({ kind: 'rateLimited', resetAt: pausedUntil });
   };
 
-  const traverse = async (load: Load) => {
-    const traversal: Traversal = {
-      records: new Map(),
-      requests: 0,
-      cursor: null,
-      subjectId: load.subjectId,
-    };
+  const traverse = (
+    entry: Exclude<DetailEntry, { kind: 'unsupported' }>,
+    load: Load,
+    coordinates: ShownSubject['coordinates'],
+  ): Promise<void> => {
+    const { key } = load;
 
-    let goesOn = true;
-
-    while (goesOn) {
-      // oxlint-disable-next-line no-await-in-loop -- each page needs the cursor of the page before it
-      const result = await request(load, traversal);
-      const entry = issueEntryOf(load.key);
-
-      traversal.requests += 1;
-
-      if (result === null || load !== current || entry === null) {
-        return;
-      }
-
-      if (result === 'paused') {
-        stopForPause(entry, pastFirstPage(traversal) ? discussionOnly : bothSources);
-
-        return;
-      }
-
-      goesOn = acceptPage(entry, result, traversal);
+    if (entry.kind === 'issue') {
+      return traverseIssue({
+        coordinates: entry.subjectId === null ? coordinates : { subjectId: entry.subjectId },
+        request: (query) =>
+          request(load, () => host.readIssueDetail(query, load.controller.signal)),
+        entry: () => (load === current ? issueEntryOf(detail().entries.get(key)) : null),
+        publish: replaceEntry,
+        acceptViewer,
+        pause: host.admission.pause,
+        pausedMessage,
+        now: host.now,
+      });
     }
+
+    return traversePullRequest({
+      source: entry.tab,
+      coordinates: entry.subjectId === null ? coordinates : { subjectId: entry.subjectId },
+      request: (query) =>
+        request(load, () => host.readPullRequestDetail(query, load.controller.signal)),
+      entry: () => (load === current ? pullRequestEntryOf(detail().entries.get(key)) : null),
+      publish: replaceEntry,
+      acceptViewer: (viewer) => acceptViewer(entry, viewer),
+      pause: host.admission.pause,
+      pausedMessage,
+      now: host.now,
+      failureMessage,
+    });
   };
 
-  const startLoad = ({ key, coordinates }: ShownIssue) => {
-    const entry = issueEntryOf(key);
+  const startLoad = ({ key, coordinates }: ShownSubject) => {
+    const entry = detail().entries.get(key);
 
     abortCurrent();
 
-    if (entry === null) {
+    if (entry === undefined || entry.kind === 'unsupported') {
       return;
     }
 
     if (host.admission.isPaused()) {
-      stopForPause(entry, bothSources);
+      const message = pausedMessage();
+
+      const paused =
+        entry.kind === 'issue'
+          ? pauseIssueEntry(entry, false, message)
+          : pausePullRequest(entry, message);
+
+      replaceEntry(paused);
 
       return;
     }
 
-    replaceEntry(loadingEntry(entry));
+    const loading =
+      entry.kind === 'issue'
+        ? loadingIssueEntry(entry)
+        : setPullRequestCoverage(entry, entry.tab, 'loading', null);
+
+    replaceEntry(loading);
 
     if (host.lastViewer() === null) {
       return;
@@ -347,14 +247,13 @@ export const createDetail = (host: DetailHost): DetailOwner => {
 
     const load: Load = {
       key,
-      coordinates,
       controller: new AbortController(),
-      subjectId: entry.subjectId,
+      source: entry.kind === 'pullRequest' ? entry.tab : 'issue',
     };
 
     current = load;
 
-    traverse(load)
+    traverse(entry, load, coordinates)
       .finally(() => {
         if (current === load) {
           current = null;
@@ -364,33 +263,29 @@ export const createDetail = (host: DetailHost): DetailOwner => {
   };
 
   const needsLoad = (entry: DetailEntry): boolean => {
-    if (current?.key === entry.key) {
+    if (
+      current?.key === entry.key &&
+      current.source === (entry.kind === 'pullRequest' ? entry.tab : 'issue')
+    ) {
       return false;
     }
 
-    if (entry.fetchedAt === null || isInterrupted(entry)) {
-      return true;
-    }
-
-    return host.now().getTime() - entry.fetchedAt.getTime() > staleAfterMilliseconds;
+    return detailNeedsLoad(entry, host.now());
   };
 
   const activate = (thread: NotificationThread): DetailEntry => {
     const key = toDetailSubjectKey(host.host, thread.id);
-    const coordinates = coordinatesOf(thread);
+    const coordinates = detailCoordinatesOf(thread);
 
     if (current?.key !== key) {
       abortCurrent();
     }
 
-    shownIssue = coordinates === null ? null : { key, coordinates };
+    shownSubject = coordinates === null ? null : { key, coordinates };
 
     const existing = detail().entries.get(key);
 
-    const fallback =
-      coordinates === null ? unsupportedEntry(key, thread.id) : emptyIssueEntry(key, thread.id);
-
-    const entry = existing ?? fallback;
+    const entry = existing ?? newDetailEntry(thread, host.host);
 
     showEntry(entry);
 
@@ -400,16 +295,16 @@ export const createDetail = (host: DetailHost): DetailOwner => {
   const show = (thread: NotificationThread) => {
     const entry = activate(thread);
 
-    if (shownIssue !== null && needsLoad(entry)) {
-      startLoad(shownIssue);
+    if (shownSubject !== null && needsLoad(entry)) {
+      startLoad(shownSubject);
     }
   };
 
   const revalidate = (thread: NotificationThread) => {
     activate(thread);
 
-    if (shownIssue !== null) {
-      startLoad(shownIssue);
+    if (shownSubject !== null) {
+      startLoad(shownSubject);
     }
   };
 
@@ -417,44 +312,54 @@ export const createDetail = (host: DetailHost): DetailOwner => {
     host.getSnapshot().threads.some((thread) => toDetailSubjectKey(host.host, thread.id) === key);
 
   const resume = () => {
-    const entry = shownIssue === null ? undefined : detail().entries.get(shownIssue.key);
-    const waiting = current === null && entry !== undefined && isInterrupted(entry);
+    const entry = shownSubject === null ? undefined : detail().entries.get(shownSubject.key);
+    const waiting = current === null && entry !== undefined && needsLoad(entry);
 
-    if (shownIssue === null || !waiting) {
+    if (shownSubject === null || !waiting) {
       return;
     }
 
-    if (feedHasThread(shownIssue.key)) {
-      startLoad(shownIssue);
+    if (feedHasThread(shownSubject.key)) {
+      startLoad(shownSubject);
     } else {
-      shownIssue = null;
+      shownSubject = null;
     }
   };
 
   const clear = () => {
     abortCurrent();
 
-    const { activeKey, entries } = detail();
-    const active = activeKey === null ? undefined : entries.get(activeKey);
-    const kept = new Map<DetailSubjectKey, DetailEntry>();
+    publish(clearedDetail(detail()));
+  };
 
-    if (active?.kind === 'issue') {
-      kept.set(active.key, loadingEntry(emptyIssueEntry(active.key, active.threadId)));
-    } else if (active !== undefined) {
-      kept.set(active.key, unsupportedEntry(active.key, active.threadId));
-    }
-
-    publish({ activeKey, entries: kept, mismatch: null });
+  const hide = () => {
+    abortCurrent();
+    shownSubject = null;
   };
 
   const stop = () => {
-    abortCurrent();
-    shownIssue = null;
+    hide();
 
     if (detail() !== initialDetail) {
       publish(initialDetail);
     }
   };
 
-  return { show, revalidate, resume, clear, stop };
+  const visitTab = () => {
+    const entry = shownSubject === null ? undefined : detail().entries.get(shownSubject.key);
+
+    if (entry?.kind !== 'pullRequest' || shownSubject === null) {
+      return;
+    }
+
+    if (current?.source !== entry.tab) {
+      abortCurrent();
+    }
+
+    if (needsLoad(entry)) {
+      startLoad(shownSubject);
+    }
+  };
+
+  return { show, revalidate, resume, clear, stop, visitTab, hide };
 };

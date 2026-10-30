@@ -11,19 +11,14 @@ import type {
   IssueSubject,
 } from '../work/work.ts';
 import { toIssueCommentId, toIssueId, toViewerId, toViewerLogin } from '../work/work.ts';
-import type {
-  GhResponse,
-  GitHubEffects,
-  GitHubFailure,
-  GitHubResult,
-  GraphqlError,
-  GraphqlVariables,
-} from './ghApi.ts';
+import type { GitHubEffects, GitHubResult, GraphqlVariables } from './ghApi.ts';
 import {
   globalNodeIdHeader,
-  graphqlErrorSchema,
-  readGraphqlFailure,
+  invalid,
+  presentNodes,
+  readGraphqlData,
   requestGraphql,
+  viewerSchema,
 } from './ghApi.ts';
 
 interface RepositoryIssueCoordinates {
@@ -49,16 +44,7 @@ interface DigestedRevision {
 
 type IssueLookup = { kind: 'issue'; issue: IssueSource } | { kind: 'unavailable' | 'unsupported' };
 
-const notFoundType = 'NOT_FOUND';
-
-const isFailedError = (error: GraphqlError): boolean => error.type !== notFoundType;
-
-const invalid = (message: string): { ok: false; failure: GitHubFailure } => ({
-  ok: false,
-  failure: { kind: 'invalidResponse', message },
-});
-
-const digestRevision = (revision: DigestedRevision): string => {
+export const digestRevision = (revision: DigestedRevision): string => {
   const content = JSON.stringify([
     revision.body,
     revision.createdAt,
@@ -68,9 +54,6 @@ const digestRevision = (revision: DigestedRevision): string => {
 
   return `v1:${createHash('sha256').update(content).digest('hex')}`;
 };
-
-const presentNodes = <T>(nodes: (T | null)[]): T[] =>
-  nodes.filter((node): node is T => node !== null);
 
 const overviewFields = [
   'id number url title body state',
@@ -127,8 +110,6 @@ const buildVariables = (request: IssueDetailRequest): GraphqlVariables => {
   return { strings, integers };
 };
 
-const viewerSchema = z.object({ id: z.string().min(1), login: z.string().min(1) });
-
 const loginSchema = z.object({ login: z.string() }).nullable();
 
 const revisionSchema = z.object({
@@ -166,11 +147,6 @@ const issueSchema = revisionSchema.extend({
   }),
 });
 
-const envelopeSchema = z.object({
-  data: z.unknown().optional(),
-  errors: z.array(graphqlErrorSchema).optional(),
-});
-
 const dataSchema = z
   .object({
     viewer: viewerSchema,
@@ -201,12 +177,6 @@ const lookUpNodeIssue = (node: ResponseData['node']): GitHubResult<IssueLookup> 
   }
 
   return { ok: true, value: { kind: 'issue', issue: parsed.data } };
-};
-
-const readErrorsFailure = (errors: GraphqlError[], response: GhResponse): GitHubFailure | null => {
-  const failures = errors.filter(isFailedError).map((error) => readGraphqlFailure(error, response));
-
-  return failures.find((failure) => failure.kind === 'rateLimited') ?? failures[0] ?? null;
 };
 
 const lookUpIssue = (
@@ -287,19 +257,13 @@ export const readIssueDetail = async (
     return response;
   }
 
-  const envelope = envelopeSchema.safeParse(response.value.body);
+  const envelope = readGraphqlData(response.value);
 
-  if (!envelope.success) {
-    return invalid(envelope.error.message);
+  if (!envelope.ok) {
+    return envelope;
   }
 
-  const errorsFailure = readErrorsFailure(envelope.data.errors ?? [], response.value);
-
-  if (errorsFailure !== null) {
-    return { ok: false, failure: errorsFailure };
-  }
-
-  const parsed = dataSchema.safeParse(envelope.data.data);
+  const parsed = dataSchema.safeParse(envelope.value);
 
   if (!parsed.success) {
     return invalid(parsed.error.message);

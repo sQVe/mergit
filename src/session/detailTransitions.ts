@@ -5,12 +5,23 @@ import type {
   IssueDetailRead,
   IssueId,
   IssueOverview,
+  NotificationThread,
+  PullRequestCheck,
+  PullRequestCommit,
+  PullRequestDetailRead,
+  PullRequestFile,
+  PullRequestOverview,
+  PullRequestRef,
   ThreadId,
   ViewerLogin,
 } from '../work/work.ts';
+import { readSubjectNumber, toDetailSubjectKey } from '../work/work.ts';
+import { emptyPullRequestEntry, pullRequestNeedsLoad } from './detailPullRequest.ts';
 import type { Snapshot } from './sessionState.ts';
 
-export type DetailTab = 'overview' | 'discussion';
+type IssueTab = 'overview' | 'discussion';
+export type PullRequestTab = 'overview' | 'commits' | 'checks' | 'files';
+export type DetailTab = IssueTab | PullRequestTab;
 
 export type DetailPosition =
   | { kind: 'separator' }
@@ -56,8 +67,39 @@ interface EntryBase {
 
 export interface IssueEntry extends EntryBase {
   kind: 'issue';
+  tab: IssueTab;
+  tabs: readonly IssueTab[];
   subjectId: IssueId | null;
   sources: IssueSources;
+}
+
+export interface PullRequestSourceState extends SourceState {
+  fetchedAt: Date | null;
+  headOid: string | null;
+  baseOid: string | null;
+}
+
+interface PullRequestRows<Record> extends PullRequestSourceState {
+  records: Record[];
+  totalCount: number | null;
+}
+
+export interface PullRequestEntry extends EntryBase {
+  kind: 'pullRequest';
+  host: string;
+  tab: PullRequestTab;
+  tabs: readonly PullRequestTab[];
+  subjectId: PullRequestRef['id'] | null;
+  headOid: string | null;
+  baseOid: string | null;
+  sources: {
+    overview: PullRequestSourceState & { record: PullRequestOverview | null };
+    commits: PullRequestRows<PullRequestCommit>;
+    checks: PullRequestRows<PullRequestCheck> & { state: string | null; commitOid: string | null };
+    files: PullRequestRows<PullRequestFile> & {
+      totals: Extract<PullRequestDetailRead, { kind: 'files' }>['totals'] | null;
+    };
+  };
 }
 
 interface UnsupportedEntry extends EntryBase {
@@ -65,13 +107,36 @@ interface UnsupportedEntry extends EntryBase {
   coverage: 'unsupported';
 }
 
-export type DetailEntry = IssueEntry | UnsupportedEntry;
+export type DetailEntry = IssueEntry | PullRequestEntry | UnsupportedEntry;
 
 export interface DetailState {
   activeKey: DetailSubjectKey | null;
   entries: ReadonlyMap<DetailSubjectKey, DetailEntry>;
   mismatch: { login: ViewerLogin } | null;
 }
+
+export const detailCoordinatesOf = (
+  thread: NotificationThread,
+): {
+  owner: string;
+  name: string;
+  number: number;
+} | null => {
+  const number = readSubjectNumber(thread.subjectUrl);
+  const supported = thread.subjectType === 'Issue' || thread.subjectType === 'PullRequest';
+
+  if (!supported || number === null) {
+    return null;
+  }
+
+  const slash = thread.repository.indexOf('/');
+
+  return {
+    owner: thread.repository.slice(0, slash),
+    name: thread.repository.slice(slash + 1),
+    number,
+  };
+};
 
 export const initialDetail: DetailState = { activeKey: null, entries: new Map(), mismatch: null };
 
@@ -98,7 +163,7 @@ const bodyBytesOf = (record: { body: string }): number => {
   return bytes;
 };
 
-const issueTabs: readonly DetailTab[] = ['overview', 'discussion'];
+const issueTabs: readonly IssueTab[] = ['overview', 'discussion'];
 
 export const emptyIssueEntry = (key: DetailSubjectKey, threadId: ThreadId): IssueEntry => ({
   key,
@@ -115,7 +180,7 @@ export const emptyIssueEntry = (key: DetailSubjectKey, threadId: ThreadId): Issu
   },
 });
 
-export const unsupportedEntry = (key: DetailSubjectKey, threadId: ThreadId): DetailEntry => ({
+const unsupportedEntry = (key: DetailSubjectKey, threadId: ThreadId): DetailEntry => ({
   key,
   threadId,
   kind: 'unsupported',
@@ -126,6 +191,28 @@ export const unsupportedEntry = (key: DetailSubjectKey, threadId: ThreadId): Det
   fetchedAt: null,
 });
 
+export const emptyDetailEntry = (entry: DetailEntry): DetailEntry => {
+  if (entry.kind === 'pullRequest') {
+    return emptyPullRequestEntry(entry.key, entry.threadId, entry.host);
+  }
+
+  return entry.kind === 'issue'
+    ? emptyIssueEntry(entry.key, entry.threadId)
+    : unsupportedEntry(entry.key, entry.threadId);
+};
+
+export const newDetailEntry = (thread: NotificationThread, host: string): DetailEntry => {
+  const key = toDetailSubjectKey(host, thread.id);
+
+  if (detailCoordinatesOf(thread) === null) {
+    return unsupportedEntry(key, thread.id);
+  }
+
+  return thread.subjectType === 'PullRequest'
+    ? emptyPullRequestEntry(key, thread.id, host)
+    : emptyIssueEntry(key, thread.id);
+};
+
 const hasContent = (entry: IssueEntry, source: DetailSource): boolean =>
   source === 'overview'
     ? entry.sources.overview.record !== null
@@ -134,8 +221,15 @@ const hasContent = (entry: IssueEntry, source: DetailSource): boolean =>
 const isLoading = (entry: IssueEntry): boolean =>
   entry.sources.overview.coverage === 'loading' || entry.sources.discussion.coverage === 'loading';
 
-export const isInterrupted = (entry: DetailEntry): boolean =>
-  entry.kind === 'issue' && isLoading(entry);
+const isInterrupted = (entry: DetailEntry): boolean => {
+  if (entry.kind === 'pullRequest') {
+    const { coverage } = entry.sources[entry.tab];
+
+    return coverage === 'loading' || coverage === 'notRequested';
+  }
+
+  return entry.kind === 'issue' && isLoading(entry);
+};
 
 export const setCoverage = (
   entry: IssueEntry,
@@ -155,6 +249,40 @@ export const setCoverage = (
       discussion: { ...entry.sources.discussion, ...stateOf('discussion') },
     },
   };
+};
+
+export const clearedDetail = (detail: DetailState): DetailState => {
+  const active = detail.activeKey === null ? undefined : detail.entries.get(detail.activeKey);
+  const entries = new Map<DetailSubjectKey, DetailEntry>();
+
+  if (active !== undefined) {
+    const empty = emptyDetailEntry(active);
+
+    const reset =
+      empty.kind === 'issue'
+        ? setCoverage(empty, new Set(['overview', 'discussion']), () => 'loading', null)
+        : empty;
+
+    entries.set(active.key, reset);
+  }
+
+  return { activeKey: detail.activeKey, entries, mismatch: null };
+};
+
+export const detailNeedsLoad = (entry: DetailEntry, now: Date): boolean => {
+  if (entry.kind === 'pullRequest') {
+    return pullRequestNeedsLoad(entry, now);
+  }
+
+  if (entry.fetchedAt === null || isInterrupted(entry)) {
+    return true;
+  }
+
+  const staleAfterMinutes = 5;
+  const millisecondsPerMinute = 60_000;
+  const staleAfterMilliseconds = staleAfterMinutes * millisecondsPerMinute;
+
+  return now.getTime() - entry.fetchedAt.getTime() > staleAfterMilliseconds;
 };
 
 const isNewer = (candidate: { updatedAt: string }, current: { updatedAt: string }): boolean =>
@@ -228,6 +356,10 @@ const anchorBytesOf = (entry: DetailEntry): number =>
   );
 
 const entryBytesOf = (entry: DetailEntry): number => {
+  if (entry.kind === 'pullRequest') {
+    return textEncoder.encode(JSON.stringify(entry)).byteLength;
+  }
+
   if (entry.kind !== 'issue') {
     return anchorBytesOf(entry);
   }
@@ -305,10 +437,19 @@ const updateActiveEntry = (
 
 export const switchDetailTab = (snapshot: Snapshot, direction: 1 | -1): Snapshot =>
   updateActiveEntry(snapshot, (entry) => {
-    const index = entry.tabs.indexOf(entry.tab);
-    const next = entry.tabs[(index + direction + entry.tabs.length) % entry.tabs.length];
+    const tabs: readonly DetailTab[] = entry.tabs;
+    const index = tabs.indexOf(entry.tab);
+    const nextIndex = (index + direction + entry.tabs.length) % entry.tabs.length;
 
-    return next === undefined ? entry : { ...entry, tab: next };
+    if (entry.kind === 'issue') {
+      return { ...entry, tab: entry.tabs[nextIndex] ?? entry.tab };
+    }
+
+    if (entry.kind === 'pullRequest') {
+      return { ...entry, tab: entry.tabs[nextIndex] ?? entry.tab };
+    }
+
+    return entry;
   });
 
 export const setDetailAnchor = (
@@ -316,6 +457,8 @@ export const setDetailAnchor = (
   tab: DetailTab,
   anchor: DetailAnchor,
 ): Snapshot =>
-  updateActiveEntry(snapshot, (entry) =>
-    entry.tabs.includes(tab) ? { ...entry, anchors: { ...entry.anchors, [tab]: anchor } } : entry,
-  );
+  updateActiveEntry(snapshot, (entry) => {
+    const tabs: readonly DetailTab[] = entry.tabs;
+
+    return tabs.includes(tab) ? { ...entry, anchors: { ...entry.anchors, [tab]: anchor } } : entry;
+  });

@@ -1,6 +1,7 @@
 import type {
   GitHubResult,
   IssueDetailRequest,
+  PullRequestDetailRequest,
   NotificationFeed,
   NotificationFeedRead,
   NotificationFeedRequest,
@@ -13,6 +14,7 @@ import type {
   BrowserPage,
   Grouping,
   IssueDetailRead,
+  PullRequestDetailRead,
   NotificationThread,
   ThreadId,
 } from '../work/work.ts';
@@ -81,8 +83,12 @@ export type {
   DetailPosition,
   DetailTab,
   IssueEntry,
+  PullRequestEntry,
+  PullRequestTab,
 } from './detailTransitions.ts';
 
+export { activePullRequestEntry, pullRequestPagesOf } from './detailPages.ts';
+export { checkRecordId } from './detailPullRequestRecords.ts';
 export { filterCursorOf } from './filterComposer.ts';
 export { filterRowsOf } from './filterRows.ts';
 export type { FilterRow } from './filterRows.ts';
@@ -146,6 +152,7 @@ export type ApplicationIntent =
   | { kind: 'undoThreadDone'; threadId: ThreadId }
   | { kind: 'openInBrowser'; pages: readonly BrowserPage[] }
   | { kind: 'setListRows'; rows: number }
+  | { kind: 'hideDetail' }
   | { kind: 'showDetail'; thread: NotificationThread }
   | { kind: 'refreshDetail'; thread: NotificationThread }
   | { kind: 'switchDetailTab'; direction: 1 | -1 }
@@ -197,6 +204,10 @@ export interface SessionEffects {
     request: IssueDetailRequest,
     signal: AbortSignal,
   ) => Promise<GitHubResult<IssueDetailRead>>;
+  readPullRequestDetail: (
+    request: PullRequestDetailRequest,
+    signal: AbortSignal,
+  ) => Promise<GitHubResult<PullRequestDetailRead>>;
   now: () => Date;
   setTimer: (delayMilliseconds: number, callback: () => void) => () => void;
 }
@@ -223,7 +234,10 @@ type EditIntent = Extract<
   }
 >;
 
-type DetailIntent = Extract<ApplicationIntent, { kind: 'showDetail' | 'refreshDetail' }>;
+type DetailIntent = Extract<
+  ApplicationIntent,
+  { kind: 'showDetail' | 'refreshDetail' | 'switchDetailTab' | 'hideDetail' }
+>;
 
 type StateIntent = Exclude<
   ApplicationIntent,
@@ -258,8 +272,15 @@ const editKinds = new Set<string>([
 const isEditIntent = (intent: ApplicationIntent): intent is EditIntent =>
   editKinds.has(intent.kind);
 
+const detailKinds = new Set<string>([
+  'showDetail',
+  'refreshDetail',
+  'switchDetailTab',
+  'hideDetail',
+]);
+
 const isDetailIntent = (intent: ApplicationIntent): intent is DetailIntent =>
-  intent.kind === 'showDetail' || intent.kind === 'refreshDetail';
+  detailKinds.has(intent.kind);
 
 const unsavedLabels: Record<UnsavedChange, string> = {
   grouping: 'Grouping',
@@ -301,7 +322,6 @@ const transitions: Transitions = {
   closeFilters,
   leaveFilters,
   clearFilters,
-  switchDetailTab: (snapshot, intent) => switchDetailTab(snapshot, intent.direction),
   setDetailAnchor: (snapshot, intent) => setDetailAnchor(snapshot, intent.tab, intent.anchor),
 };
 
@@ -390,6 +410,7 @@ export const createSession = (effects: SessionEffects): Session => {
   const detail = createDetail({
     host: effects.host,
     readIssueDetail: effects.readIssueDetail,
+    readPullRequestDetail: effects.readPullRequestDetail,
     lastViewer: accountSwitch.lastViewer,
     now: effects.now,
     getSnapshot: () => snapshot,
@@ -635,7 +656,12 @@ export const createSession = (effects: SessionEffects): Session => {
   };
 
   const sendDetail = (intent: DetailIntent) => {
-    if (intent.kind === 'refreshDetail') {
+    if (intent.kind === 'hideDetail') {
+      detail.hide();
+    } else if (intent.kind === 'switchDetailTab') {
+      update(switchDetailTab(snapshot, intent.direction));
+      detail.visitTab();
+    } else if (intent.kind === 'refreshDetail') {
       refresh.request();
       detail.revalidate(intent.thread);
     } else {

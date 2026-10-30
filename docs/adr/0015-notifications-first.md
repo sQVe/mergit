@@ -52,9 +52,9 @@ item, with GitHub's notification reason. Pull request searches and reason rules 
 
 ### Subject detail
 
-- The reader loads issue detail through GraphQL only for the subject it shows, so reads follow what
-  the user is looking at. A thread that is not an issue shows unsupported coverage and sends no
-  request. Other subject types stay unsupported until their own slices add them.
+- The reader loads issue and pull request detail through GraphQL only for the subject it shows, so
+  reads follow what the user is looking at. Pull request reads load only the visited tab: Overview,
+  Commits, Checks, or Files. Other subject types show unsupported coverage and send no request.
 - Refresh in the reader refreshes the feed and revalidates the shown subject, even when its
   notification is unchanged, because an edited comment does not change the thread's `updated_at`. A
   shown subject is revalidated again once its content goes stale. Cached subjects get no background
