@@ -12,7 +12,6 @@ export interface ActionEffects {
 
 export type OpenResult = { ok: true } | { ok: false; message: string };
 
-// gh browse cannot open the files or checks pages, so those use the gh pr and gh run web views.
 const handoffArguments = (page: BrowserPage): string[] => {
   if (page.kind === 'item') {
     return ['browse', String(page.number)];
